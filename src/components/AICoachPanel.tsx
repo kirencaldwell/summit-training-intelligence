@@ -1,9 +1,22 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Sparkles, Terminal, Activity, ShieldAlert, ChevronDown, ChevronUp } from 'lucide-react';
-import type { AICoachMessage } from '../types';
+import { Send, Bot, User, Sparkles, Terminal, Activity, ShieldAlert, ChevronDown, ChevronUp, CalendarDays, Check, X } from 'lucide-react';
+import type { AICoachMessage, TrainingSession, TrainingSessionStatus } from '../types';
 import { coachEngine } from '../lib/ai/coachEngine';
+import { getNextTrainingWeekStartDate } from '../lib/trainingSessions';
 
-export const AICoachPanel: React.FC = () => {
+interface AICoachPanelProps {
+  trainingSessions: TrainingSession[];
+  isGeneratingWeeklyPlan: boolean;
+  onGenerateWeeklyPlan: () => Promise<void>;
+  onUpdateTrainingSession: (id: string, status: TrainingSessionStatus) => Promise<void>;
+}
+
+export const AICoachPanel: React.FC<AICoachPanelProps> = ({
+  trainingSessions,
+  isGeneratingWeeklyPlan,
+  onGenerateWeeklyPlan,
+  onUpdateTrainingSession,
+}) => {
   const [messages, setMessages] = useState<AICoachMessage[]>([
     {
       id: 'init-msg',
@@ -23,6 +36,8 @@ How can I optimize your training load today?`,
 
   const [inputQuery, setInputQuery] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [planError, setPlanError] = useState('');
+  const [updatingSessionId, setUpdatingSessionId] = useState<string | null>(null);
   const [expandedToolLogs, setExpandedToolLogs] = useState<Record<string, boolean>>({});
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
@@ -69,6 +84,32 @@ How can I optimize your training load today?`,
     setExpandedToolLogs((prev) => ({ ...prev, [msgId]: !prev[msgId] }));
   };
 
+  const handleGenerateWeeklyPlan = async () => {
+    setPlanError('');
+    try {
+      await onGenerateWeeklyPlan();
+    } catch (err) {
+      setPlanError(err instanceof Error ? err.message : 'The weekly plan could not be saved.');
+    }
+  };
+
+  const handleSessionStatus = async (session: TrainingSession, status: TrainingSessionStatus) => {
+    setUpdatingSessionId(session.id);
+    setPlanError('');
+    try {
+      await onUpdateTrainingSession(session.id, status);
+    } catch (err) {
+      setPlanError(err instanceof Error ? err.message : 'The session could not be updated.');
+    } finally {
+      setUpdatingSessionId(null);
+    }
+  };
+
+  const nextWeekStartDate = getNextTrainingWeekStartDate();
+  const proposedSessions = trainingSessions.filter(
+    (session) => session.status === 'PROPOSED' && session.week_start_date === nextWeekStartDate
+  );
+
   const quickPrompts = [
     'Mount Baker Hill Climb readiness check',
     'Knee health & wind-down routine for tonight',
@@ -110,6 +151,72 @@ How can I optimize your training load today?`,
           </div>
         </div>
       </div>
+
+      {/* Individually accepted weekly proposals */}
+      <section className="border-b border-white/10 bg-slate-950/35 px-5 py-4 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <CalendarDays className="w-4 h-4 text-cyan-400" /> Next Week's Sessions
+            </h3>
+            <p className="text-[11px] text-slate-400 mt-1">Review and accept each workout separately.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void handleGenerateWeeklyPlan()}
+            disabled={isGeneratingWeeklyPlan}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-cyan-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-cyan-400 disabled:opacity-50"
+          >
+            <Sparkles className={`w-3.5 h-3.5 ${isGeneratingWeeklyPlan ? 'animate-pulse' : ''}`} />
+            {isGeneratingWeeklyPlan ? 'Building plan...' : 'Generate weekly plan'}
+          </button>
+        </div>
+
+        {planError && <p role="alert" className="text-xs text-rose-300">{planError}</p>}
+
+        {proposedSessions.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
+            {proposedSessions.map((session) => (
+              <article key={session.id} className="rounded-lg border border-white/10 bg-slate-900/70 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold uppercase text-cyan-300">
+                      {new Date(`${session.session_date}T12:00:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
+                      {' · '}{session.sport_type.replace('_', ' ')}
+                    </p>
+                    <h4 className="mt-1 text-sm font-bold text-white">{session.title}</h4>
+                    <p className="mt-1 text-xs text-slate-400">{session.duration_minutes} min · {session.focus}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-slate-300">{session.details}</p>
+                  </div>
+                  <span className="shrink-0 text-[10px] text-amber-300">{session.target_tss ?? '—'} TSS</span>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleSessionStatus(session, 'ACCEPTED')}
+                    disabled={updatingSessionId === session.id}
+                    className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 px-2.5 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-50"
+                  >
+                    <Check className="w-3.5 h-3.5" /> Accept
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleSessionStatus(session, 'DECLINED')}
+                    disabled={updatingSessionId === session.id}
+                    aria-label={`Skip ${session.title}`}
+                    title="Skip session"
+                    className="inline-flex items-center justify-center rounded-md border border-white/10 px-2 py-1.5 text-slate-400 hover:text-white disabled:opacity-50"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-slate-500">No proposed sessions. Generate a plan to review workouts for next week.</p>
+        )}
+      </section>
 
       {/* Message Feed */}
       <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-gradient-to-b from-slate-950/40 via-summit-dark/60 to-slate-950/40">

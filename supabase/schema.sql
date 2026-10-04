@@ -110,12 +110,32 @@ CREATE TABLE IF NOT EXISTS public.activities (
 ALTER TABLE public.activities
   ADD COLUMN IF NOT EXISTS power_curve_best_efforts JSONB;
 
+CREATE TABLE IF NOT EXISTS public.training_sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  week_start_date DATE NOT NULL,
+  session_date DATE NOT NULL,
+  title TEXT NOT NULL,
+  sport_type TEXT NOT NULL CHECK (
+    sport_type IN ('cycling', 'zwift', 'skimo', 'backcountry_skiing', 'scrambling', 'weighted_hiking')
+  ),
+  duration_minutes INTEGER NOT NULL CHECK (duration_minutes > 0),
+  focus TEXT NOT NULL,
+  details TEXT NOT NULL,
+  target_tss INTEGER CHECK (target_tss >= 0),
+  status TEXT NOT NULL DEFAULT 'PROPOSED' CHECK (
+    status IN ('PROPOSED', 'ACCEPTED', 'COMPLETED', 'DECLINED')
+  ),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ---------------------------------------------------------
 -- INDEXES FOR PERFORMANCE
 -- ---------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_activities_user_date ON public.activities (user_id, start_date DESC);
 CREATE INDEX IF NOT EXISTS idx_activities_sport ON public.activities (sport_type);
 CREATE INDEX IF NOT EXISTS idx_goals_date ON public.goals (target_date);
+CREATE INDEX IF NOT EXISTS idx_training_sessions_user_date ON public.training_sessions (user_id, session_date);
 
 -- ---------------------------------------------------------
 -- ROW LEVEL SECURITY (RLS) POLICIES
@@ -123,6 +143,7 @@ CREATE INDEX IF NOT EXISTS idx_goals_date ON public.goals (target_date);
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.goals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activities ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.training_sessions ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Users can view own profile" ON public.profiles;
 DROP POLICY IF EXISTS "Users can view own goals" ON public.goals;
@@ -137,6 +158,10 @@ DROP POLICY IF EXISTS "Users can update own activities" ON public.activities;
 DROP POLICY IF EXISTS "Users can delete own activities" ON public.activities;
 DROP POLICY IF EXISTS "Users can insert own profile" ON public.profiles;
 DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Users can view own training sessions" ON public.training_sessions;
+DROP POLICY IF EXISTS "Users can insert own training sessions" ON public.training_sessions;
+DROP POLICY IF EXISTS "Users can update own training sessions" ON public.training_sessions;
+DROP POLICY IF EXISTS "Users can delete own training sessions" ON public.training_sessions;
 
 CREATE OR REPLACE FUNCTION public.current_profile_id()
 RETURNS UUID
@@ -176,6 +201,16 @@ CREATE POLICY "Users can update own activities" ON public.activities
   FOR UPDATE TO authenticated USING (user_id = (SELECT public.current_profile_id()))
   WITH CHECK (user_id = (SELECT public.current_profile_id()));
 CREATE POLICY "Users can delete own activities" ON public.activities
+  FOR DELETE TO authenticated USING (user_id = (SELECT public.current_profile_id()));
+
+CREATE POLICY "Users can view own training sessions" ON public.training_sessions
+  FOR SELECT TO authenticated USING (user_id = (SELECT public.current_profile_id()));
+CREATE POLICY "Users can insert own training sessions" ON public.training_sessions
+  FOR INSERT TO authenticated WITH CHECK (user_id = (SELECT public.current_profile_id()));
+CREATE POLICY "Users can update own training sessions" ON public.training_sessions
+  FOR UPDATE TO authenticated USING (user_id = (SELECT public.current_profile_id()))
+  WITH CHECK (user_id = (SELECT public.current_profile_id()));
+CREATE POLICY "Users can delete own training sessions" ON public.training_sessions
   FOR DELETE TO authenticated USING (user_id = (SELECT public.current_profile_id()));
 
 CREATE OR REPLACE FUNCTION public.handle_new_auth_user()

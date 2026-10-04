@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import type { User } from '@supabase/supabase-js';
-import type { Activity, AthleteProfile, Goal, PMCDayPoint, PowerCurvePoint } from './types';
+import type { Activity, AthleteProfile, Goal, PMCDayPoint, PowerCurvePoint, TrainingSession, TrainingSessionStatus } from './types';
 import { dataService, isSupabaseConfigured, supabase } from './lib/supabase';
 import { triggerMockStravaSync, parseStravaAuthCode } from './lib/strava';
 import { calculatePMC, calculatePowerCurve, hasPowerCurveData } from './lib/trainingMath';
+import { addDaysToDateOnly, getNextTrainingWeekStartDate } from './lib/trainingSessions';
 import {
   parseCorosAuthCode,
   exchangeCorosCode,
@@ -24,6 +25,7 @@ import { OnboardingWizard } from './components/OnboardingWizard';
 import { DataSyncModal } from './components/StravaConnectModal';
 import { GoalsManager } from './components/GoalsManager';
 import { GoogleSignInScreen } from './components/GoogleSignInScreen';
+import { coachEngine } from './lib/ai/coachEngine';
 
 import { Mountain, Zap } from 'lucide-react';
 
@@ -37,6 +39,8 @@ export function App() {
   const [profile, setProfile] = useState<AthleteProfile | null>(null);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
+  const [trainingSessions, setTrainingSessions] = useState<TrainingSession[]>([]);
+  const [isGeneratingWeeklyPlan, setIsGeneratingWeeklyPlan] = useState(false);
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(!isSupabaseConfigured);
   const [appError, setAppError] = useState('');
@@ -52,9 +56,11 @@ export function App() {
     const p = await dataService.getProfile();
     const a = await dataService.getActivities();
     const g = await dataService.getGoals();
+    const sessions = await dataService.getTrainingSessions();
     setProfile(p);
     setActivities(a);
     setGoals(g);
+    setTrainingSessions(sessions);
   };
 
   const handleAddGoal = async (newGoal: Goal) => {
@@ -91,6 +97,37 @@ export function App() {
       setActivities((prev) => [...importedActivities, ...prev]);
       setSelectedActivity(importedActivities[0]);
     }
+  };
+
+  const handleDeleteActivity = async (activity: Activity) => {
+    await dataService.deleteActivity(activity.id);
+    setActivities((prev) => prev.filter((item) => item.id !== activity.id));
+    setSelectedActivity((prev) => prev?.id === activity.id ? null : prev);
+  };
+
+  const handleGenerateWeeklyPlan = async () => {
+    setIsGeneratingWeeklyPlan(true);
+    try {
+      const weekStartDate = getNextTrainingWeekStartDate();
+      const occupiedDates = trainingSessions
+        .filter((session) => session.week_start_date === weekStartDate && session.status !== 'PROPOSED')
+        .map((session) => session.session_date);
+      const drafts = await coachEngine.generateWeeklyPlan(occupiedDates);
+      const generatedWeekStartDate = drafts[0]?.week_start_date;
+      if (!generatedWeekStartDate) throw new Error('There are no remaining workout days to propose for next week.');
+      const proposed = await dataService.replaceProposedTrainingSessions(generatedWeekStartDate, drafts);
+      setTrainingSessions((previous) => [
+        ...previous.filter((session) => session.week_start_date !== generatedWeekStartDate || session.status !== 'PROPOSED'),
+        ...proposed,
+      ]);
+    } finally {
+      setIsGeneratingWeeklyPlan(false);
+    }
+  };
+
+  const handleUpdateTrainingSession = async (id: string, status: TrainingSessionStatus) => {
+    const updated = await dataService.updateTrainingSessionStatus(id, status);
+    setTrainingSessions((previous) => previous.map((session) => session.id === id ? updated : session));
   };
 
   const handleSyncStrava = async () => {
@@ -246,6 +283,13 @@ export function App() {
     : activities.filter((activity) => new Date(activity.start_date).getFullYear() === powerCurveYear);
   const powerCurveData: PowerCurvePoint[] = calculatePowerCurve(powerCurveActivities, profile.weight_kg);
   const powerCurveActivityCount = powerCurveActivities.filter(hasPowerCurveData).length;
+  const upcomingWeekStartDate = getNextTrainingWeekStartDate();
+  const upcomingWeekEndDate = addDaysToDateOnly(upcomingWeekStartDate, 6);
+  const upcomingSessions = trainingSessions.filter((session) =>
+    (session.status === 'ACCEPTED' || session.status === 'COMPLETED')
+    && session.session_date >= upcomingWeekStartDate
+    && session.session_date <= upcomingWeekEndDate
+  );
 
   return (
     <div className="min-h-screen bg-summit-dark text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-slate-950">
@@ -274,6 +318,7 @@ export function App() {
             activities={activities}
             pmcData={pmcData}
             powerCurve={powerCurveData}
+            trainingSessions={upcomingSessions}
             onOpenActivity={setSelectedActivity}
             onNavigateTab={setActiveTab}
           />
@@ -303,6 +348,7 @@ export function App() {
             <ActivityList
               activities={activities}
               onSelectActivity={setSelectedActivity}
+              onDeleteActivity={handleDeleteActivity}
             />
           </div>
         )}
@@ -356,7 +402,12 @@ export function App() {
         )}
 
         {activeTab === 'coach' && (
-          <AICoachPanel />
+          <AICoachPanel
+            trainingSessions={trainingSessions}
+            isGeneratingWeeklyPlan={isGeneratingWeeklyPlan}
+            onGenerateWeeklyPlan={handleGenerateWeeklyPlan}
+            onUpdateTrainingSession={handleUpdateTrainingSession}
+          />
         )}
       </main>
 

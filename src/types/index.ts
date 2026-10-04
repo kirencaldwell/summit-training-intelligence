@@ -102,6 +102,21 @@ export interface Goal {
   debrief_notes?: string;
 }
 
+export type TrainingSessionStatus = 'PROPOSED' | 'ACCEPTED' | 'COMPLETED' | 'DECLINED';
+
+export interface TrainingSession {
+  id: string;
+  week_start_date: string;
+  session_date: string;
+  title: string;
+  sport_type: SportType;
+  duration_minutes: number;
+  focus: string;
+  details: string;
+  target_tss?: number;
+  status: TrainingSessionStatus;
+}
+
 export interface PMCDayPoint {
   date: string; // YYYY-MM-DD
   ctl: number; // Chronic Training Load (42d exponential avg - Fitness)

@@ -1,6 +1,6 @@
 import React from 'react';
-import type { Activity, Goal, AthleteProfile, PMCDayPoint, PowerCurvePoint } from '../types';
-import { Mountain, Zap, ShieldAlert, Calendar, ArrowUpRight, TrendingUp, Sparkles, ChevronRight, Activity as ActivityIcon } from 'lucide-react';
+import type { Activity, Goal, AthleteProfile, PMCDayPoint, PowerCurvePoint, TrainingSession } from '../types';
+import { Mountain, Zap, ShieldAlert, Calendar, ArrowUpRight, TrendingUp, Sparkles, ChevronRight, Activity as ActivityIcon, CalendarDays, Clock3 } from 'lucide-react';
 import { PerformanceManagementChart } from './PerformanceManagementChart';
 
 interface DashboardOverviewProps {
@@ -9,6 +9,7 @@ interface DashboardOverviewProps {
   activities: Activity[];
   pmcData: PMCDayPoint[];
   powerCurve: PowerCurvePoint[];
+  trainingSessions: TrainingSession[];
   onOpenActivity: (activity: Activity) => void;
   onNavigateTab: (tab: 'dashboard' | 'goals' | 'activities' | 'power' | 'coach') => void;
 }
@@ -18,6 +19,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   goals,
   activities,
   pmcData,
+  trainingSessions,
   onOpenActivity,
   onNavigateTab,
 }) => {
@@ -162,6 +164,55 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           <p className="text-[11px] text-slate-400">Total Elevation Gain across {activities.length} sessions</p>
         </div>
       </div>
+
+      <section className="border-b border-white/10 pb-6 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+              <CalendarDays className="w-4 h-4 text-cyan-400" /> Upcoming Training Sessions
+            </h2>
+            <p className="text-xs text-slate-400 mt-1">Accepted sessions for next week</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigateTab('coach')}
+            className="text-xs font-semibold text-cyan-400 hover:text-cyan-300"
+          >
+            Review weekly plan
+          </button>
+        </div>
+
+        {trainingSessions.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {trainingSessions.map((session) => (
+              <article key={session.id} className="rounded-lg border border-white/10 bg-slate-900/50 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase text-cyan-300">
+                      {new Date(`${session.session_date}T12:00:00`).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })}
+                      {' · '}{session.sport_type.replace('_', ' ')}
+                    </p>
+                    <h3 className="mt-1 text-sm font-bold text-white">{session.title}</h3>
+                    <p className="mt-1 text-xs text-slate-400">{session.focus}</p>
+                  </div>
+                  <span className={`shrink-0 text-[10px] font-semibold ${session.status === 'COMPLETED' ? 'text-emerald-300' : 'text-cyan-300'}`}>
+                    {session.status === 'COMPLETED' ? 'Completed' : 'Accepted'}
+                  </span>
+                </div>
+                <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-300">
+                  <Clock3 className="w-3.5 h-3.5 text-slate-500" /> {session.duration_minutes} min
+                  {session.target_tss != null && <span className="ml-2 text-amber-300">{session.target_tss} TSS</span>}
+                </p>
+                <p className="mt-2 text-xs leading-relaxed text-slate-400">{session.details}</p>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed border-white/10 px-4 py-5 text-sm text-slate-400">
+            No accepted sessions yet. Generate a weekly plan in the AI Coach and accept sessions individually.
+          </div>
+        )}
+      </section>
 
       {/* Injury Guardian & Decompression Notice Banner */}
       <div className="glass-panel p-5 rounded-2xl border-amber-500/30 bg-amber-500/5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">

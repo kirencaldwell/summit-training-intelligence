@@ -1,5 +1,5 @@
 import { createClient, type User } from '@supabase/supabase-js';
-import type { Activity, AthleteProfile, Goal } from '../types';
+import type { Activity, AthleteProfile, Goal, TrainingSession, TrainingSessionStatus } from '../types';
 import { MOCK_ACTIVITIES, MOCK_GOALS, MOCK_PROFILE } from './mockData';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
@@ -15,6 +15,7 @@ const STORAGE_KEYS = {
   PROFILE: 'summit_athlete_profile',
   ACTIVITIES: 'summit_activities_list',
   GOALS: 'summit_goals_list',
+  TRAINING_SESSIONS: 'summit_training_sessions',
   MODE: 'summit_data_mode',
 };
 
@@ -23,6 +24,7 @@ class DataService {
   private localActivities: Activity[];
   private localProfile: AthleteProfile;
   private localGoals: Goal[];
+  private localTrainingSessions: TrainingSession[];
   private mode: 'demo' | 'supabase';
   private authUser: User | null = null;
   private authenticatedProfile: AthleteProfile | null = null;
@@ -40,12 +42,16 @@ class DataService {
 
     const savedGoals = localStorage.getItem(STORAGE_KEYS.GOALS);
     this.localGoals = savedGoals ? JSON.parse(savedGoals) : [...MOCK_GOALS];
+
+    const savedTrainingSessions = localStorage.getItem(STORAGE_KEYS.TRAINING_SESSIONS);
+    this.localTrainingSessions = savedTrainingSessions ? JSON.parse(savedTrainingSessions) : [];
   }
 
   private saveLocalState() {
     localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(this.localProfile));
     localStorage.setItem(STORAGE_KEYS.ACTIVITIES, JSON.stringify(this.localActivities));
     localStorage.setItem(STORAGE_KEYS.GOALS, JSON.stringify(this.localGoals));
+    localStorage.setItem(STORAGE_KEYS.TRAINING_SESSIONS, JSON.stringify(this.localTrainingSessions));
   }
 
   public getMode(): 'demo' | 'supabase' {
@@ -165,6 +171,25 @@ class DataService {
     return newActivity;
   }
 
+  public async deleteActivity(id: string): Promise<void> {
+    if (this.mode === 'supabase' && supabase) {
+      const profile = await this.getAuthenticatedProfile();
+      const { data, error } = await supabase
+        .from('activities')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', profile.id)
+        .select('id')
+        .maybeSingle();
+      if (error) throw new Error(`Activity deletion failed: ${error.message}`);
+      if (!data) throw new Error('Activity not found or not owned by this account.');
+      return;
+    }
+
+    this.localActivities = this.localActivities.filter((activity) => activity.id !== id);
+    this.saveLocalState();
+  }
+
   public async getGoals(): Promise<Goal[]> {
     if (this.mode === 'supabase' && supabase) {
       const profile = await this.getAuthenticatedProfile();
@@ -241,6 +266,83 @@ class DataService {
     this.localGoals = this.localGoals.filter(g => g.id !== id);
     this.saveLocalState();
     return true;
+  }
+
+  public async getTrainingSessions(): Promise<TrainingSession[]> {
+    if (this.mode === 'supabase' && supabase) {
+      const profile = await this.getAuthenticatedProfile();
+      const { data, error } = await supabase
+        .from('training_sessions')
+        .select('*')
+        .eq('user_id', profile.id)
+        .order('session_date', { ascending: true });
+      if (error) throw new Error(`Training sessions could not be loaded: ${error.message}`);
+      return (data || []) as TrainingSession[];
+    }
+    return this.localTrainingSessions;
+  }
+
+  public async replaceProposedTrainingSessions(
+    weekStartDate: string,
+    sessions: Omit<TrainingSession, 'id' | 'status'>[]
+  ): Promise<TrainingSession[]> {
+    if (this.mode === 'supabase' && supabase) {
+      const profile = await this.getAuthenticatedProfile();
+      const { error: deleteError } = await supabase
+        .from('training_sessions')
+        .delete()
+        .eq('user_id', profile.id)
+        .eq('week_start_date', weekStartDate)
+        .eq('status', 'PROPOSED');
+      if (deleteError) throw new Error(`Old proposals could not be replaced: ${deleteError.message}`);
+
+      if (sessions.length === 0) return [];
+      const rows = sessions.map((session) => ({
+        ...session,
+        user_id: profile.id,
+        status: 'PROPOSED' as const,
+      }));
+      const { data, error } = await supabase.from('training_sessions').insert(rows).select('*');
+      if (error) throw new Error(`Weekly plan could not be saved: ${error.message}`);
+      return (data || []) as TrainingSession[];
+    }
+
+    this.localTrainingSessions = this.localTrainingSessions.filter(
+      (session) => session.week_start_date !== weekStartDate || session.status !== 'PROPOSED'
+    );
+    const proposed = sessions.map((session) => ({
+      ...session,
+      id: crypto.randomUUID(),
+      status: 'PROPOSED' as const,
+    }));
+    this.localTrainingSessions.push(...proposed);
+    this.saveLocalState();
+    return proposed;
+  }
+
+  public async updateTrainingSessionStatus(
+    id: string,
+    status: TrainingSessionStatus
+  ): Promise<TrainingSession> {
+    if (this.mode === 'supabase' && supabase) {
+      const profile = await this.getAuthenticatedProfile();
+      const { data, error } = await supabase
+        .from('training_sessions')
+        .update({ status })
+        .eq('id', id)
+        .eq('user_id', profile.id)
+        .select('*')
+        .single();
+      if (error || !data) throw new Error(`Training session update failed: ${error?.message || 'Session not found'}`);
+      return data as TrainingSession;
+    }
+
+    const index = this.localTrainingSessions.findIndex((session) => session.id === id);
+    if (index < 0) throw new Error('Training session not found.');
+    const updated = { ...this.localTrainingSessions[index], status };
+    this.localTrainingSessions[index] = updated;
+    this.saveLocalState();
+    return updated;
   }
 }
 

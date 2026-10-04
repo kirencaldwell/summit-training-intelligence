@@ -1,15 +1,33 @@
 import React, { useState } from 'react';
 import type { Activity, SportType } from '../types';
-import { Mountain, Bike, Compass, Footprints, ShieldAlert, Zap, Calendar, Search } from 'lucide-react';
+import { Mountain, Bike, Compass, Footprints, ShieldAlert, Zap, Calendar, Search, Trash2 } from 'lucide-react';
 
 interface ActivityListProps {
   activities: Activity[];
   onSelectActivity: (activity: Activity) => void;
+  onDeleteActivity: (activity: Activity) => Promise<void>;
 }
 
-export const ActivityList: React.FC<ActivityListProps> = ({ activities, onSelectActivity }) => {
+export const ActivityList: React.FC<ActivityListProps> = ({ activities, onSelectActivity, onDeleteActivity }) => {
   const [selectedSport, setSelectedSport] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [deletingActivityId, setDeletingActivityId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState('');
+
+  const handleDelete = async (event: React.MouseEvent<HTMLButtonElement>, activity: Activity) => {
+    event.stopPropagation();
+    if (!window.confirm(`Delete "${activity.title}"? This cannot be undone.`)) return;
+
+    setDeletingActivityId(activity.id);
+    setDeleteError('');
+    try {
+      await onDeleteActivity(activity);
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Activity could not be deleted.');
+    } finally {
+      setDeletingActivityId(null);
+    }
+  };
 
   const sportsOptions = [
     { key: 'all', label: 'All Disciplines', icon: Compass },
@@ -76,6 +94,8 @@ export const ActivityList: React.FC<ActivityListProps> = ({ activities, onSelect
         </div>
       </div>
 
+      {deleteError && <p role="alert" className="text-sm text-rose-300">{deleteError}</p>}
+
       {/* Activity Card Feed */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredActivities.map((act) => {
@@ -93,10 +113,22 @@ export const ActivityList: React.FC<ActivityListProps> = ({ activities, onSelect
                   <span className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border ${getSportBadgeColor(act.sport_type)}`}>
                     {act.sport_type.replace('_', ' ')}
                   </span>
-                  <span className="text-[11px] text-slate-400 flex items-center">
-                    <Calendar className="w-3 h-3 mr-1" />
-                    {new Date(act.start_date).toLocaleDateString([], { month: 'short', day: 'numeric' })}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-slate-400 flex items-center">
+                      <Calendar className="w-3 h-3 mr-1" />
+                      {new Date(act.start_date).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(event) => void handleDelete(event, act)}
+                      disabled={deletingActivityId === act.id}
+                      aria-label={`Delete ${act.title}`}
+                      title="Delete activity"
+                      className="p-1.5 rounded-md text-slate-500 hover:text-rose-300 hover:bg-rose-500/10 disabled:opacity-50"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
 
                 <h3 className="text-base font-bold text-white group-hover:text-cyan-400 transition-colors line-clamp-1">

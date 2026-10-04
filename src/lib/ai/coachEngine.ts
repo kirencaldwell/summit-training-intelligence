@@ -1,12 +1,66 @@
-import type { Activity, AICoachMessage, AICoachToolCall, AthleteProfile, Goal } from '../../types';
+import type { Activity, AICoachMessage, AICoachToolCall, AthleteProfile, Goal, SportType, TrainingSession } from '../../types';
 import { dataService } from '../supabase';
 import { calculatePMC, calculatePowerCurve } from '../trainingMath';
+import { addDaysToDateOnly, getNextTrainingWeekStartDate } from '../trainingSessions';
 
 /**
  * Intelligent AI Coach Engine for Endurance Athletes
  * Features executable tools, multi-sport context, injury tracking, and milestone readiness logic.
  */
 export class AICoachEngine {
+
+  public async generateWeeklyPlan(occupiedDates: string[] = []): Promise<Omit<TrainingSession, 'id' | 'status'>[]> {
+    const [profile, activities, goals] = await Promise.all([
+      dataService.getProfile(),
+      dataService.getActivities(),
+      dataService.getGoals(),
+    ]);
+    const weekStartDate = getNextTrainingWeekStartDate();
+    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const recentTss = activities
+      .filter((activity) => new Date(activity.start_date).getTime() >= weekAgo)
+      .reduce((sum, activity) => sum + (activity.training_stress_score || 0), 0);
+    const latestPmc = calculatePMC(activities, 42).at(-1);
+    const recoveryFirst = (latestPmc?.tsb ?? 0) < -20 || recentTss > 450;
+    const activeGoal = goals.find((goal) => goal.status === 'ACTIVE');
+    const sportType: SportType = activeGoal && activeGoal.sport_type !== 'general'
+      ? activeGoal.sport_type
+      : 'cycling';
+    const goalContext = activeGoal ? ` Supports your ${activeGoal.name} goal.` : '';
+    const injuryContext = profile.injury_notes.length > 0
+      ? ' Keep efforts pain-free and follow your current injury notes; swap intensity for easy movement if symptoms appear.'
+      : '';
+    const cyclingIntensity = Math.round(profile.ftp * 0.92);
+
+    const plan = recoveryFirst
+      ? [
+          { day: 1, title: 'Easy Aerobic Reset', duration: 40, focus: 'Recovery and circulation', details: 'Stay in Zone 1 to low Zone 2 with relaxed cadence. Finish feeling fresher than you started.', tss: 25 },
+          { day: 3, title: 'Steady Endurance', duration: 55, focus: 'Comfortable aerobic base', details: 'Keep the full session conversational in Zone 2; avoid adding intervals this week.', tss: 40 },
+          { day: 6, title: 'Long Easy Endurance', duration: 75, focus: 'Aerobic durability', details: 'Choose a familiar route and keep intensity controlled. Shorten the session if fatigue remains elevated.', tss: 55 },
+        ]
+      : [
+          { day: 1, title: 'Endurance Base', duration: 60, focus: 'Aerobic endurance', details: 'Ride or train steadily in Zone 2 with a relaxed cadence and even pacing.', tss: 50 },
+          { day: 3, title: sportType === 'cycling' || sportType === 'zwift' ? 'Threshold Builder' : 'Uphill Tempo', duration: 65, focus: 'Controlled sustained effort', details: sportType === 'cycling' || sportType === 'zwift'
+            ? `Warm up, complete 3 x 8 minutes at approximately 92% FTP (${cyclingIntensity} W), with 4 minutes easy between, then cool down.`
+            : 'Warm up, complete 3 x 8 minutes at a controlled tempo on a steady climb, with easy recovery between efforts, then cool down.', tss: 70 },
+          { day: 5, title: 'Recovery Spin', duration: 40, focus: 'Low-load recovery', details: 'Keep this light in Zone 1. If your legs feel tired, replace it with a rest day.', tss: 20 },
+          { day: 6, title: 'Long Endurance Session', duration: 100, focus: activeGoal ? `Build toward ${activeGoal.name}` : 'Aerobic durability', details: 'Keep most of the session in Zone 2. Practice fueling and finish with a comfortable reserve.', tss: 85 },
+        ];
+
+    const occupied = new Set(occupiedDates);
+    return plan
+      .filter((session) => !occupied.has(addDaysToDateOnly(weekStartDate, session.day)))
+      .map((session) => ({
+      week_start_date: weekStartDate,
+      session_date: addDaysToDateOnly(weekStartDate, session.day),
+      title: session.title,
+      sport_type: sportType,
+      duration_minutes: session.duration,
+      focus: session.focus,
+      details: `${session.details}${goalContext}${injuryContext}`,
+      target_tss: session.tss,
+      }));
+  }
 
   /**
    * Tool 1: Get Athlete Status & Readiness (PMC + Injury + Recovery Context)
