@@ -3,7 +3,7 @@
  * Unified Data Sources hub — FIT file import, COROS OAuth, and legacy Strava.
  * Replaces the old StravaConnectModal.
  */
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   X, Upload, CheckCircle2, AlertCircle, Loader2, Watch, RefreshCw,
   Key, ExternalLink, Mountain, Zap, ChevronRight, FileCode2,
@@ -443,6 +443,15 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('fit');
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode; badge?: string }[] = [
@@ -466,23 +475,35 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
-      <div className="w-full max-w-lg glass-panel rounded-3xl border border-cyan-500/20 p-6 shadow-2xl space-y-5">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md overflow-y-auto"
+      onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="data-sources-title"
+        onClick={(event) => event.stopPropagation()}
+        className="w-full max-w-lg max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-2rem)] overflow-y-auto glass-panel rounded-2xl sm:rounded-3xl border border-cyan-500/20 p-4 sm:p-6 shadow-2xl space-y-5"
+      >
 
         {/* Header */}
-        <div className="flex items-start justify-between border-b border-white/10 pb-4">
+        <div className="sticky top-0 z-20 -mx-4 -mt-4 sm:-mx-6 sm:-mt-6 px-4 sm:px-6 pt-4 sm:pt-6 pb-4 flex items-center justify-between gap-3 border-b border-white/10 bg-slate-950/95 backdrop-blur-md">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/30">
               <RefreshCw className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-white">Data Sources</h2>
+              <h2 id="data-sources-title" className="text-lg font-bold text-white">Data Sources</h2>
               <p className="text-xs text-slate-400">Import activities from your devices</p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+            aria-label="Close import data window"
+            title="Close"
+            className="min-h-11 min-w-11 shrink-0 flex items-center justify-center rounded-lg border border-white/15 bg-slate-800 text-slate-100 hover:bg-slate-700 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -493,8 +514,9 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           {tabs.map((tab) => (
             <button
               key={tab.id}
+              type="button"
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
+              className={`min-h-11 flex-1 flex items-center justify-center gap-1.5 py-2 px-2 sm:px-3 rounded-lg text-[11px] sm:text-xs font-semibold transition-all ${
                 activeTab === tab.id
                   ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/20'
                   : 'text-slate-400 hover:text-white'
