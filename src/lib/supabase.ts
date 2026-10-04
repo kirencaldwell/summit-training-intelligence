@@ -11,12 +11,40 @@ export const supabase = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null;
 
-// Dual-mode Storage Manager (Local In-Memory / LocalStorage vs Supabase)
+const STORAGE_KEYS = {
+  PROFILE: 'summit_athlete_profile',
+  ACTIVITIES: 'summit_activities_list',
+  GOALS: 'summit_goals_list',
+  MODE: 'summit_data_mode',
+};
+
+// Dual-mode Storage Manager (LocalStorage fallback vs Supabase Live DB)
 class DataService {
-  private localActivities: Activity[] = [...MOCK_ACTIVITIES];
-  private localProfile: AthleteProfile = { ...MOCK_PROFILE };
-  private localGoals: Goal[] = [...MOCK_GOALS];
-  private mode: 'demo' | 'supabase' = isSupabaseConfigured ? 'supabase' : 'demo';
+  private localActivities: Activity[];
+  private localProfile: AthleteProfile;
+  private localGoals: Goal[];
+  private mode: 'demo' | 'supabase';
+
+  constructor() {
+    const savedMode = localStorage.getItem(STORAGE_KEYS.MODE) as 'demo' | 'supabase' | null;
+    this.mode = savedMode || (isSupabaseConfigured ? 'supabase' : 'demo');
+
+    // Load from localStorage or seed with defaults
+    const savedProfile = localStorage.getItem(STORAGE_KEYS.PROFILE);
+    this.localProfile = savedProfile ? JSON.parse(savedProfile) : { ...MOCK_PROFILE };
+
+    const savedActivities = localStorage.getItem(STORAGE_KEYS.ACTIVITIES);
+    this.localActivities = savedActivities ? JSON.parse(savedActivities) : [...MOCK_ACTIVITIES];
+
+    const savedGoals = localStorage.getItem(STORAGE_KEYS.GOALS);
+    this.localGoals = savedGoals ? JSON.parse(savedGoals) : [...MOCK_GOALS];
+  }
+
+  private saveLocalState() {
+    localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(this.localProfile));
+    localStorage.setItem(STORAGE_KEYS.ACTIVITIES, JSON.stringify(this.localActivities));
+    localStorage.setItem(STORAGE_KEYS.GOALS, JSON.stringify(this.localGoals));
+  }
 
   public getMode(): 'demo' | 'supabase' {
     return this.mode;
@@ -24,6 +52,7 @@ class DataService {
 
   public setMode(mode: 'demo' | 'supabase') {
     this.mode = mode;
+    localStorage.setItem(STORAGE_KEYS.MODE, mode);
   }
 
   public async getProfile(): Promise<AthleteProfile> {
@@ -32,7 +61,7 @@ class DataService {
         const { data, error } = await supabase.from('profiles').select('*').single();
         if (!error && data) return data as AthleteProfile;
       } catch (err) {
-        console.warn('Supabase profile fetch failed, using demo profile', err);
+        console.warn('Supabase profile fetch failed, using local profile', err);
       }
     }
     return this.localProfile;
@@ -40,6 +69,7 @@ class DataService {
 
   public async updateProfile(profileUpdates: Partial<AthleteProfile>): Promise<AthleteProfile> {
     this.localProfile = { ...this.localProfile, ...profileUpdates };
+    this.saveLocalState();
 
     if (this.mode === 'supabase' && supabase) {
       try {
@@ -82,6 +112,7 @@ class DataService {
 
   public async addActivity(newActivity: Activity): Promise<Activity> {
     this.localActivities.unshift(newActivity);
+    this.saveLocalState();
 
     if (this.mode === 'supabase' && supabase) {
       try {
@@ -107,12 +138,13 @@ class DataService {
 
   public async addGoal(newGoal: Goal): Promise<Goal> {
     this.localGoals.unshift(newGoal);
+    this.saveLocalState();
 
     if (this.mode === 'supabase' && supabase) {
       try {
         await supabase.from('goals').insert(newGoal);
       } catch (err) {
-        console.warn('Supabase goal insertion failed', err);
+        console.warn('Supabase goal insertion failed. Did you execute schema.sql in Supabase?', err);
       }
     }
     return newGoal;
@@ -122,6 +154,8 @@ class DataService {
     const idx = this.localGoals.findIndex(g => g.id === id);
     if (idx !== -1) {
       this.localGoals[idx] = { ...this.localGoals[idx], ...updates };
+      this.saveLocalState();
+
       if (this.mode === 'supabase' && supabase) {
         try {
           await supabase.from('goals').update(updates).eq('id', id);
@@ -144,6 +178,7 @@ class DataService {
 
   public async deleteGoal(id: string): Promise<boolean> {
     this.localGoals = this.localGoals.filter(g => g.id !== id);
+    this.saveLocalState();
 
     if (this.mode === 'supabase' && supabase) {
       try {

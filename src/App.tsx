@@ -72,6 +72,7 @@ export function App() {
 
   const handleCompleteOnboarding = async (newProfile: AthleteProfile, newGoal: Goal) => {
     await dataService.updateProfile(newProfile);
+    await dataService.addGoal(newGoal);
     setProfile(newProfile);
     setGoals((prev) => [newGoal, ...prev.filter(g => g.id !== newGoal.id)]);
     setIsOnboardingOpen(false);
