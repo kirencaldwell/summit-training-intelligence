@@ -91,7 +91,7 @@ class DataService {
           query = query.eq('sport_type', sportFilter);
         }
         const { data, error } = await query;
-        if (!error && data && data.length > 0) {
+        if (!error && data) {
           list = data as Activity[];
         }
       } catch (err) {
@@ -128,7 +128,7 @@ class DataService {
     if (this.mode === 'supabase' && supabase) {
       try {
         const { data, error } = await supabase.from('goals').select('*').order('created_at', { ascending: false });
-        if (!error && data && data.length > 0) return data as Goal[];
+        if (!error && data) return data as Goal[];
       } catch (err) {
         console.warn('Supabase goals fetch failed', err);
       }
