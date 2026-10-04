@@ -79,6 +79,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
   const handleConnectStrava = () => {
     const url = getStravaAuthUrl();
+    if (!url) {
+      alert('Please enter your Strava Client ID from strava.com/settings/api, or click "Import Sample Activity Payload" to test the pipeline!');
+      return;
+    }
     window.location.href = url;
   };
 

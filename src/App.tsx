@@ -12,6 +12,8 @@ import { AICoachPanel } from './components/AICoachPanel';
 import { ActivityDetailModal } from './components/ActivityDetailModal';
 import { AthleteProfileModal } from './components/AthleteProfileModal';
 import { OnboardingWizard } from './components/OnboardingWizard';
+import { StravaConnectModal } from './components/StravaConnectModal';
+import { parseStravaAuthCode } from './lib/strava';
 
 import { Mountain, Zap } from 'lucide-react';
 
@@ -27,6 +29,7 @@ export function App() {
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
+  const [isStravaModalOpen, setIsStravaModalOpen] = useState<boolean>(false);
   const [isSyncingStrava, setIsSyncingStrava] = useState<boolean>(false);
 
   // Load active data
@@ -41,6 +44,14 @@ export function App() {
 
   useEffect(() => {
     loadAppData();
+
+    // Detect Strava OAuth redirect code
+    const code = parseStravaAuthCode();
+    if (code) {
+      handleSyncStrava();
+      // Clean query string from browser URL bar
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
   }, [dataMode]);
 
   const handleCompleteOnboarding = async (newProfile: AthleteProfile, newGoal: Goal) => {
@@ -95,7 +106,7 @@ export function App() {
         setActiveTab={setActiveTab}
         dataMode={dataMode}
         onToggleDataMode={handleToggleDataMode}
-        onSyncStrava={handleSyncStrava}
+        onSyncStrava={() => setIsStravaModalOpen(true)}
         isSyncingStrava={isSyncingStrava}
         onOpenProfile={() => setIsProfileModalOpen(true)}
         onOpenOnboarding={() => setIsOnboardingOpen(true)}
@@ -191,6 +202,14 @@ export function App() {
         onCompleteOnboarding={handleCompleteOnboarding}
         onSyncStrava={handleSyncStrava}
         isSyncingStrava={isSyncingStrava}
+      />
+
+      {/* Strava Connect & OAuth Config Modal */}
+      <StravaConnectModal
+        isOpen={isStravaModalOpen}
+        onClose={() => setIsStravaModalOpen(false)}
+        onImportSample={handleSyncStrava}
+        isSyncing={isSyncingStrava}
       />
 
       {/* Modern Footer */}

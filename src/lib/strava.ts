@@ -2,14 +2,27 @@ import type { Activity } from '../types';
 import { calculateHRZones, calculateIntensityFactor, calculateNormalizedPower, calculatePowerZones, calculateTSS, calculateVAM } from './trainingMath';
 import { dataService } from './supabase';
 
-const STRAVA_CLIENT_ID = import.meta.env.VITE_STRAVA_CLIENT_ID || '12345';
-const STRAVA_REDIRECT_URI = import.meta.env.VITE_STRAVA_REDIRECT_URI || window.location.origin;
+const DEFAULT_CLIENT_ID = import.meta.env.VITE_STRAVA_CLIENT_ID || '';
 
-export function getStravaAuthUrl(): string {
+export function getStoredStravaClientId(): string {
+  return localStorage.getItem('summit_strava_client_id') || DEFAULT_CLIENT_ID;
+}
+
+export function setStoredStravaClientId(clientId: string) {
+  localStorage.setItem('summit_strava_client_id', clientId);
+}
+
+export function getStravaAuthUrl(customClientId?: string): string {
+  const clientId = customClientId || getStoredStravaClientId();
+  if (!clientId || clientId === '12345') {
+    return '';
+  }
+
+  const redirectUri = window.location.origin + window.location.pathname;
   const scope = 'read,activity:read_all';
-  return `https://www.strava.com/oauth/authorize?client_id=${STRAVA_CLIENT_ID}&response_type=code&redirect_uri=${encodeURIComponent(
-    STRAVA_REDIRECT_URI
-  )}&approval_prompt=force&scope=${scope}`;
+  return `https://www.strava.com/oauth/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(
+    redirectUri
+  )}&approval_prompt=auto&scope=${scope}`;
 }
 
 export function parseStravaAuthCode(): string | null {
@@ -67,7 +80,7 @@ export async function ingestStravaActivity(rawActivity: any, streamsData?: any):
 
   for (let i = 0; i < pointsCount; i++) {
     streamPoints.push({
-      time: i * 5, // 5s interval sample
+      time: i * 5,
       watts: wattsArray[i],
       hr: hrArray[i],
       alt: altArray[i],
