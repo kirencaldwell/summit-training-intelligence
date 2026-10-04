@@ -88,6 +88,51 @@ export function calculateHRZones(hrStream: number[], lthr: number): ZoneDistribu
   return zones;
 }
 
+export function calculateActivityHRZoneDuration(activity: Activity, lthr: number): ZoneDistribution {
+  const zones: ZoneDistribution = { z1: 0, z2: 0, z3: 0, z4: 0, z5: 0 };
+  if (lthr <= 0) return zones;
+
+  const samples = (activity.streams_data || [])
+    .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.hr) && point.hr! > 0)
+    .sort((a, b) => a.time - b.time);
+
+  if (samples.length >= 2) {
+    const intervals = samples.slice(1)
+      .map((sample, index) => sample.time - samples[index].time)
+      .filter((interval) => interval > 0);
+    intervals.sort((a, b) => a - b);
+    const typicalInterval = intervals.length > 0
+      ? intervals[Math.floor(intervals.length / 2)]
+      : 1;
+    const maxAttributionInterval = Math.max(30, typicalInterval * 2);
+    const boundaries = [lthr * 0.81, lthr * 0.90, lthr * 0.95, lthr * 1.02];
+
+    samples.forEach((sample, index) => {
+      const observedInterval = index < samples.length - 1
+        ? samples[index + 1].time - sample.time
+        : Math.min(typicalInterval, Math.max(0, activity.duration_seconds - sample.time));
+      const seconds = Math.max(0, Math.min(observedInterval, maxAttributionInterval));
+      const zoneIndex = boundaries.findIndex((boundary) => sample.hr! < boundary);
+      const key = `z${zoneIndex < 0 ? 5 : zoneIndex + 1}` as keyof ZoneDistribution;
+      zones[key] = (zones[key] || 0) + seconds;
+    });
+
+    if (Object.values(zones).some((seconds) => seconds > 0)) return zones;
+  }
+
+  const estimatedHr = activity.avg_hr;
+  const estimatedDuration = activity.moving_time_seconds || activity.duration_seconds;
+  if (estimatedHr && estimatedDuration > 0) {
+    const singleZone = calculateHRZones([estimatedHr], lthr);
+    const zoneKey = (Object.keys(singleZone) as (keyof ZoneDistribution)[])
+      .find((key) => (singleZone[key] || 0) > 0);
+    if (zoneKey) zones[zoneKey] = estimatedDuration;
+    return zones;
+  }
+
+  return activity.time_in_hr_zones || zones;
+}
+
 /**
  * Calculates 7-zone Coggan Power breakdown
  */

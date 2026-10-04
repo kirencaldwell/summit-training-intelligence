@@ -11,7 +11,7 @@ interface DashboardOverviewProps {
   powerCurve: PowerCurvePoint[];
   trainingSessions: TrainingSession[];
   onOpenActivity: (activity: Activity) => void;
-  onNavigateTab: (tab: 'dashboard' | 'goals' | 'activities' | 'power' | 'coach') => void;
+  onNavigateTab: (tab: 'dashboard' | 'goals' | 'activities' | 'power' | 'heart-rate' | 'coach') => void;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({

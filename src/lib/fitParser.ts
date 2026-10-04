@@ -36,7 +36,15 @@ function mapFitSport(sport?: string, subSport?: string): SportType {
 // ─── Parse a single File object → Activity ─────────────────────────────────
 
 export async function parseFitFile(file: File): Promise<Activity> {
-  const buffer = await file.arrayBuffer();
+  let buffer = await file.arrayBuffer();
+  if (/\.fit\.gz$/i.test(file.name)) {
+    if (typeof DecompressionStream === 'undefined') {
+      throw new Error('This browser cannot decompress .fit.gz files. Try a current version of Chrome, Edge, or Firefox.');
+    }
+    const compressedFile = new Blob([buffer]);
+    const decompressedStream = compressedFile.stream().pipeThrough(new DecompressionStream('gzip'));
+    buffer = await new Response(decompressedStream).arrayBuffer();
+  }
   const profile = await dataService.getProfile();
 
   return new Promise((resolve, reject) => {
@@ -167,7 +175,7 @@ export async function parseFitFile(file: File): Promise<Activity> {
         // ── Activity title ────────────────────────────────────────────────
         const sportLabel = sportType.replace('_', ' ');
         const dateStr = new Date(startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        const title = file.name.replace(/\.fit$/i, '') || `${sportLabel} — ${dateStr}`;
+        const title = file.name.replace(/\.fit(?:\.gz)?$/i, '') || `${sportLabel} — ${dateStr}`;
 
         const activity: Activity = {
           id: crypto.randomUUID(),
@@ -204,6 +212,149 @@ export async function parseFitFile(file: File): Promise<Activity> {
   });
 }
 
+function findDescendantText(element: Element, localName: string): string | undefined {
+  const match = Array.from(element.getElementsByTagName('*'))
+    .find((child) => child.localName.toLowerCase() === localName.toLowerCase());
+  return match?.textContent?.trim() || undefined;
+}
+
+function mapGpxSport(typeText: string | undefined, hasPower: boolean): SportType {
+  const type = (typeText || '').toLowerCase();
+  if (type.includes('virtual')) return 'zwift';
+  if (type.includes('cycl') || type.includes('ride') || type.includes('bike')) return 'cycling';
+  if (type.includes('skimo') || type.includes('ski mount')) return 'skimo';
+  if (type.includes('ski') || type.includes('snow')) return 'backcountry_skiing';
+  if (type.includes('scrambl') || type.includes('climb') || type.includes('mountain')) return 'scrambling';
+  if (type.includes('hik') || type.includes('walk') || type.includes('run')) return 'weighted_hiking';
+  return hasPower ? 'cycling' : 'weighted_hiking';
+}
+
+function distanceBetweenMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const radians = Math.PI / 180;
+  const deltaLat = (lat2 - lat1) * radians;
+  const deltaLng = (lng2 - lng1) * radians;
+  const haversine = Math.sin(deltaLat / 2) ** 2
+    + Math.cos(lat1 * radians) * Math.cos(lat2 * radians) * Math.sin(deltaLng / 2) ** 2;
+  return 6_371_000 * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
+export async function parseGpxFile(file: File): Promise<Activity> {
+  const xml = new DOMParser().parseFromString(await file.text(), 'application/xml');
+  if (Array.from(xml.getElementsByTagName('*')).some((element) => element.localName === 'parsererror')) {
+    throw new Error(`GPX parse error in "${file.name}": invalid XML`);
+  }
+
+  const trackPoints = Array.from(xml.getElementsByTagName('*'))
+    .filter((element) => element.localName === 'trkpt');
+  if (trackPoints.length === 0) throw new Error(`No track points found in "${file.name}"`);
+
+  const samples = trackPoints.map((point, index) => {
+    const lat = Number(point.getAttribute('lat'));
+    const lng = Number(point.getAttribute('lon'));
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      throw new Error(`Invalid GPS coordinates in "${file.name}"`);
+    }
+    const timestampText = findDescendantText(point, 'time');
+    const timestamp = timestampText ? Date.parse(timestampText) : Number.NaN;
+    const elevation = Number(findDescendantText(point, 'ele'));
+    const heartRate = Number(findDescendantText(point, 'hr'));
+    const cadence = Number(findDescendantText(point, 'cad'));
+    const power = Number(findDescendantText(point, 'power'));
+    return {
+      index,
+      lat,
+      lng,
+      timestamp,
+      elevation: Number.isFinite(elevation) ? elevation : undefined,
+      hr: Number.isFinite(heartRate) && heartRate > 0 ? heartRate : undefined,
+      cadence: Number.isFinite(cadence) && cadence >= 0 ? cadence : undefined,
+      watts: Number.isFinite(power) && power >= 0 ? power : undefined,
+    };
+  });
+
+  const hasTimestamps = samples.every((sample) => Number.isFinite(sample.timestamp));
+  const startTimestamp = hasTimestamps ? samples[0].timestamp : Number.NaN;
+  const timedSamples = samples.map((sample) => ({
+    ...sample,
+    time: hasTimestamps ? (sample.timestamp - startTimestamp) / 1000 : sample.index,
+  }));
+  const durationSeconds = Math.max(0, timedSamples[timedSamples.length - 1].time);
+
+  let distanceMeters = 0;
+  let elevationGain = 0;
+  for (let index = 1; index < timedSamples.length; index++) {
+    const previous = timedSamples[index - 1];
+    const current = timedSamples[index];
+    distanceMeters += distanceBetweenMeters(previous.lat, previous.lng, current.lat, current.lng);
+    if (previous.elevation !== undefined && current.elevation !== undefined) {
+      elevationGain += Math.max(0, current.elevation - previous.elevation);
+    }
+  }
+
+  const watts = timedSamples.flatMap((sample) => sample.watts === undefined ? [] : [sample.watts]);
+  const heartRates = timedSamples.flatMap((sample) => sample.hr === undefined ? [] : [sample.hr]);
+  const cadences = timedSamples.flatMap((sample) => sample.cadence === undefined ? [] : [sample.cadence]);
+  const profile = await dataService.getProfile();
+  const averagePower = watts.length > 0
+    ? Math.round(watts.reduce((sum, value) => sum + value, 0) / watts.length)
+    : undefined;
+  const normalizedPower = watts.length > 10 ? calculateNormalizedPower(watts) : averagePower || 0;
+  const intensityFactor = calculateIntensityFactor(normalizedPower, profile.ftp);
+  const trainingStressScore = calculateTSS(durationSeconds, normalizedPower, intensityFactor, profile.ftp);
+  const streamStep = Math.max(1, Math.ceil(timedSamples.length / 500));
+  const streamPoints: MetricStreamPoint[] = timedSamples
+    .filter((_, index) => index % streamStep === 0 || index === timedSamples.length - 1)
+    .map((sample) => ({
+      time: sample.time,
+      lat: sample.lat,
+      lng: sample.lng,
+      alt: sample.elevation,
+      watts: sample.watts,
+      hr: sample.hr,
+      cadence: sample.cadence,
+    }));
+  const bestEfforts = calculateBestPowerEfforts(
+    timedSamples.flatMap((sample) => sample.watts === undefined ? [] : [{ time: sample.time, watts: sample.watts }])
+  );
+  const track = Array.from(xml.getElementsByTagName('*')).find((element) => element.localName === 'trk');
+  const trackName = track ? findDescendantText(track, 'name') : undefined;
+  const typeText = track ? findDescendantText(track, 'type') : undefined;
+  const sportType = mapGpxSport(typeText, watts.length > 0);
+  const startDate = hasTimestamps
+    ? new Date(startTimestamp).toISOString()
+    : new Date().toISOString();
+  const elevationGainMeters = Math.round(elevationGain);
+  const averageHr = heartRates.length > 0
+    ? Math.round(heartRates.reduce((sum, value) => sum + value, 0) / heartRates.length)
+    : undefined;
+
+  return {
+    id: crypto.randomUUID(),
+    title: trackName || file.name.replace(/\.gpx$/i, ''),
+    sport_type: sportType,
+    start_date: startDate,
+    duration_seconds: Math.round(durationSeconds),
+    moving_time_seconds: Math.round(durationSeconds),
+    distance_meters: Math.round(distanceMeters),
+    total_elevation_gain_m: elevationGainMeters,
+    avg_power: averagePower,
+    max_power: watts.length > 0 ? Math.max(...watts) : undefined,
+    normalized_power: normalizedPower > 0 ? normalizedPower : undefined,
+    intensity_factor: intensityFactor > 0 ? intensityFactor : undefined,
+    training_stress_score: trainingStressScore > 0 ? trainingStressScore : undefined,
+    avg_hr: averageHr,
+    max_hr: heartRates.length > 0 ? Math.max(...heartRates) : undefined,
+    avg_cadence: cadences.length > 0
+      ? Math.round(cadences.reduce((sum, value) => sum + value, 0) / cadences.length)
+      : undefined,
+    avg_vam_mh: calculateVAM(elevationGainMeters, durationSeconds) || undefined,
+    time_in_hr_zones: heartRates.length > 10 ? calculateHRZones(heartRates, profile.lthr) : undefined,
+    time_in_power_zones: watts.length > 10 ? calculatePowerZones(watts, profile.ftp) : undefined,
+    streams_data: streamPoints,
+    power_curve_best_efforts: Object.keys(bestEfforts).length > 0 ? bestEfforts : undefined,
+  };
+}
+
 // ─── Batch parse multiple FIT files ──────────────────────────────────────────
 
 export interface FitImportResult {
@@ -223,6 +374,29 @@ export async function parseFitFiles(files: File[]): Promise<FitImportResult[]> {
       results.push({ file: file.name, status: 'success', activity });
     } catch (err: any) {
       results.push({ file: file.name, status: 'error', error: err.message });
+    }
+  }
+
+  return results;
+}
+
+export async function parseActivityFiles(files: File[]): Promise<FitImportResult[]> {
+  const supportedFiles = files.filter((file) => /\.(fit|fit\.gz|gpx)$/i.test(file.name));
+  const results: FitImportResult[] = [];
+
+  for (const file of supportedFiles) {
+    try {
+      const parsedActivity = /\.gpx$/i.test(file.name)
+        ? await parseGpxFile(file)
+        : await parseFitFile(file);
+      const activity = await dataService.addActivity(parsedActivity);
+      results.push({ file: file.name, status: 'success', activity });
+    } catch (err) {
+      results.push({
+        file: file.name,
+        status: 'error',
+        error: err instanceof Error ? err.message : 'Activity import failed.',
+      });
     }
   }
 

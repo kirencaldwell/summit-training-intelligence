@@ -18,6 +18,7 @@ import { Navbar } from './components/Navbar';
 import { DashboardOverview } from './components/DashboardOverview';
 import { ActivityList } from './components/ActivityList';
 import { PowerCurveChart } from './components/PowerCurveChart';
+import { HeartRateDistributionPage } from './components/HeartRateDistributionPage';
 import { AICoachPanel } from './components/AICoachPanel';
 import { ActivityDetailModal } from './components/ActivityDetailModal';
 import { AthleteProfileModal } from './components/AthleteProfileModal';
@@ -32,7 +33,7 @@ import { Mountain, Zap } from 'lucide-react';
 const CURRENT_YEAR = new Date().getFullYear();
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'goals' | 'activities' | 'power' | 'coach'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'goals' | 'activities' | 'power' | 'heart-rate' | 'coach'>('dashboard');
   const [powerCurveYear, setPowerCurveYear] = useState<'all' | number>('all');
   const [dataMode, setDataMode] = useState<'demo' | 'supabase'>(dataService.getMode());
   
@@ -399,6 +400,10 @@ export function App() {
               ))}
             </div>
           </div>
+        )}
+
+        {activeTab === 'heart-rate' && (
+          <HeartRateDistributionPage activities={activities} profile={profile} />
         )}
 
         {activeTab === 'coach' && (

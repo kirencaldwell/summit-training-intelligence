@@ -9,7 +9,7 @@ import {
   Key, ExternalLink, Mountain, Zap, ChevronRight, FileCode2,
 } from 'lucide-react';
 import type { Activity } from '../types';
-import { parseFitFiles, type FitImportResult } from '../lib/fitParser';
+import { parseActivityFiles, type FitImportResult } from '../lib/fitParser';
 import {
   getCorosAuthUrl,
   getStoredCorosClientId,
@@ -42,14 +42,14 @@ const FitUploadTab: React.FC<{ onActivitiesImported: (a: Activity[]) => void }> 
 
   const processFiles = useCallback(
     async (files: File[]) => {
-      const fitFiles = files.filter((f) => f.name.toLowerCase().endsWith('.fit'));
-      if (fitFiles.length === 0) return;
+      const activityFiles = files.filter((file) => /\.(fit|fit\.gz|gpx)$/i.test(file.name));
+      if (activityFiles.length === 0) return;
 
       setIsProcessing(true);
       setResults([]);
 
       try {
-        const importResults = await parseFitFiles(fitFiles);
+        const importResults = await parseActivityFiles(activityFiles);
         setResults(importResults);
         const successful = importResults
           .filter((r) => r.status === 'success' && r.activity)
@@ -89,7 +89,7 @@ const FitUploadTab: React.FC<{ onActivitiesImported: (a: Activity[]) => void }> 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-400">
           <div>
             <p className="font-semibold text-slate-300">📲 From Garmin Connect:</p>
-            <p>Activities → select activity → ⋯ → Export as Original (.fit)</p>
+            <p>Activities → select activity → ⋯ → Export Original (.fit). Gzip-compressed .fit.gz files are also supported.</p>
           </div>
           <div>
             <p className="font-semibold text-slate-300">📲 From COROS App:</p>
@@ -104,13 +104,13 @@ const FitUploadTab: React.FC<{ onActivitiesImported: (a: Activity[]) => void }> 
           <span>📦</span> Import your full Strava history (free, one-time)
         </p>
         <p className="text-slate-300 leading-relaxed">
-          Strava lets you export <strong className="text-white">every activity you've ever recorded</strong> as .fit files — no paid subscription needed for the export.
+          Strava lets you export <strong className="text-white">every activity you've ever recorded</strong> as .fit.gz files — no paid subscription needed for the export. GPX and uncompressed FIT files are supported too.
         </p>
         <ol className="text-slate-400 space-y-0.5 list-decimal list-inside leading-relaxed">
           <li>Go to <a href="https://www.strava.com/athlete/delete_your_account" target="_blank" rel="noreferrer" className="text-orange-400 hover:underline">strava.com/athlete/delete_your_account</a> <span className="text-slate-500">(you're not deleting anything)</span></li>
           <li>Click <strong className="text-slate-200">"Get Started"</strong> under <em>Request your archive</em></li>
           <li>Strava emails you a .zip — usually within a few hours</li>
-          <li>Unzip it, then drag the <strong className="text-slate-200">/activities</strong> folder onto the drop zone below</li>
+          <li>Unzip it, then select or drag the <strong className="text-slate-200">.fit.gz, .fit, or .gpx files</strong> from the activities folder below</li>
         </ol>
       </div>
 
@@ -129,7 +129,7 @@ const FitUploadTab: React.FC<{ onActivitiesImported: (a: Activity[]) => void }> 
         <input
           ref={fileInputRef}
           type="file"
-          accept=".fit"
+          accept=".fit,.fit.gz,.gpx"
           multiple
           className="hidden"
           onChange={handleFileSelect}
@@ -138,8 +138,8 @@ const FitUploadTab: React.FC<{ onActivitiesImported: (a: Activity[]) => void }> 
         {isProcessing ? (
           <div className="flex flex-col items-center space-y-2">
             <Loader2 className="w-10 h-10 text-cyan-400 animate-spin" />
-            <p className="text-sm font-semibold text-white">Parsing FIT files...</p>
-            <p className="text-xs text-slate-400">Calculating NP, TSS, zones...</p>
+            <p className="text-sm font-semibold text-white">Parsing activity files...</p>
+            <p className="text-xs text-slate-400">Reading tracks and calculating training metrics...</p>
           </div>
         ) : (
           <div className="flex flex-col items-center space-y-3">
@@ -150,7 +150,7 @@ const FitUploadTab: React.FC<{ onActivitiesImported: (a: Activity[]) => void }> 
             </div>
             <div>
               <p className="text-sm font-bold text-white">
-                {isDragOver ? 'Drop to import!' : 'Drop .fit files here'}
+                {isDragOver ? 'Drop to import!' : 'Drop .fit, .fit.gz, or .gpx files here'}
               </p>
               <p className="text-xs text-slate-400 mt-0.5">or click to browse — multiple files supported</p>
             </div>
