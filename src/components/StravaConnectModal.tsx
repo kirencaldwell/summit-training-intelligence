@@ -98,6 +98,22 @@ const FitUploadTab: React.FC<{ onActivitiesImported: (a: Activity[]) => void }> 
         </div>
       </div>
 
+      {/* Strava Bulk Export Tip */}
+      <div className="p-3.5 rounded-xl bg-orange-500/10 border border-orange-500/25 text-xs space-y-2">
+        <p className="font-semibold text-orange-300 flex items-center gap-1.5">
+          <span>📦</span> Import your full Strava history (free, one-time)
+        </p>
+        <p className="text-slate-300 leading-relaxed">
+          Strava lets you export <strong className="text-white">every activity you've ever recorded</strong> as .fit files — no paid subscription needed for the export.
+        </p>
+        <ol className="text-slate-400 space-y-0.5 list-decimal list-inside leading-relaxed">
+          <li>Go to <a href="https://www.strava.com/athlete/delete_your_account" target="_blank" rel="noreferrer" className="text-orange-400 hover:underline">strava.com/athlete/delete_your_account</a> <span className="text-slate-500">(you're not deleting anything)</span></li>
+          <li>Click <strong className="text-slate-200">"Get Started"</strong> under <em>Request your archive</em></li>
+          <li>Strava emails you a .zip — usually within a few hours</li>
+          <li>Unzip it, then drag the <strong className="text-slate-200">/activities</strong> folder onto the drop zone below</li>
+        </ol>
+      </div>
+
       {/* Drop Zone */}
       <div
         onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
