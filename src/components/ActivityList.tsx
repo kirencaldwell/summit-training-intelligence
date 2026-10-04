@@ -60,7 +60,7 @@ export const ActivityList: React.FC<ActivityListProps> = ({ activities, onSelect
       {/* Controls Bar */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         {/* Discipline Filters */}
-        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
           {sportsOptions.map((opt) => {
             const Icon = opt.icon;
             const isSelected = selectedSport === opt.key;
@@ -68,7 +68,7 @@ export const ActivityList: React.FC<ActivityListProps> = ({ activities, onSelect
               <button
                 key={opt.key}
                 onClick={() => setSelectedSport(opt.key)}
-                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                className={`min-h-11 flex items-center space-x-1.5 px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
                   isSelected
                     ? 'bg-cyan-500 text-slate-950 shadow-md shadow-cyan-500/20 font-bold'
                     : 'bg-slate-900/60 text-slate-400 hover:text-white border border-white/5 hover:bg-white/5'
@@ -89,7 +89,7 @@ export const ActivityList: React.FC<ActivityListProps> = ({ activities, onSelect
             placeholder="Search activities..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full sm:w-56 bg-slate-900/80 border border-white/10 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50"
+            className="min-h-11 w-full sm:w-56 bg-slate-900/80 border border-white/10 rounded-xl pl-9 pr-3 py-2 text-sm sm:text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50"
           />
         </div>
       </div>
@@ -105,7 +105,7 @@ export const ActivityList: React.FC<ActivityListProps> = ({ activities, onSelect
             <div
               key={act.id}
               onClick={() => onSelectActivity(act)}
-              className="glass-panel-interactive rounded-2xl p-5 cursor-pointer flex flex-col justify-between space-y-4"
+              className="glass-panel-interactive rounded-2xl p-4 sm:p-5 cursor-pointer flex flex-col justify-between space-y-4"
             >
               <div>
                 {/* Header Badge */}
@@ -124,7 +124,7 @@ export const ActivityList: React.FC<ActivityListProps> = ({ activities, onSelect
                       disabled={deletingActivityId === act.id}
                       aria-label={`Delete ${act.title}`}
                       title="Delete activity"
-                      className="p-1.5 rounded-md text-slate-500 hover:text-rose-300 hover:bg-rose-500/10 disabled:opacity-50"
+                      className="min-h-11 min-w-11 flex items-center justify-center rounded-md text-slate-400 hover:text-rose-300 hover:bg-rose-500/10 disabled:opacity-50"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

@@ -113,7 +113,7 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
       {/* Top Header & Actions Bar */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
         <div>
-          <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center">
+          <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight flex items-center">
             <Sparkles className="w-6 h-6 mr-2 text-cyan-400" /> Multi-Sport Goal Objectives & Milestones
           </h1>
           <p className="text-xs text-slate-400">High-level objectives, flexible timeframes, and post-event completion debriefs</p>
@@ -121,7 +121,7 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
 
         <button
           onClick={() => setIsAddModalOpen(true)}
-          className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 font-bold text-xs hover:opacity-90 transition-all flex items-center space-x-1.5 shadow-lg shadow-cyan-500/20"
+          className="min-h-11 w-full sm:w-auto justify-center px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 font-bold text-xs hover:opacity-90 transition-all flex items-center space-x-1.5 shadow-lg shadow-cyan-500/20"
         >
           <Plus className="w-4 h-4" />
           <span>Add New Goal Objective</span>
@@ -129,10 +129,10 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
       </div>
 
       {/* Filter Tabs */}
-      <div className="flex items-center space-x-2 border-b border-white/5 pb-2">
+      <div className="flex items-center gap-2 overflow-x-auto border-b border-white/5 pb-2">
         <button
           onClick={() => setFilterStatus('ACTIVE')}
-          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+          className={`min-h-11 px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
             filterStatus === 'ACTIVE'
               ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
               : 'text-slate-400 hover:text-white'
@@ -143,7 +143,7 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
 
         <button
           onClick={() => setFilterStatus('COMPLETED')}
-          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+          className={`min-h-11 px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
             filterStatus === 'COMPLETED'
               ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
               : 'text-slate-400 hover:text-white'
@@ -154,7 +154,7 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
 
         <button
           onClick={() => setFilterStatus('ALL')}
-          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+          className={`min-h-11 px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
             filterStatus === 'ALL'
               ? 'bg-slate-800 text-slate-200 border border-white/10'
               : 'text-slate-400 hover:text-white'
@@ -250,7 +250,7 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
                 {!isCompleted && (
                   <button
                     onClick={() => setDebriefModalGoal(goal)}
-                    className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold transition-all"
+                    className="min-h-11 flex items-center space-x-1 px-3 py-2 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold transition-all"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     <span>Mark Completed</span>
@@ -259,7 +259,7 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
 
                 <button
                   onClick={() => onDeleteGoal(goal.id)}
-                  className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs font-medium transition-all"
+                  className="min-h-11 flex items-center space-x-1 px-3 py-2 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs font-medium transition-all"
                   title="Remove or deprioritize goal"
                 >
                   <Trash2 className="w-3.5 h-3.5" />

@@ -1,5 +1,5 @@
-import React from 'react';
-import { Activity, Mountain, ShieldCheck, Zap, User, Upload, Sparkles, RefreshCw, LogOut } from 'lucide-react';
+import React, { useState } from 'react';
+import { Activity, Mountain, ShieldCheck, Zap, User, Upload, Sparkles, RefreshCw, LogOut, MoreHorizontal } from 'lucide-react';
 import type { AthleteProfile } from '../types';
 
 interface NavbarProps {
@@ -31,29 +31,39 @@ export const Navbar: React.FC<NavbarProps> = ({
   authEmail,
   onSignOut,
 }) => {
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const tabs = [
+    { id: 'dashboard' as const, label: 'Home', icon: Activity },
+    { id: 'goals' as const, label: 'Goals', icon: Sparkles },
+    { id: 'activities' as const, label: 'Activities', icon: Mountain },
+    { id: 'power' as const, label: 'Power', icon: Zap },
+    { id: 'coach' as const, label: 'Coach', icon: ShieldCheck },
+  ];
+
   return (
+    <>
     <header className="sticky top-0 z-40 w-full glass-panel border-b border-white/10 bg-summit-dark/80 backdrop-blur-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
+        <div className="flex items-center justify-between min-h-14 md:h-16">
           {/* Logo */}
-          <div className="flex items-center space-x-3 cursor-pointer" onClick={() => setActiveTab('dashboard')}>
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 via-blue-600 to-amber-400 p-[2px] shadow-lg shadow-cyan-500/20">
+          <button type="button" className="flex items-center space-x-2 sm:space-x-3 text-left" onClick={() => setActiveTab('dashboard')} aria-label="Summit home">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-cyan-500 via-blue-600 to-amber-400 p-[2px] shadow-lg shadow-cyan-500/20">
               <div className="w-full h-full bg-summit-dark rounded-[10px] flex items-center justify-center">
                 <Mountain className="w-5 h-5 text-cyan-400" />
               </div>
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <span className="font-extrabold text-lg tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+                <span className="font-extrabold text-base sm:text-lg tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
                   SUMMIT
                 </span>
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                <span className="hidden sm:inline text-xs font-semibold px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
                   INTELLIGENCE
                 </span>
               </div>
-              <p className="text-[10px] text-slate-400 tracking-wider uppercase font-medium">Multi-Sport Endurance Engine</p>
+              <p className="hidden sm:block text-[10px] text-slate-400 tracking-wider uppercase font-medium">Multi-Sport Endurance Engine</p>
             </div>
-          </div>
+          </button>
 
           {/* Navigation Tabs */}
           <nav className="hidden md:flex items-center space-x-1 bg-slate-900/60 p-1.5 rounded-xl border border-white/5">
@@ -123,11 +133,11 @@ export const Navbar: React.FC<NavbarProps> = ({
           </nav>
 
           {/* Controls & Athlete Badge */}
-          <div className="flex items-center space-x-3">
+          <div className="hidden md:flex items-center space-x-2 lg:space-x-3">
             {/* Setup Wizard Button */}
             <button
               onClick={onOpenOnboarding}
-              className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-semibold transition-all"
+              className="flex min-h-10 items-center space-x-1 px-2.5 py-2 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-semibold transition-all"
               title="Run Initial Setup Wizard"
             >
               <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
@@ -138,7 +148,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               onClick={onSyncStrava}
               disabled={isSyncingStrava}
-              className="hidden sm:flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 border border-cyan-500/30 text-xs font-semibold transition-all"
+              className="flex min-h-10 items-center space-x-1.5 px-3 py-2 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 border border-cyan-500/30 text-xs font-semibold transition-all"
             >
               {isSyncingStrava ? (
                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -155,7 +165,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   onClick={() => onSignOut?.()}
                   title="Sign out"
                   aria-label="Sign out"
-                  className="p-2 rounded-lg border border-white/10 text-slate-300 hover:text-white hover:bg-white/5"
+                  className="min-h-10 min-w-10 flex items-center justify-center p-2 rounded-lg border border-white/10 text-slate-300 hover:text-white hover:bg-white/5"
                 >
                   <LogOut className="w-4 h-4" />
                 </button>
@@ -163,7 +173,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             ) : (
               <button
                 onClick={onToggleDataMode}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                className={`min-h-10 px-2.5 py-2 rounded-lg text-xs font-semibold border transition-all ${
                   dataMode === 'supabase'
                     ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
                     : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
@@ -177,7 +187,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Profile Avatar */}
             <button
               onClick={onOpenProfile}
-              className="flex items-center space-x-2 p-1 rounded-xl glass-panel-interactive border-white/10"
+              className="min-h-10 flex items-center space-x-2 p-1 rounded-xl glass-panel-interactive border-white/10"
             >
               <img
                 src={profile.avatar_url}
@@ -191,7 +201,69 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           </div>
         </div>
+
+        <div className="md:hidden flex items-center justify-end gap-2 pb-2">
+          <button
+            type="button"
+            onClick={onOpenProfile}
+            aria-label="Open athlete profile"
+            title="Athlete profile"
+            className="min-h-11 min-w-11 flex items-center justify-center rounded-lg border border-white/10 bg-white/5"
+          >
+            <img src={profile.avatar_url} alt="" className="w-7 h-7 rounded-md object-cover" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsMobileMenuOpen((open) => !open)}
+            aria-label={isMobileMenuOpen ? 'Close more actions' : 'Open more actions'}
+            aria-expanded={isMobileMenuOpen}
+            className="min-h-11 min-w-11 flex items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-200"
+          >
+            <MoreHorizontal className="w-5 h-5" />
+          </button>
+        </div>
+
+        {isMobileMenuOpen && (
+          <div className="md:hidden grid grid-cols-2 gap-2 pb-3">
+            <button type="button" onClick={() => { onOpenOnboarding(); setIsMobileMenuOpen(false); }} className="min-h-11 flex items-center justify-center gap-2 rounded-lg border border-cyan-500/25 bg-cyan-500/10 px-3 text-xs font-semibold text-cyan-200">
+              <Sparkles className="w-4 h-4" /> Setup wizard
+            </button>
+            <button type="button" onClick={() => { onSyncStrava(); setIsMobileMenuOpen(false); }} disabled={isSyncingStrava} className="min-h-11 flex items-center justify-center gap-2 rounded-lg border border-cyan-500/25 bg-cyan-500/10 px-3 text-xs font-semibold text-cyan-200 disabled:opacity-50">
+              {isSyncingStrava ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+              {isSyncingStrava ? 'Importing...' : 'Import data'}
+            </button>
+            {isAuthenticated ? (
+              <button type="button" onClick={() => { onSignOut?.(); setIsMobileMenuOpen(false); }} className="min-h-11 col-span-2 flex items-center justify-center gap-2 rounded-lg border border-white/10 px-3 text-xs font-semibold text-slate-300">
+                <LogOut className="w-4 h-4" /> Sign out {authEmail ? `(${authEmail})` : ''}
+              </button>
+            ) : (
+              <button type="button" onClick={onToggleDataMode} className="min-h-11 col-span-2 rounded-lg border border-white/10 px-3 text-xs font-semibold text-slate-300">
+                {dataMode === 'supabase' ? 'Supabase DB' : 'Demo Mode'}
+              </button>
+            )}
+          </div>
+        )}
       </div>
-    </header>
+
+      </header>
+
+      <nav aria-label="Primary navigation" className="md:hidden fixed bottom-0 inset-x-0 z-50 grid grid-cols-5 border-t border-white/10 bg-slate-950/95 px-1 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl">
+        {tabs.map(({ id, label, icon: Icon }) => {
+          const selected = activeTab === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => { setActiveTab(id); setIsMobileMenuOpen(false); }}
+              aria-current={selected ? 'page' : undefined}
+              className={`min-h-[60px] flex flex-col items-center justify-center gap-1 px-1 text-[10px] font-semibold ${selected ? id === 'coach' ? 'text-amber-300' : 'text-cyan-300' : 'text-slate-400'}`}
+            >
+              <Icon className="w-5 h-5" />
+              <span>{label}</span>
+            </button>
+          );
+        })}
+      </nav>
+    </>
   );
 };

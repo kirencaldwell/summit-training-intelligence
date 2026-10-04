@@ -118,10 +118,10 @@ How can I optimize your training load today?`,
   ];
 
   return (
-    <div className="w-full max-w-5xl mx-auto glass-panel rounded-2xl border border-white/10 flex flex-col h-[750px] shadow-2xl overflow-hidden">
+    <div className="w-full max-w-5xl mx-auto glass-panel rounded-2xl border border-white/10 flex flex-col h-[min(750px,calc(100dvh-9rem))] min-h-[560px] shadow-2xl overflow-hidden">
       
       {/* Header */}
-      <div className="px-6 py-4 border-b border-white/10 bg-slate-950/60 flex items-center justify-between">
+      <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-white/10 bg-slate-950/60 flex items-center justify-between">
         <div className="flex items-center space-x-3">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-400 p-[2px]">
             <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
@@ -165,7 +165,7 @@ How can I optimize your training load today?`,
             type="button"
             onClick={() => void handleGenerateWeeklyPlan()}
             disabled={isGeneratingWeeklyPlan}
-            className="inline-flex items-center justify-center gap-2 rounded-lg bg-cyan-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-cyan-400 disabled:opacity-50"
+            className="min-h-11 inline-flex items-center justify-center gap-2 rounded-lg bg-cyan-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-cyan-400 disabled:opacity-50"
           >
             <Sparkles className={`w-3.5 h-3.5 ${isGeneratingWeeklyPlan ? 'animate-pulse' : ''}`} />
             {isGeneratingWeeklyPlan ? 'Building plan...' : 'Generate weekly plan'}
@@ -195,7 +195,7 @@ How can I optimize your training load today?`,
                     type="button"
                     onClick={() => void handleSessionStatus(session, 'ACCEPTED')}
                     disabled={updatingSessionId === session.id}
-                    className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 px-2.5 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-50"
+                    className="min-h-11 inline-flex items-center gap-1 rounded-md bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-50"
                   >
                     <Check className="w-3.5 h-3.5" /> Accept
                   </button>
@@ -205,7 +205,7 @@ How can I optimize your training load today?`,
                     disabled={updatingSessionId === session.id}
                     aria-label={`Skip ${session.title}`}
                     title="Skip session"
-                    className="inline-flex items-center justify-center rounded-md border border-white/10 px-2 py-1.5 text-slate-400 hover:text-white disabled:opacity-50"
+                    className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-md border border-white/10 text-slate-400 hover:text-white disabled:opacity-50"
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>
@@ -317,7 +317,7 @@ How can I optimize your training load today?`,
               key={pIdx}
               onClick={() => handleSendMessage(prompt)}
               disabled={isProcessing}
-              className="flex-shrink-0 px-3 py-1 rounded-full bg-slate-900/90 hover:bg-white/10 border border-white/10 text-xs text-slate-300 hover:text-cyan-400 transition-all font-medium whitespace-nowrap"
+              className="min-h-10 flex-shrink-0 px-3 py-2 rounded-full bg-slate-900/90 hover:bg-white/10 border border-white/10 text-xs text-slate-300 hover:text-cyan-400 transition-all font-medium whitespace-nowrap"
             >
               {prompt}
             </button>
@@ -338,12 +338,13 @@ How can I optimize your training load today?`,
             value={inputQuery}
             onChange={(e) => setInputQuery(e.target.value)}
             disabled={isProcessing}
-            className="flex-1 bg-slate-900/90 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50"
+            className="min-h-11 flex-1 min-w-0 bg-slate-900/90 border border-white/10 rounded-xl px-4 py-2.5 text-base sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50"
           />
           <button
             type="submit"
             disabled={!inputQuery.trim() || isProcessing}
-            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-bold hover:opacity-90 disabled:opacity-50 transition-all flex items-center space-x-1"
+            aria-label="Send message"
+            className="min-h-11 min-w-11 flex items-center justify-center rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-bold hover:opacity-90 disabled:opacity-50 transition-all"
           >
             <Send className="w-4 h-4" />
           </button>
