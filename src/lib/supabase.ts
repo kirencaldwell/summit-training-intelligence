@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type User } from '@supabase/supabase-js';
 import type { Activity, AthleteProfile, Goal } from '../types';
 import { MOCK_ACTIVITIES, MOCK_GOALS, MOCK_PROFILE } from './mockData';
 
@@ -24,10 +24,12 @@ class DataService {
   private localProfile: AthleteProfile;
   private localGoals: Goal[];
   private mode: 'demo' | 'supabase';
+  private authUser: User | null = null;
+  private authenticatedProfile: AthleteProfile | null = null;
 
   constructor() {
     const savedMode = localStorage.getItem(STORAGE_KEYS.MODE) as 'demo' | 'supabase' | null;
-    this.mode = savedMode || (isSupabaseConfigured ? 'supabase' : 'demo');
+    this.mode = isSupabaseConfigured ? 'supabase' : savedMode || 'demo';
 
     // Load from localStorage or seed with defaults
     const savedProfile = localStorage.getItem(STORAGE_KEYS.PROFILE);
@@ -51,58 +53,96 @@ class DataService {
   }
 
   public setMode(mode: 'demo' | 'supabase') {
-    this.mode = mode;
-    localStorage.setItem(STORAGE_KEYS.MODE, mode);
+    this.mode = isSupabaseConfigured ? 'supabase' : mode;
+    localStorage.setItem(STORAGE_KEYS.MODE, this.mode);
+  }
+
+  public setAuthenticatedUser(user: User | null) {
+    this.authUser = user;
+    this.authenticatedProfile = null;
+  }
+
+  private async getAuthenticatedProfile(): Promise<AthleteProfile> {
+    if (!supabase || !this.authUser) {
+      throw new Error('Sign in with Google to access your Supabase data.');
+    }
+    if (this.authenticatedProfile) return this.authenticatedProfile;
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('user_id', this.authUser.id)
+      .maybeSingle();
+    if (error) throw new Error(`Profile lookup failed: ${error.message}`);
+
+    if (data) {
+      this.authenticatedProfile = data as AthleteProfile;
+      return this.authenticatedProfile;
+    }
+
+    const metadata = this.authUser.user_metadata || {};
+    const fullName = metadata.full_name || metadata.name || this.authUser.email?.split('@')[0] || 'Endurance Athlete';
+    const avatarUrl = metadata.avatar_url || metadata.picture;
+    const { data: created, error: createError } = await supabase
+      .from('profiles')
+      .insert({ user_id: this.authUser.id, full_name: fullName, avatar_url: avatarUrl })
+      .select('*')
+      .single();
+    if (createError || !created) {
+      throw new Error(`Profile setup failed: ${createError?.message || 'No profile returned'}`);
+    }
+
+    this.authenticatedProfile = created as AthleteProfile;
+    return this.authenticatedProfile;
   }
 
   public async getProfile(): Promise<AthleteProfile> {
     if (this.mode === 'supabase' && supabase) {
-      try {
-        const { data, error } = await supabase.from('profiles').select('*').single();
-        if (!error && data) return data as AthleteProfile;
-      } catch (err) {
-        console.warn('Supabase profile fetch failed, using local profile', err);
-      }
+      return this.getAuthenticatedProfile();
     }
     return this.localProfile;
   }
 
   public async updateProfile(profileUpdates: Partial<AthleteProfile>): Promise<AthleteProfile> {
+    if (this.mode === 'supabase' && supabase) {
+      const profile = await this.getAuthenticatedProfile();
+      const updates = { ...profileUpdates };
+      delete updates.id;
+      const { data, error } = await supabase
+        .from('profiles')
+        .update(updates)
+        .eq('id', profile.id)
+        .eq('user_id', this.authUser!.id)
+        .select('*')
+        .single();
+      if (error || !data) throw new Error(`Profile update failed: ${error?.message || 'No profile returned'}`);
+      this.authenticatedProfile = data as AthleteProfile;
+      return this.authenticatedProfile;
+    }
+
     this.localProfile = { ...this.localProfile, ...profileUpdates };
     this.saveLocalState();
-
-    if (this.mode === 'supabase' && supabase) {
-      try {
-        await supabase.from('profiles').update(profileUpdates).eq('id', this.localProfile.id);
-      } catch (err) {
-        console.warn('Supabase profile update failed', err);
-      }
-    }
     return this.localProfile;
   }
 
   public async getActivities(sportFilter?: string): Promise<Activity[]> {
-    let list = this.localActivities;
-
     if (this.mode === 'supabase' && supabase) {
-      try {
-        let query = supabase.from('activities').select('*').order('start_date', { ascending: false });
-        if (sportFilter && sportFilter !== 'all') {
-          query = query.eq('sport_type', sportFilter);
-        }
-        const { data, error } = await query;
-        if (!error && data) {
-          list = data as Activity[];
-        }
-      } catch (err) {
-        console.warn('Supabase activities fetch failed, falling back to local list', err);
-      }
+      const profile = await this.getAuthenticatedProfile();
+      let query = supabase
+        .from('activities')
+        .select('*')
+        .eq('user_id', profile.id)
+        .order('start_date', { ascending: false });
+      if (sportFilter && sportFilter !== 'all') query = query.eq('sport_type', sportFilter);
+      const { data, error } = await query;
+      if (error) throw new Error(`Activities could not be loaded: ${error.message}`);
+      return (data || []) as Activity[];
     }
 
     if (sportFilter && sportFilter !== 'all') {
-      return list.filter(a => a.sport_type === sportFilter);
+      return this.localActivities.filter(a => a.sport_type === sportFilter);
     }
-    return list;
+    return this.localActivities;
   }
 
   public async getActivityById(id: string): Promise<Activity | undefined> {
@@ -112,11 +152,12 @@ class DataService {
 
   public async addActivity(newActivity: Activity): Promise<Activity> {
     if (this.mode === 'supabase' && supabase) {
-      const { error } = await supabase.from('activities').insert(newActivity);
-      if (error) {
-        console.warn('Supabase activity insertion failed', error);
-        throw new Error(`Supabase activity insertion failed: ${error.message}`);
-      }
+      const profile = await this.getAuthenticatedProfile();
+      const activityToInsert = { ...newActivity, user_id: profile.id };
+      delete (activityToInsert as Partial<Activity>).id;
+      const { data, error } = await supabase.from('activities').insert(activityToInsert).select('*').single();
+      if (error || !data) throw new Error(`Activity insertion failed: ${error?.message || 'No activity returned'}`);
+      return data as Activity;
     }
 
     this.localActivities.unshift(newActivity);
@@ -126,43 +167,52 @@ class DataService {
 
   public async getGoals(): Promise<Goal[]> {
     if (this.mode === 'supabase' && supabase) {
-      try {
-        const { data, error } = await supabase.from('goals').select('*').order('created_at', { ascending: false });
-        if (!error && data) return data as Goal[];
-      } catch (err) {
-        console.warn('Supabase goals fetch failed', err);
-      }
+      const profile = await this.getAuthenticatedProfile();
+      const { data, error } = await supabase
+        .from('goals')
+        .select('*')
+        .eq('user_id', profile.id)
+        .order('created_at', { ascending: false });
+      if (error) throw new Error(`Goals could not be loaded: ${error.message}`);
+      return (data || []) as Goal[];
     }
     return this.localGoals;
   }
 
   public async addGoal(newGoal: Goal): Promise<Goal> {
+    if (this.mode === 'supabase' && supabase) {
+      const profile = await this.getAuthenticatedProfile();
+      const goalToInsert = { ...newGoal, user_id: profile.id };
+      delete (goalToInsert as Partial<Goal>).id;
+      const { data, error } = await supabase.from('goals').insert(goalToInsert).select('*').single();
+      if (error || !data) throw new Error(`Goal insertion failed: ${error?.message || 'No goal returned'}`);
+      return data as Goal;
+    }
+
     this.localGoals.unshift(newGoal);
     this.saveLocalState();
-
-    if (this.mode === 'supabase' && supabase) {
-      try {
-        await supabase.from('goals').insert(newGoal);
-      } catch (err) {
-        console.warn('Supabase goal insertion failed. Did you execute schema.sql in Supabase?', err);
-      }
-    }
     return newGoal;
   }
 
   public async updateGoal(id: string, updates: Partial<Goal>): Promise<Goal | undefined> {
+    if (this.mode === 'supabase' && supabase) {
+      const profile = await this.getAuthenticatedProfile();
+      const { id: _id, ...goalUpdates } = updates;
+      const { data, error } = await supabase
+        .from('goals')
+        .update(goalUpdates)
+        .eq('id', id)
+        .eq('user_id', profile.id)
+        .select('*')
+        .maybeSingle();
+      if (error) throw new Error(`Goal update failed: ${error.message}`);
+      return data as Goal | undefined;
+    }
+
     const idx = this.localGoals.findIndex(g => g.id === id);
     if (idx !== -1) {
       this.localGoals[idx] = { ...this.localGoals[idx], ...updates };
       this.saveLocalState();
-
-      if (this.mode === 'supabase' && supabase) {
-        try {
-          await supabase.from('goals').update(updates).eq('id', id);
-        } catch (err) {
-          console.warn('Supabase goal update failed', err);
-        }
-      }
       return this.localGoals[idx];
     }
     return undefined;
@@ -177,16 +227,19 @@ class DataService {
   }
 
   public async deleteGoal(id: string): Promise<boolean> {
+    if (this.mode === 'supabase' && supabase) {
+      const profile = await this.getAuthenticatedProfile();
+      const { error } = await supabase
+        .from('goals')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', profile.id);
+      if (error) throw new Error(`Goal deletion failed: ${error.message}`);
+      return true;
+    }
+
     this.localGoals = this.localGoals.filter(g => g.id !== id);
     this.saveLocalState();
-
-    if (this.mode === 'supabase' && supabase) {
-      try {
-        await supabase.from('goals').delete().eq('id', id);
-      } catch (err) {
-        console.warn('Supabase goal deletion failed', err);
-      }
-    }
     return true;
   }
 }

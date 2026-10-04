@@ -112,8 +112,7 @@ export async function ingestStravaActivity(rawActivity: any, streamsData?: any):
     streams_data: streamPoints.length > 0 ? streamPoints : undefined,
   };
 
-  await dataService.addActivity(parsedActivity);
-  return parsedActivity;
+  return dataService.addActivity(parsedActivity);
 }
 
 // Mock Strava Sync Trigger for UI demonstration

@@ -124,6 +124,86 @@ ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.goals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activities ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Users can view own profile" ON public.profiles FOR SELECT USING (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Users can view own goals" ON public.goals FOR SELECT USING (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Users can view own activities" ON public.activities FOR SELECT USING (auth.uid() = user_id OR user_id IS NULL);
+DROP POLICY IF EXISTS "Users can view own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Users can view own goals" ON public.goals;
+DROP POLICY IF EXISTS "Users can view own activities" ON public.activities;
+DROP POLICY IF EXISTS "Anonymous users can insert unowned activities" ON public.activities;
+DROP POLICY IF EXISTS "Users can insert own goals" ON public.goals;
+DROP POLICY IF EXISTS "Users can update own goals" ON public.goals;
+DROP POLICY IF EXISTS "Users can delete own goals" ON public.goals;
+DROP POLICY IF EXISTS "Users can view own activities" ON public.activities;
+DROP POLICY IF EXISTS "Users can insert own activities" ON public.activities;
+DROP POLICY IF EXISTS "Users can update own activities" ON public.activities;
+DROP POLICY IF EXISTS "Users can delete own activities" ON public.activities;
+DROP POLICY IF EXISTS "Users can insert own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
+
+CREATE OR REPLACE FUNCTION public.current_profile_id()
+RETURNS UUID
+LANGUAGE SQL
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT id FROM public.profiles WHERE user_id = auth.uid() LIMIT 1
+$$;
+
+REVOKE ALL ON FUNCTION public.current_profile_id() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.current_profile_id() TO authenticated;
+
+CREATE POLICY "Users can view own profile" ON public.profiles
+  FOR SELECT TO authenticated USING (user_id = auth.uid());
+CREATE POLICY "Users can insert own profile" ON public.profiles
+  FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid());
+CREATE POLICY "Users can update own profile" ON public.profiles
+  FOR UPDATE TO authenticated USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY "Users can view own goals" ON public.goals
+  FOR SELECT TO authenticated USING (user_id = (SELECT public.current_profile_id()));
+CREATE POLICY "Users can insert own goals" ON public.goals
+  FOR INSERT TO authenticated WITH CHECK (user_id = (SELECT public.current_profile_id()));
+CREATE POLICY "Users can update own goals" ON public.goals
+  FOR UPDATE TO authenticated USING (user_id = (SELECT public.current_profile_id()))
+  WITH CHECK (user_id = (SELECT public.current_profile_id()));
+CREATE POLICY "Users can delete own goals" ON public.goals
+  FOR DELETE TO authenticated USING (user_id = (SELECT public.current_profile_id()));
+
+CREATE POLICY "Users can view own activities" ON public.activities
+  FOR SELECT TO authenticated USING (user_id = (SELECT public.current_profile_id()));
+CREATE POLICY "Users can insert own activities" ON public.activities
+  FOR INSERT TO authenticated WITH CHECK (user_id = (SELECT public.current_profile_id()));
+CREATE POLICY "Users can update own activities" ON public.activities
+  FOR UPDATE TO authenticated USING (user_id = (SELECT public.current_profile_id()))
+  WITH CHECK (user_id = (SELECT public.current_profile_id()));
+CREATE POLICY "Users can delete own activities" ON public.activities
+  FOR DELETE TO authenticated USING (user_id = (SELECT public.current_profile_id()));
+
+CREATE OR REPLACE FUNCTION public.handle_new_auth_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  INSERT INTO public.profiles (user_id, full_name, avatar_url)
+  VALUES (
+    NEW.id,
+    COALESCE(
+      NULLIF(NEW.raw_user_meta_data->>'full_name', ''),
+      NULLIF(NEW.raw_user_meta_data->>'name', ''),
+      NULLIF(split_part(COALESCE(NEW.email, ''), '@', 1), ''),
+      'Endurance Athlete'
+    ),
+    COALESCE(NEW.raw_user_meta_data->>'avatar_url', NEW.raw_user_meta_data->>'picture')
+  )
+  ON CONFLICT (user_id) DO NOTHING;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_auth_user();
+
+NOTIFY pgrst, 'reload schema';

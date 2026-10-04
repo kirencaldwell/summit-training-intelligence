@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Mountain, ShieldCheck, Zap, User, Upload, Sparkles, RefreshCw } from 'lucide-react';
+import { Activity, Mountain, ShieldCheck, Zap, User, Upload, Sparkles, RefreshCw, LogOut } from 'lucide-react';
 import type { AthleteProfile } from '../types';
 
 interface NavbarProps {
@@ -12,6 +12,9 @@ interface NavbarProps {
   isSyncingStrava: boolean;
   onOpenProfile: () => void;
   onOpenOnboarding: () => void;
+  isAuthenticated?: boolean;
+  authEmail?: string;
+  onSignOut?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -24,6 +27,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   isSyncingStrava,
   onOpenProfile,
   onOpenOnboarding,
+  isAuthenticated = false,
+  authEmail,
+  onSignOut,
 }) => {
   return (
     <header className="sticky top-0 z-40 w-full glass-panel border-b border-white/10 bg-summit-dark/80 backdrop-blur-md">
@@ -142,18 +148,31 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>{isSyncingStrava ? 'Importing...' : 'Import Data'}</span>
             </button>
 
-            {/* Mode Switcher Badge */}
-            <button
-              onClick={onToggleDataMode}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
-                dataMode === 'supabase'
-                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                  : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
-              }`}
-              title="Click to toggle between Supabase Live DB and Demo Mode"
-            >
-              {dataMode === 'supabase' ? 'Supabase DB' : 'Demo Mode'}
-            </button>
+            {isAuthenticated ? (
+              <div className="flex items-center gap-2">
+                <span className="hidden xl:inline text-xs text-slate-400 max-w-40 truncate">{authEmail}</span>
+                <button
+                  onClick={() => onSignOut?.()}
+                  title="Sign out"
+                  aria-label="Sign out"
+                  className="p-2 rounded-lg border border-white/10 text-slate-300 hover:text-white hover:bg-white/5"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={onToggleDataMode}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                  dataMode === 'supabase'
+                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                    : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                }`}
+                title="Click to toggle between Supabase Live DB and Demo Mode"
+              >
+                {dataMode === 'supabase' ? 'Supabase DB' : 'Demo Mode'}
+              </button>
+            )}
 
             {/* Profile Avatar */}
             <button

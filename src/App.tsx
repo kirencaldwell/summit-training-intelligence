@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
+import type { User } from '@supabase/supabase-js';
 import type { Activity, AthleteProfile, Goal, PMCDayPoint, PowerCurvePoint } from './types';
-import { dataService } from './lib/supabase';
+import { dataService, isSupabaseConfigured, supabase } from './lib/supabase';
 import { triggerMockStravaSync, parseStravaAuthCode } from './lib/strava';
 import { calculatePMC, calculatePowerCurve, hasPowerCurveData } from './lib/trainingMath';
 import {
   parseCorosAuthCode,
   exchangeCorosCode,
   setCorosTokens,
+  clearCorosTokens,
   syncCorosActivities,
   getStoredCorosClientId,
 } from './lib/coros';
@@ -21,6 +23,7 @@ import { AthleteProfileModal } from './components/AthleteProfileModal';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { DataSyncModal } from './components/StravaConnectModal';
 import { GoalsManager } from './components/GoalsManager';
+import { GoogleSignInScreen } from './components/GoogleSignInScreen';
 
 import { Mountain, Zap } from 'lucide-react';
 
@@ -34,6 +37,9 @@ export function App() {
   const [profile, setProfile] = useState<AthleteProfile | null>(null);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
+  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(!isSupabaseConfigured);
+  const [appError, setAppError] = useState('');
 
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
@@ -51,39 +57,9 @@ export function App() {
     setGoals(g);
   };
 
-  useEffect(() => {
-    loadAppData();
-
-    // Detect Strava OAuth redirect code
-    const stravaCode = parseStravaAuthCode();
-    if (stravaCode) {
-      handleSyncStrava();
-      window.history.replaceState({}, document.title, window.location.pathname);
-      return;
-    }
-
-    // Detect COROS OAuth redirect code
-    const corosCode = parseCorosAuthCode();
-    if (corosCode) {
-      const clientId = getStoredCorosClientId();
-      if (clientId) {
-        exchangeCorosCode(corosCode, clientId)
-          .then(({ accessToken, refreshToken }) => {
-            setCorosTokens(accessToken, refreshToken);
-            return syncCorosActivities(accessToken);
-          })
-          .then((newActivities) => {
-            setActivities((prev) => [...newActivities, ...prev]);
-          })
-          .catch((err) => console.error('COROS sync failed', err));
-      }
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  }, [dataMode]);
-
   const handleAddGoal = async (newGoal: Goal) => {
-    await dataService.addGoal(newGoal);
-    setGoals((prev) => [newGoal, ...prev]);
+    const savedGoal = await dataService.addGoal(newGoal);
+    setGoals((prev) => [savedGoal, ...prev]);
   };
 
   const handleCompleteGoal = async (goalId: string, debriefNotes: string) => {
@@ -97,10 +73,10 @@ export function App() {
   };
 
   const handleCompleteOnboarding = async (newProfile: AthleteProfile, newGoal: Goal) => {
-    await dataService.updateProfile(newProfile);
-    await dataService.addGoal(newGoal);
-    setProfile(newProfile);
-    setGoals((prev) => [newGoal, ...prev.filter(g => g.id !== newGoal.id)]);
+    const savedProfile = await dataService.updateProfile(newProfile);
+    const savedGoal = await dataService.addGoal(newGoal);
+    setProfile(savedProfile);
+    setGoals((prev) => [savedGoal, ...prev.filter(g => g.id !== savedGoal.id)]);
     setIsOnboardingOpen(false);
   };
 
@@ -134,6 +110,120 @@ export function App() {
     const newProfile = await dataService.updateProfile(updated);
     setProfile(newProfile);
   };
+
+  const handleSignOut = async () => {
+    if (!supabase) return;
+    const { error } = await supabase.auth.signOut();
+    if (error) setAppError(`Sign out failed: ${error.message}`);
+    else clearCorosTokens();
+  };
+
+  useEffect(() => {
+    if (!supabase) {
+      setAuthReady(true);
+      void loadAppData().catch((err) => setAppError(err.message));
+      return;
+    }
+
+    let active = true;
+    const applyUser = (user: User | null) => {
+      dataService.setAuthenticatedUser(user);
+      setAuthUser(user);
+      setAuthReady(true);
+      if (!user) {
+        setProfile(null);
+        setActivities([]);
+        setGoals([]);
+        setAppError('');
+      }
+    };
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (active) applyUser(session?.user || null);
+    });
+
+    void supabase.auth.getSession()
+      .then(({ data, error }) => {
+        if (!active) return;
+        if (error) setAppError(error.message);
+        applyUser(data.session?.user || null);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setAppError(err.message || 'Unable to restore your Google session.');
+        setAuthReady(true);
+      });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!supabase || !authUser) return;
+    let active = true;
+    dataService.setAuthenticatedUser(authUser);
+    setAppError('');
+    void loadAppData()
+      .then(() => { if (active) setAppError(''); })
+      .catch((err) => { if (active) setAppError(err.message || 'Unable to load your account data.'); });
+    return () => { active = false; };
+  }, [authUser]);
+
+  useEffect(() => {
+    if (!authReady || (isSupabaseConfigured && !authUser)) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const stravaCode = params.has('scope') ? parseStravaAuthCode() : null;
+    if (stravaCode) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+      void handleSyncStrava();
+      return;
+    }
+
+    const corosCode = params.get('coros_code') || (params.has('scope') ? parseCorosAuthCode() : null);
+    if (corosCode) {
+      const clientId = getStoredCorosClientId();
+      if (clientId) {
+        exchangeCorosCode(corosCode, clientId)
+          .then(({ accessToken, refreshToken }) => {
+            setCorosTokens(accessToken, refreshToken);
+            return syncCorosActivities(accessToken);
+          })
+          .then((newActivities) => {
+            setActivities((prev) => [...newActivities, ...prev]);
+          })
+          .catch((err) => setAppError(`COROS sync failed: ${err.message}`));
+      }
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, [authReady, authUser]);
+
+  if (isSupabaseConfigured && !authReady) {
+    return (
+      <div className="min-h-screen bg-summit-dark flex items-center justify-center text-cyan-400 font-mono text-sm">
+        Checking Google sign-in...
+      </div>
+    );
+  }
+
+  if (isSupabaseConfigured && !authUser) {
+    return <GoogleSignInScreen error={appError} />;
+  }
+
+  if (appError && authUser) {
+    return (
+      <div className="min-h-screen bg-summit-dark flex flex-col items-center justify-center gap-4 px-4 text-center text-slate-100">
+        <h1 className="text-xl font-bold">Could not load your private training data</h1>
+        <p className="max-w-xl text-sm text-rose-300">{appError}</p>
+        <div className="flex gap-3">
+          <button onClick={() => window.location.reload()} className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950">Retry</button>
+          <button onClick={handleSignOut} className="rounded-lg border border-white/15 px-4 py-2 text-sm text-slate-200">Sign out</button>
+        </div>
+      </div>
+    );
+  }
 
   if (!profile) {
     return (
@@ -170,6 +260,9 @@ export function App() {
         isSyncingStrava={isSyncingStrava}
         onOpenProfile={() => setIsProfileModalOpen(true)}
         onOpenOnboarding={() => setIsOnboardingOpen(true)}
+        isAuthenticated={Boolean(authUser)}
+        authEmail={authUser?.email || ''}
+        onSignOut={handleSignOut}
       />
 
       {/* Main Content Body */}

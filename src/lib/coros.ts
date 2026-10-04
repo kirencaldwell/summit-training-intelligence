@@ -189,8 +189,8 @@ export async function syncCorosActivities(
   for (const raw of rawList) {
     try {
       const activity = await ingestCorosActivity(raw);
-      await dataService.addActivity(activity);
-      activities.push(activity);
+      const savedActivity = await dataService.addActivity(activity);
+      activities.push(savedActivity);
     } catch (err) {
       console.warn('Failed to ingest COROS activity', raw, err);
     }
