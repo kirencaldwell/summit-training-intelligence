@@ -11,6 +11,7 @@ import { PowerCurveChart } from './components/PowerCurveChart';
 import { AICoachPanel } from './components/AICoachPanel';
 import { ActivityDetailModal } from './components/ActivityDetailModal';
 import { AthleteProfileModal } from './components/AthleteProfileModal';
+import { OnboardingWizard } from './components/OnboardingWizard';
 
 import { Mountain, Zap } from 'lucide-react';
 
@@ -25,6 +26,7 @@ export function App() {
 
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
   const [isSyncingStrava, setIsSyncingStrava] = useState<boolean>(false);
 
   // Load active data
@@ -40,6 +42,13 @@ export function App() {
   useEffect(() => {
     loadAppData();
   }, [dataMode]);
+
+  const handleCompleteOnboarding = async (newProfile: AthleteProfile, newGoal: Goal) => {
+    await dataService.updateProfile(newProfile);
+    setProfile(newProfile);
+    setGoals((prev) => [newGoal, ...prev.filter(g => g.id !== newGoal.id)]);
+    setIsOnboardingOpen(false);
+  };
 
   const handleToggleDataMode = () => {
     const nextMode = dataMode === 'demo' ? 'supabase' : 'demo';
@@ -89,6 +98,7 @@ export function App() {
         onSyncStrava={handleSyncStrava}
         isSyncingStrava={isSyncingStrava}
         onOpenProfile={() => setIsProfileModalOpen(true)}
+        onOpenOnboarding={() => setIsOnboardingOpen(true)}
       />
 
       {/* Main Content Body */}
@@ -173,6 +183,14 @@ export function App() {
         isOpen={isProfileModalOpen}
         onClose={() => setIsProfileModalOpen(false)}
         onSaveProfile={handleSaveProfile}
+      />
+
+      {/* Onboarding Wizard Setup Modal */}
+      <OnboardingWizard
+        isOpen={isOnboardingOpen}
+        onCompleteOnboarding={handleCompleteOnboarding}
+        onSyncStrava={handleSyncStrava}
+        isSyncingStrava={isSyncingStrava}
       />
 
       {/* Modern Footer */}

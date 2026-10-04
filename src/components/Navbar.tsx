@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Mountain, ShieldCheck, Zap, User, RefreshCw } from 'lucide-react';
+import { Activity, Mountain, ShieldCheck, Zap, User, RefreshCw, Sparkles } from 'lucide-react';
 import type { AthleteProfile } from '../types';
 
 interface NavbarProps {
@@ -11,6 +11,7 @@ interface NavbarProps {
   onSyncStrava: () => void;
   isSyncingStrava: boolean;
   onOpenProfile: () => void;
+  onOpenOnboarding: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -22,6 +23,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSyncStrava,
   isSyncingStrava,
   onOpenProfile,
+  onOpenOnboarding,
 }) => {
   return (
     <header className="sticky top-0 z-40 w-full glass-panel border-b border-white/10 bg-summit-dark/80 backdrop-blur-md">
@@ -104,6 +106,16 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Controls & Athlete Badge */}
           <div className="flex items-center space-x-3">
+            {/* Setup Wizard Button */}
+            <button
+              onClick={onOpenOnboarding}
+              className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-semibold transition-all"
+              title="Run Initial Setup Wizard"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="hidden sm:inline">Setup Wizard</span>
+            </button>
+
             {/* Strava Sync Button */}
             <button
               onClick={onSyncStrava}
