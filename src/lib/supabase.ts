@@ -111,16 +111,16 @@ class DataService {
   }
 
   public async addActivity(newActivity: Activity): Promise<Activity> {
-    this.localActivities.unshift(newActivity);
-    this.saveLocalState();
-
     if (this.mode === 'supabase' && supabase) {
-      try {
-        await supabase.from('activities').insert(newActivity);
-      } catch (err) {
-        console.warn('Supabase activity insertion failed', err);
+      const { error } = await supabase.from('activities').insert(newActivity);
+      if (error) {
+        console.warn('Supabase activity insertion failed', error);
+        throw new Error(`Supabase activity insertion failed: ${error.message}`);
       }
     }
+
+    this.localActivities.unshift(newActivity);
+    this.saveLocalState();
     return newActivity;
   }
 

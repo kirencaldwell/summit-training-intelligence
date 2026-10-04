@@ -151,7 +151,7 @@ export async function parseFitFile(file: File): Promise<Activity> {
         const title = file.name.replace(/\.fit$/i, '') || `${sportLabel} — ${dateStr}`;
 
         const activity: Activity = {
-          id: `fit-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          id: crypto.randomUUID(),
           title,
           sport_type: sportType,
           start_date: startDate,
@@ -196,8 +196,8 @@ export async function parseFitFiles(files: File[]): Promise<FitImportResult[]> {
 
   for (const file of files) {
     try {
-      const activity = await parseFitFile(file);
-      await dataService.addActivity(activity);
+      const parsedActivity = await parseFitFile(file);
+      const activity = await dataService.addActivity(parsedActivity);
       results.push({ file: file.name, status: 'success', activity });
     } catch (err: any) {
       results.push({ file: file.name, status: 'error', error: err.message });
