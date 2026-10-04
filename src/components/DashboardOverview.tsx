@@ -21,7 +21,18 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onOpenActivity,
   onNavigateTab,
 }) => {
-  const latestPmc = pmcData[pmcData.length - 1] || { ctl: 68, atl: 72, tsb: -4, tss: 0 };
+  const latestPmc = pmcData[pmcData.length - 1] || { ctl: 0, atl: 0, tsb: 0, tss: 0, date: '' };
+  const previousWeekPmc = pmcData[Math.max(0, pmcData.length - 8)] || latestPmc;
+  const hasTrainingLoad = activities.some((activity) => (activity.training_stress_score || 0) > 0);
+  const weeklyDelta = (current: number, previous: number) => {
+    const delta = Math.round((current - previous) * 10) / 10;
+    return `${delta > 0 ? '+' : ''}${delta} vs last week`;
+  };
+  const formLabel = latestPmc.tsb < -20
+    ? 'High fatigue'
+    : latestPmc.tsb > 15
+    ? 'Fresh'
+    : hasTrainingLoad ? 'Building' : 'No load data';
   const bakerGoal = goals.find((g) => g.name.includes('Mount Baker')) || goals[0];
 
   // Days remaining calculation
@@ -109,9 +120,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </span>
           <div className="flex items-baseline space-x-2">
             <span className="text-3xl font-extrabold text-white">{latestPmc.ctl}</span>
-            <span className="text-xs text-emerald-400 font-bold">+4 vs last wk</span>
+            <span className="text-xs text-emerald-400 font-bold">{hasTrainingLoad ? weeklyDelta(latestPmc.ctl, previousWeekPmc.ctl) : 'No TSS history'}</span>
           </div>
-          <p className="text-[11px] text-slate-400">Base Fitness Index (42-day rolling avg)</p>
+          <p className="text-[11px] text-slate-400">Calculated from activity TSS (42-day load)</p>
         </div>
 
         {/* ATL Fatigue */}
@@ -121,7 +132,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </span>
           <div className="flex items-baseline space-x-2">
             <span className="text-3xl font-extrabold text-white">{latestPmc.atl}</span>
-            <span className="text-xs text-rose-400 font-bold">+8 high load</span>
+            <span className="text-xs text-rose-400 font-bold">{hasTrainingLoad ? weeklyDelta(latestPmc.atl, previousWeekPmc.atl) : 'No TSS history'}</span>
           </div>
           <p className="text-[11px] text-slate-400">Current Fatigue (7-day rolling avg)</p>
         </div>
@@ -135,7 +146,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <span className={`text-3xl font-extrabold ${latestPmc.tsb >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
               {latestPmc.tsb > 0 ? `+${latestPmc.tsb}` : latestPmc.tsb}
             </span>
-            <span className="text-xs text-amber-400 font-bold">Productive Overload</span>
+            <span className="text-xs text-amber-400 font-bold">{formLabel}</span>
           </div>
           <p className="text-[11px] text-slate-400">Form Balance (CTL - ATL)</p>
         </div>

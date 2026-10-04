@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS public.activities (
   -- Detailed Zones JSONB
   time_in_hr_zones JSONB, -- { "z1": 600, "z2": 1800, "z3": 1200, "z4": 600, "z5": 0 }
   time_in_power_zones JSONB, -- { "z1": 300, "z2": 1500, "z3": 1200, "z4": 900, "z5": 300, "z6": 0, "z7": 0 }
+  power_curve_best_efforts JSONB, -- Best average watts by duration in seconds
   
   -- Route geometry polyline (encoded or array)
   map_summary_polyline TEXT,
@@ -105,6 +106,9 @@ CREATE TABLE IF NOT EXISTS public.activities (
   
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE public.activities
+  ADD COLUMN IF NOT EXISTS power_curve_best_efforts JSONB;
 
 -- ---------------------------------------------------------
 -- INDEXES FOR PERFORMANCE

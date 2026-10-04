@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import type { Activity, AthleteProfile, Goal, PMCDayPoint, PowerCurvePoint } from './types';
 import { dataService } from './lib/supabase';
 import { triggerMockStravaSync, parseStravaAuthCode } from './lib/strava';
-import { calculatePMC, calculatePowerCurve } from './lib/trainingMath';
+import { calculatePMC, calculatePowerCurve, hasPowerCurveData } from './lib/trainingMath';
 import {
   parseCorosAuthCode,
   exchangeCorosCode,
@@ -24,9 +24,11 @@ import { GoalsManager } from './components/GoalsManager';
 
 import { Mountain, Zap } from 'lucide-react';
 
+const CURRENT_YEAR = new Date().getFullYear();
 
 export function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'goals' | 'activities' | 'power' | 'coach'>('dashboard');
+  const [powerCurveYear, setPowerCurveYear] = useState<'all' | number>('all');
   const [dataMode, setDataMode] = useState<'demo' | 'supabase'>(dataService.getMode());
   
   const [profile, setProfile] = useState<AthleteProfile | null>(null);
@@ -143,7 +145,17 @@ export function App() {
 
   // Calculated engine series
   const pmcData: PMCDayPoint[] = calculatePMC(activities, 90);
-  const powerCurveData: PowerCurvePoint[] = calculatePowerCurve(activities, profile.weight_kg);
+  const powerCurveYears = Array.from(new Set([
+    CURRENT_YEAR,
+    ...activities
+      .map((activity) => new Date(activity.start_date).getFullYear())
+      .filter(Number.isFinite),
+  ])).sort((a, b) => b - a);
+  const powerCurveActivities = powerCurveYear === 'all'
+    ? activities
+    : activities.filter((activity) => new Date(activity.start_date).getFullYear() === powerCurveYear);
+  const powerCurveData: PowerCurvePoint[] = calculatePowerCurve(powerCurveActivities, profile.weight_kg);
+  const powerCurveActivityCount = powerCurveActivities.filter(hasPowerCurveData).length;
 
   return (
     <div className="min-h-screen bg-summit-dark text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-slate-950">
@@ -206,18 +218,34 @@ export function App() {
           <div className="space-y-6">
             <div className="border-b border-white/10 pb-4">
               <h1 className="text-2xl font-extrabold text-white tracking-tight">Power Duration Curve & Peak Analytics</h1>
-              <p className="text-xs text-slate-400">Peak power outputs across durations (1s to 2h) scaled for {profile.weight_kg}kg bodyweight</p>
+              <p className="text-xs text-slate-400">Peak power outputs from recorded activity data, scaled for {profile.weight_kg}kg bodyweight</p>
             </div>
 
             <div className="glass-panel p-6 rounded-2xl border-white/10 space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <h2 className="text-lg font-bold text-white flex items-center">
-                  <Zap className="w-5 h-5 mr-2 text-amber-400" /> Multi-Sport Power Curve
+                  <Zap className="w-5 h-5 mr-2 text-amber-400" />
+                  {powerCurveYear === 'all' ? 'Total Power Curve' : `${powerCurveYear} Power Curve`}
                 </h2>
-                <span className="text-xs font-bold text-amber-400 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
-                  {profile.ftp}W FTP ({ (profile.ftp / profile.weight_kg).toFixed(2) } W/kg)
-                </span>
+                <div className="flex items-center gap-3">
+                  <label htmlFor="power-curve-year" className="text-xs text-slate-400">Period</label>
+                  <select
+                    id="power-curve-year"
+                    value={powerCurveYear}
+                    onChange={(event) => setPowerCurveYear(event.target.value === 'all' ? 'all' : Number(event.target.value))}
+                    className="bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-400 focus:outline-none"
+                  >
+                    <option value="all">All time</option>
+                    {powerCurveYears.map((year) => <option key={year} value={year}>{year}</option>)}
+                  </select>
+                  <span className="text-xs font-bold text-amber-400 bg-amber-500/10 px-3 py-1.5 rounded-full border border-amber-500/20 whitespace-nowrap">
+                    {profile.ftp}W FTP ({(profile.ftp / profile.weight_kg).toFixed(2)} W/kg)
+                  </span>
+                </div>
               </div>
+              <p className="text-xs text-slate-400">
+                {powerCurveActivityCount} of {powerCurveActivities.length} activities contain power data. Curves combine best efforts across the selected period.
+              </p>
               <PowerCurveChart data={powerCurveData} />
             </div>
 

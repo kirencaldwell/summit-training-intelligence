@@ -60,6 +60,7 @@ export interface Activity {
   // Stream data & maps
   map_summary_polyline?: string;
   streams_data?: MetricStreamPoint[];
+  power_curve_best_efforts?: Record<string, number>;
   
   // Equipment & Notes
   gear_notes?: string;

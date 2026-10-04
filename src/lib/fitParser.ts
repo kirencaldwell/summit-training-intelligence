@@ -12,6 +12,7 @@ import {
   calculateVAM,
   calculateHRZones,
   calculatePowerZones,
+  calculateBestPowerEfforts,
 } from './trainingMath';
 import { dataService } from './supabase';
 
@@ -95,6 +96,24 @@ export async function parseFitFile(file: File): Promise<Activity> {
           .map((r: any) => r.speed)
           .filter((v): v is number => typeof v === 'number' && v >= 0);
 
+        const hasPowerSamples = records.some((record: any) => typeof record.power === 'number');
+        const timestampValues = records.map((record: any) => {
+          const timestamp = record.timestamp;
+          if (timestamp instanceof Date) return timestamp.getTime();
+          if (typeof timestamp === 'number') return timestamp > 1e12 ? timestamp : timestamp * 1000;
+          if (typeof timestamp === 'string') return Date.parse(timestamp);
+          return Number.NaN;
+        });
+        const timestampsAreUsable = timestampValues.every(Number.isFinite);
+        const firstTimestamp = timestampValues[0];
+        const powerSamples = hasPowerSamples
+          ? records.map((record: any, index: number) => ({
+              time: timestampsAreUsable ? (timestampValues[index] - firstTimestamp) / 1000 : index,
+              watts: typeof record.power === 'number' ? record.power : 0,
+            }))
+          : [];
+        const powerCurveBestEfforts = calculateBestPowerEfforts(powerSamples);
+
         // ── Calculated metrics ────────────────────────────────────────────
         const avgWatts: number | undefined =
           session.avg_power ||
@@ -172,6 +191,9 @@ export async function parseFitFile(file: File): Promise<Activity> {
           time_in_hr_zones: hrZones,
           time_in_power_zones: powerZones,
           streams_data: streamPoints.length > 0 ? streamPoints : undefined,
+          power_curve_best_efforts: Object.keys(powerCurveBestEfforts).length > 0
+            ? powerCurveBestEfforts
+            : undefined,
         };
 
         resolve(activity);

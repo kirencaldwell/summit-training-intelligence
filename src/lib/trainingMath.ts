@@ -1,4 +1,16 @@
-import type { Activity, PMCDayPoint, PowerCurvePoint, ZoneDistribution } from '../types';
+import type { Activity, MetricStreamPoint, PMCDayPoint, PowerCurvePoint, ZoneDistribution } from '../types';
+
+const POWER_CURVE_DURATIONS = [
+  { sec: 1, label: '1s' },
+  { sec: 5, label: '5s' },
+  { sec: 15, label: '15s' },
+  { sec: 30, label: '30s' },
+  { sec: 60, label: '1m' },
+  { sec: 300, label: '5m' },
+  { sec: 1200, label: '20m' },
+  { sec: 3600, label: '1h' },
+  { sec: 7200, label: '2h' },
+];
 
 /**
  * Calculates Normalized Power (NP) using 30-second rolling average 4th power algorithm
@@ -103,13 +115,21 @@ export function calculatePowerZones(wattsStream: number[], ftp: number): ZoneDis
 export function calculatePMC(activities: Activity[], daysBack: number = 90): PMCDayPoint[] {
   const result: PMCDayPoint[] = [];
   const today = new Date();
-  
-  // Create daily map of TSS
+  today.setUTCHours(0, 0, 0, 0);
+  const displayStart = new Date(today);
+  displayStart.setUTCDate(displayStart.getUTCDate() - Math.max(0, Math.floor(daysBack)));
+
   const tssMap = new Map<string, number>();
+  let firstActivityDay: Date | undefined;
   activities.forEach((act) => {
-    const dateStr = act.start_date.split('T')[0];
+    const activityDate = new Date(act.start_date);
+    if (!Number.isFinite(activityDate.getTime())) return;
+    activityDate.setUTCHours(0, 0, 0, 0);
+    if (!firstActivityDay || activityDate < firstActivityDay) firstActivityDay = activityDate;
+
+    const dateStr = activityDate.toISOString().slice(0, 10);
     const existing = tssMap.get(dateStr) || 0;
-    tssMap.set(dateStr, existing + (act.training_stress_score || 0));
+    tssMap.set(dateStr, existing + Math.max(0, act.training_stress_score || 0));
   });
 
   const ctlTC = 42; // Chronic Training Load time constant (days)
@@ -118,52 +138,86 @@ export function calculatePMC(activities: Activity[], daysBack: number = 90): PMC
   const ctlLambda = 1 - Math.exp(-1 / ctlTC);
   const atlLambda = 1 - Math.exp(-1 / atlTC);
 
-  let ctl = 45; // Baseline CTL
-  let atl = 50; // Baseline ATL
+  let ctl = 0;
+  let atl = 0;
 
-  // Generate date array from (today - daysBack) to today
-  const startDate = new Date();
-  startDate.setDate(today.getDate() - daysBack);
+  const startDate = firstActivityDay && firstActivityDay < displayStart
+    ? firstActivityDay
+    : displayStart;
 
   const curr = new Date(startDate);
   while (curr <= today) {
-    const dateStr = curr.toISOString().split('T')[0];
+    const dateStr = curr.toISOString().slice(0, 10);
     const dailyTss = tssMap.get(dateStr) || 0;
 
     ctl = ctl + (dailyTss - ctl) * ctlLambda;
     atl = atl + (dailyTss - atl) * atlLambda;
     const tsb = ctl - atl;
 
-    result.push({
-      date: dateStr,
-      ctl: Math.round(ctl * 10) / 10,
-      atl: Math.round(atl * 10) / 10,
-      tsb: Math.round(tsb * 10) / 10,
-      tss: dailyTss,
-    });
+    if (curr >= displayStart) {
+      result.push({
+        date: dateStr,
+        ctl: Math.round(ctl * 10) / 10,
+        atl: Math.round(atl * 10) / 10,
+        tsb: Math.round(tsb * 10) / 10,
+        tss: dailyTss,
+      });
+    }
 
-    curr.setDate(curr.getDate() + 1);
+    curr.setUTCDate(curr.getUTCDate() + 1);
   }
 
   return result;
+}
+
+export function calculateBestPowerEfforts(
+  streamData: MetricStreamPoint[]
+): Record<string, number> {
+  const samples = streamData
+    .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.watts) && point.watts! >= 0)
+    .sort((a, b) => a.time - b.time);
+  if (samples.length === 0) return {};
+
+  const intervals = samples
+    .slice(1)
+    .map((sample, index) => sample.time - samples[index].time)
+    .filter((interval) => interval > 0);
+  intervals.sort((a, b) => a - b);
+  const sampleInterval = intervals.length > 0
+    ? intervals[Math.floor(intervals.length / 2)]
+    : 1;
+  const watts = samples.map((sample) => sample.watts!);
+  const efforts: Record<string, number> = {};
+
+  for (const target of POWER_CURVE_DURATIONS) {
+    if (sampleInterval > target.sec * 1.25) continue;
+    const windowSize = Math.max(1, Math.round(target.sec / sampleInterval));
+    if (windowSize > watts.length) continue;
+
+    let windowTotal = watts.slice(0, windowSize).reduce((total, value) => total + value, 0);
+    let bestAverage = windowTotal / windowSize;
+    for (let index = windowSize; index < watts.length; index++) {
+      windowTotal += watts[index] - watts[index - windowSize];
+      bestAverage = Math.max(bestAverage, windowTotal / windowSize);
+    }
+
+    if (bestAverage > 0) efforts[String(target.sec)] = Math.round(bestAverage);
+  }
+
+  return efforts;
+}
+
+export function hasPowerCurveData(activity: Activity): boolean {
+  return (activity.max_power || 0) > 0
+    || Object.values(activity.power_curve_best_efforts || {}).some((watts) => watts > 0)
+    || Boolean(activity.streams_data?.some((point) => typeof point.watts === 'number' && point.watts > 0));
 }
 
 /**
  * Calculates Power Curve across durations
  */
 export function calculatePowerCurve(activities: Activity[], weightKg: number = 70.5): PowerCurvePoint[] {
-  const durationTargets = [
-    { sec: 1, label: '1s' },
-    { sec: 5, label: '5s' },
-    { sec: 15, label: '15s' },
-    { sec: 30, label: '30s' },
-    { sec: 60, label: '1m' },
-    { sec: 300, label: '5m' },
-    { sec: 1200, label: '20m' },
-    { sec: 3600, label: '1h' },
-  ];
-
-  const curve: PowerCurvePoint[] = durationTargets.map((dt) => ({
+  const curve: PowerCurvePoint[] = POWER_CURVE_DURATIONS.map((dt) => ({
     durationSeconds: dt.sec,
     label: dt.label,
     watts: 0,
@@ -171,27 +225,18 @@ export function calculatePowerCurve(activities: Activity[], weightKg: number = 7
   }));
 
   activities.forEach((act) => {
-    if (!act.streams_data) return;
-    const watts = act.streams_data.map((s) => s.watts || 0);
+    const sampledEfforts = calculateBestPowerEfforts(act.streams_data || []);
+    POWER_CURVE_DURATIONS.forEach((target, index) => {
+      const storedEffort = act.power_curve_best_efforts?.[String(target.sec)] || 0;
+      const sampledEffort = sampledEfforts[String(target.sec)] || 0;
+      const summaryPeak = target.sec === 1 ? act.max_power || 0 : 0;
+      const bestEffort = Math.max(storedEffort, sampledEffort, summaryPeak);
 
-    durationTargets.forEach((dt, idx) => {
-      let maxAvg = 0;
-      if (watts.length >= dt.sec) {
-        let currentSum = watts.slice(0, dt.sec).reduce((a, b) => a + b, 0);
-        maxAvg = currentSum / dt.sec;
-
-        for (let i = dt.sec; i < watts.length; i++) {
-          currentSum += watts[i] - watts[i - dt.sec];
-          const avg = currentSum / dt.sec;
-          if (avg > maxAvg) maxAvg = avg;
-        }
-      } else if (watts.length > 0 && dt.sec === 1) {
-        maxAvg = Math.max(...watts);
-      }
-
-      if (maxAvg > curve[idx].watts) {
-        curve[idx].watts = Math.round(maxAvg);
-        curve[idx].wattsPerKg = Number((maxAvg / weightKg).toFixed(2));
+      if (bestEffort > curve[index].watts) {
+        curve[index].watts = Math.round(bestEffort);
+        curve[index].wattsPerKg = weightKg > 0
+          ? Number((bestEffort / weightKg).toFixed(2))
+          : 0;
       }
     });
   });

@@ -7,6 +7,14 @@ interface PowerCurveChartProps {
 }
 
 export const PowerCurveChart: React.FC<PowerCurveChartProps> = ({ data }) => {
+  if (!data.some((point) => point.watts > 0)) {
+    return (
+      <div className="w-full h-72 flex items-center justify-center border border-dashed border-white/10 rounded-lg text-sm text-slate-400">
+        No usable power data for this period
+      </div>
+    );
+  }
+
   return (
     <div className="w-full h-72">
       <ResponsiveContainer width="100%" height="100%">
