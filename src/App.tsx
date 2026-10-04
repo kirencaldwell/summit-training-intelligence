@@ -13,13 +13,14 @@ import { ActivityDetailModal } from './components/ActivityDetailModal';
 import { AthleteProfileModal } from './components/AthleteProfileModal';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { StravaConnectModal } from './components/StravaConnectModal';
+import { GoalsManager } from './components/GoalsManager';
 import { parseStravaAuthCode } from './lib/strava';
 
 import { Mountain, Zap } from 'lucide-react';
 
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'activities' | 'power' | 'coach'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'goals' | 'activities' | 'power' | 'coach'>('dashboard');
   const [dataMode, setDataMode] = useState<'demo' | 'supabase'>(dataService.getMode());
   
   const [profile, setProfile] = useState<AthleteProfile | null>(null);
@@ -53,6 +54,21 @@ export function App() {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, [dataMode]);
+
+  const handleAddGoal = async (newGoal: Goal) => {
+    await dataService.addGoal(newGoal);
+    setGoals((prev) => [newGoal, ...prev]);
+  };
+
+  const handleCompleteGoal = async (goalId: string, debriefNotes: string) => {
+    await dataService.completeGoal(goalId, debriefNotes);
+    await loadAppData();
+  };
+
+  const handleDeleteGoal = async (goalId: string) => {
+    await dataService.deleteGoal(goalId);
+    setGoals((prev) => prev.filter(g => g.id !== goalId));
+  };
 
   const handleCompleteOnboarding = async (newProfile: AthleteProfile, newGoal: Goal) => {
     await dataService.updateProfile(newProfile);
@@ -123,6 +139,15 @@ export function App() {
             powerCurve={powerCurveData}
             onOpenActivity={setSelectedActivity}
             onNavigateTab={setActiveTab}
+          />
+        )}
+
+        {activeTab === 'goals' && (
+          <GoalsManager
+            goals={goals}
+            onAddGoal={handleAddGoal}
+            onCompleteGoal={handleCompleteGoal}
+            onDeleteGoal={handleDeleteGoal}
           />
         )}
 

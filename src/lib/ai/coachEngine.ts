@@ -93,7 +93,7 @@ export class AICoachEngine {
     const point20m = powerCurve.find(p => p.label === '20m')?.watts || 275;
     const targetW = goal?.target_power_watts || 280;
 
-    const daysRemaining = goal 
+    const daysRemaining = goal && goal.target_date
       ? Math.max(0, Math.ceil((new Date(goal.target_date).getTime() - new Date().getTime()) / (1000 * 3600 * 24)))
       : 42;
 

@@ -4,8 +4,8 @@ import type { AthleteProfile } from '../types';
 
 interface NavbarProps {
   profile: AthleteProfile;
-  activeTab: 'dashboard' | 'activities' | 'power' | 'coach';
-  setActiveTab: (tab: 'dashboard' | 'activities' | 'power' | 'coach') => void;
+  activeTab: 'dashboard' | 'goals' | 'activities' | 'power' | 'coach';
+  setActiveTab: (tab: 'dashboard' | 'goals' | 'activities' | 'power' | 'coach') => void;
   dataMode: 'demo' | 'supabase';
   onToggleDataMode: () => void;
   onSyncStrava: () => void;
@@ -61,6 +61,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <Activity className="w-4 h-4" />
               <span>Dashboard</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('goals')}
+              className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                activeTab === 'goals'
+                  ? 'bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-300 border border-cyan-500/30 shadow-sm'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Sparkles className="w-4 h-4 text-cyan-400" />
+              <span>Goals & Objectives</span>
             </button>
 
             <button

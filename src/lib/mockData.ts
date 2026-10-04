@@ -25,31 +25,60 @@ export const MOCK_GOALS: Goal[] = [
     name: 'Mount Baker Hill Climb (Artist Point Finish)',
     sport_type: 'cycling',
     target_date: '2026-11-15',
+    timeframe_text: 'Target Date: Nov 15',
+    objective_summary: 'Sub-1:45:00 Artist Point finish. Pace 260W lower highway, lift to 285W upper switchbacks with 85+ RPM.',
     target_distance_km: 38.5,
     target_elevation_m: 1340,
     target_power_watts: 280,
-    notes: 'Aiming for Sub-1:45:00. Pacing strategy: 260W lower highway, 285W upper switchbacks.',
-    priority: 'A_RACE'
+    notes: 'Prioritize grade simulation climbing efforts and knee health checks >12% grade.',
+    priority: 'A_RACE',
+    status: 'ACTIVE'
   },
   {
-    id: 'goal-glacier-skimo',
-    name: 'Glacier Peak Skimo Speed Ascent Expedition',
+    id: 'goal-baker-skimo-push',
+    name: 'Mount Baker Car-to-Car Single Day Push',
     sport_type: 'skimo',
-    target_date: '2026-12-20',
-    target_distance_km: 26.0,
-    target_elevation_m: 2400,
-    notes: 'Target VAM 550+ m/h with 11kg mountaineering pack.',
-    priority: 'A_RACE'
+    timeframe_text: 'Spring Season / Glacier Window',
+    objective_summary: 'Car-to-car single day push on Mt Baker Coleman-Deming route under 8 hours with 11kg mountaineering pack.',
+    target_elevation_m: 2350,
+    notes: 'Maintain 550+ m/h VAM pace on lower glacier. Check avalanche conditions.',
+    priority: 'A_RACE',
+    status: 'ACTIVE'
   },
   {
     id: 'goal-shuksan-scramble',
-    name: 'Mount Shuksan Fisher Chimneys Speed Scramble',
+    name: 'Mount Shuksan Fisher Chimneys Speed Traverse',
     sport_type: 'scrambling',
-    target_date: '2027-01-10',
+    timeframe_text: 'Late Summer Window',
+    objective_summary: 'Sub-7 hour car-to-car speed scramble via Fisher Chimneys & Winnie Slide.',
     target_distance_km: 19.0,
     target_elevation_m: 1750,
     notes: 'Test knee tendonitis resilience with 10kg pack.',
-    priority: 'B_RACE'
+    priority: 'B_RACE',
+    status: 'ACTIVE'
+  },
+  {
+    id: 'goal-weighted-hike-benchmark',
+    name: '15kg Weighted Vest Ridge Carry (1,000m Gain)',
+    sport_type: 'weighted_hiking',
+    timeframe_text: 'Ongoing Fitness Benchmark',
+    objective_summary: 'Sustain >500 m/h vertical ascent rate carrying 15kg weighted vest without knee shear discomfort.',
+    target_elevation_m: 1000,
+    priority: 'TRAINING_MILESTONE',
+    status: 'ACTIVE'
+  },
+  {
+    id: 'goal-completed-rainier-skimo',
+    name: 'Mount Rainier Fuhrer Finger Skimo Descent',
+    sport_type: 'skimo',
+    target_date: '2026-06-20',
+    timeframe_text: 'Completed June 2026',
+    objective_summary: 'Ascend & ski Fuhrer Finger route on Mt Rainier in single day window.',
+    target_elevation_m: 2900,
+    priority: 'A_RACE',
+    status: 'COMPLETED',
+    completed_at: '2026-06-20T17:30:00Z',
+    debrief_notes: 'Successfully completed in 9h 15m. Snow conditions were ideal spring corn. Knee felt 100% using compression wrap. VAM averaged 510 m/h.'
   }
 ];
 

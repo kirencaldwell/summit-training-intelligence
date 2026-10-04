@@ -6,6 +6,8 @@ export type SportType =
   | 'scrambling' 
   | 'weighted_hiking';
 
+export type GoalStatus = 'ACTIVE' | 'COMPLETED' | 'DEPRIORITIZED';
+
 export interface MetricStreamPoint {
   time: number; // Seconds from start
   watts?: number;
@@ -85,13 +87,18 @@ export interface AthleteProfile {
 export interface Goal {
   id: string;
   name: string;
-  sport_type: SportType;
-  target_date: string; // YYYY-MM-DD
+  sport_type: SportType | 'general';
+  target_date?: string; // Optional (YYYY-MM-DD)
+  timeframe_text?: string; // e.g. "Spring 2027", "Next Season", "Flexible"
+  objective_summary: string; // High level text objective e.g. "Car-to-car single day push on Mt Baker"
   target_distance_km?: number;
   target_elevation_m?: number;
   target_power_watts?: number;
   notes?: string;
   priority: 'A_RACE' | 'B_RACE' | 'TRAINING_MILESTONE';
+  status: GoalStatus;
+  completed_at?: string;
+  debrief_notes?: string;
 }
 
 export interface PMCDayPoint {

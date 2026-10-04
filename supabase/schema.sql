@@ -42,13 +42,18 @@ CREATE TABLE IF NOT EXISTS public.goals (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
   name TEXT NOT NULL, -- e.g. "Mount Baker Hill Climb"
-  sport_type TEXT NOT NULL, -- e.g. "cycling", "skimo"
-  target_date DATE NOT NULL,
+  sport_type TEXT NOT NULL DEFAULT 'general', -- 'cycling', 'skimo', 'scrambling', 'weighted_hiking', 'general'
+  target_date DATE, -- Optional target date
+  timeframe_text TEXT, -- e.g. "Spring 2027", "Next Season", "Flexible"
+  objective_summary TEXT NOT NULL, -- High-level text objective (e.g. "Car-to-car single day push on Mt Baker")
   target_distance_km NUMERIC(6,2),
   target_elevation_m NUMERIC(6,2),
   target_power_watts INTEGER,
   notes TEXT,
   priority TEXT CHECK (priority IN ('A_RACE', 'B_RACE', 'TRAINING_MILESTONE')) DEFAULT 'A_RACE',
+  status TEXT CHECK (status IN ('ACTIVE', 'COMPLETED', 'DEPRIORITIZED')) DEFAULT 'ACTIVE',
+  completed_at TIMESTAMPTZ,
+  debrief_notes TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

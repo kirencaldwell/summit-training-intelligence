@@ -67,11 +67,14 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
       name: goalName,
       sport_type: sportType,
       target_date: targetDate,
+      timeframe_text: `Target Date: ${targetDate}`,
+      objective_summary: goalNotes || goalName,
       target_distance_km: Number(targetDist),
       target_elevation_m: Number(targetElev),
       target_power_watts: Number(targetPower),
       notes: goalNotes,
       priority: 'A_RACE',
+      status: 'ACTIVE',
     };
 
     onCompleteOnboarding(profile, goal);

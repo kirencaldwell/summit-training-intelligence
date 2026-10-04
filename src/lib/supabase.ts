@@ -96,13 +96,63 @@ class DataService {
   public async getGoals(): Promise<Goal[]> {
     if (this.mode === 'supabase' && supabase) {
       try {
-        const { data, error } = await supabase.from('goals').select('*').order('target_date', { ascending: true });
+        const { data, error } = await supabase.from('goals').select('*').order('created_at', { ascending: false });
         if (!error && data && data.length > 0) return data as Goal[];
       } catch (err) {
         console.warn('Supabase goals fetch failed', err);
       }
     }
     return this.localGoals;
+  }
+
+  public async addGoal(newGoal: Goal): Promise<Goal> {
+    this.localGoals.unshift(newGoal);
+
+    if (this.mode === 'supabase' && supabase) {
+      try {
+        await supabase.from('goals').insert(newGoal);
+      } catch (err) {
+        console.warn('Supabase goal insertion failed', err);
+      }
+    }
+    return newGoal;
+  }
+
+  public async updateGoal(id: string, updates: Partial<Goal>): Promise<Goal | undefined> {
+    const idx = this.localGoals.findIndex(g => g.id === id);
+    if (idx !== -1) {
+      this.localGoals[idx] = { ...this.localGoals[idx], ...updates };
+      if (this.mode === 'supabase' && supabase) {
+        try {
+          await supabase.from('goals').update(updates).eq('id', id);
+        } catch (err) {
+          console.warn('Supabase goal update failed', err);
+        }
+      }
+      return this.localGoals[idx];
+    }
+    return undefined;
+  }
+
+  public async completeGoal(id: string, debriefNotes: string): Promise<Goal | undefined> {
+    return await this.updateGoal(id, {
+      status: 'COMPLETED',
+      completed_at: new Date().toISOString(),
+      debrief_notes: debriefNotes,
+    });
+  }
+
+  public async deleteGoal(id: string): Promise<boolean> {
+    this.localGoals = this.localGoals.filter(g => g.id !== id);
+
+    if (this.mode === 'supabase' && supabase) {
+      try {
+        await supabase.from('goals').delete().eq('id', id);
+      } catch (err) {
+        console.warn('Supabase goal deletion failed', err);
+      }
+    }
+    return true;
   }
 }
 

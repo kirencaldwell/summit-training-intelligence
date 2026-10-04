@@ -10,7 +10,7 @@ interface DashboardOverviewProps {
   pmcData: PMCDayPoint[];
   powerCurve: PowerCurvePoint[];
   onOpenActivity: (activity: Activity) => void;
-  onNavigateTab: (tab: 'dashboard' | 'activities' | 'power' | 'coach') => void;
+  onNavigateTab: (tab: 'dashboard' | 'goals' | 'activities' | 'power' | 'coach') => void;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
@@ -25,7 +25,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   const bakerGoal = goals.find((g) => g.name.includes('Mount Baker')) || goals[0];
 
   // Days remaining calculation
-  const daysRemaining = bakerGoal
+  const daysRemaining = bakerGoal && bakerGoal.target_date
     ? Math.max(0, Math.ceil((new Date(bakerGoal.target_date).getTime() - new Date().getTime()) / (1000 * 3600 * 24)))
     : 42;
 
@@ -61,7 +61,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               </h1>
 
               <p className="text-sm text-slate-300 leading-relaxed">
-                {bakerGoal.notes} Target effort: <span className="text-amber-400 font-bold">280W sustained</span> on Artist Point switchbacks.
+                <span className="text-amber-300 font-semibold">Objective:</span> "{bakerGoal.objective_summary || bakerGoal.notes}"
               </p>
 
               {/* Specs Pills */}
