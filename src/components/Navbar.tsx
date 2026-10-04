@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Mountain, ShieldCheck, Zap, User, RefreshCw, Sparkles } from 'lucide-react';
+import { Activity, Mountain, ShieldCheck, Zap, User, Upload, Sparkles, RefreshCw } from 'lucide-react';
 import type { AthleteProfile } from '../types';
 
 interface NavbarProps {
@@ -128,14 +128,18 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className="hidden sm:inline">Setup Wizard</span>
             </button>
 
-            {/* Strava Sync Button */}
+            {/* Import Data Button */}
             <button
               onClick={onSyncStrava}
               disabled={isSyncingStrava}
-              className="hidden sm:flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-orange-600/20 hover:bg-orange-600/30 text-orange-400 border border-orange-500/30 text-xs font-semibold transition-all"
+              className="hidden sm:flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 border border-cyan-500/30 text-xs font-semibold transition-all"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncingStrava ? 'animate-spin' : ''}`} />
-              <span>{isSyncingStrava ? 'Syncing Strava...' : 'Sync Strava'}</span>
+              {isSyncingStrava ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Upload className="w-3.5 h-3.5" />
+              )}
+              <span>{isSyncingStrava ? 'Importing...' : 'Import Data'}</span>
             </button>
 
             {/* Mode Switcher Badge */}

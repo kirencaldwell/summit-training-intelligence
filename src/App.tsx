@@ -1,8 +1,15 @@
 import { useState, useEffect } from 'react';
 import type { Activity, AthleteProfile, Goal, PMCDayPoint, PowerCurvePoint } from './types';
 import { dataService } from './lib/supabase';
-import { triggerMockStravaSync } from './lib/strava';
+import { triggerMockStravaSync, parseStravaAuthCode } from './lib/strava';
 import { calculatePMC, calculatePowerCurve } from './lib/trainingMath';
+import {
+  parseCorosAuthCode,
+  exchangeCorosCode,
+  setCorosTokens,
+  syncCorosActivities,
+  getStoredCorosClientId,
+} from './lib/coros';
 
 import { Navbar } from './components/Navbar';
 import { DashboardOverview } from './components/DashboardOverview';
@@ -12,9 +19,8 @@ import { AICoachPanel } from './components/AICoachPanel';
 import { ActivityDetailModal } from './components/ActivityDetailModal';
 import { AthleteProfileModal } from './components/AthleteProfileModal';
 import { OnboardingWizard } from './components/OnboardingWizard';
-import { StravaConnectModal } from './components/StravaConnectModal';
+import { DataSyncModal } from './components/StravaConnectModal';
 import { GoalsManager } from './components/GoalsManager';
-import { parseStravaAuthCode } from './lib/strava';
 
 import { Mountain, Zap } from 'lucide-react';
 
@@ -47,10 +53,28 @@ export function App() {
     loadAppData();
 
     // Detect Strava OAuth redirect code
-    const code = parseStravaAuthCode();
-    if (code) {
+    const stravaCode = parseStravaAuthCode();
+    if (stravaCode) {
       handleSyncStrava();
-      // Clean query string from browser URL bar
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return;
+    }
+
+    // Detect COROS OAuth redirect code
+    const corosCode = parseCorosAuthCode();
+    if (corosCode) {
+      const clientId = getStoredCorosClientId();
+      if (clientId) {
+        exchangeCorosCode(corosCode, clientId)
+          .then(({ accessToken, refreshToken }) => {
+            setCorosTokens(accessToken, refreshToken);
+            return syncCorosActivities(accessToken);
+          })
+          .then((newActivities) => {
+            setActivities((prev) => [...newActivities, ...prev]);
+          })
+          .catch((err) => console.error('COROS sync failed', err));
+      }
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, [dataMode]);
@@ -82,6 +106,13 @@ export function App() {
     const nextMode = dataMode === 'demo' ? 'supabase' : 'demo';
     dataService.setMode(nextMode);
     setDataMode(nextMode);
+  };
+
+  const handleFitImport = (importedActivities: Activity[]) => {
+    if (importedActivities.length > 0) {
+      setActivities((prev) => [...importedActivities, ...prev]);
+      setSelectedActivity(importedActivities[0]);
+    }
   };
 
   const handleSyncStrava = async () => {
@@ -230,11 +261,11 @@ export function App() {
         isSyncingStrava={isSyncingStrava}
       />
 
-      {/* Strava Connect & OAuth Config Modal */}
-      <StravaConnectModal
+      {/* Unified Data Sources Modal */}
+      <DataSyncModal
         isOpen={isStravaModalOpen}
         onClose={() => setIsStravaModalOpen(false)}
-        onImportSample={handleSyncStrava}
+        onActivitiesImported={handleFitImport}
         isSyncing={isSyncingStrava}
       />
 

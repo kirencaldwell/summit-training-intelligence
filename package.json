@@ -12,6 +12,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",
     "clsx": "^2.1.1",
+    "fit-file-parser": "^6.1.2",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.52.0",
     "react": "^19.2.8",
