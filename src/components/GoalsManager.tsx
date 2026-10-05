@@ -4,7 +4,7 @@ import { Mountain, Bike, Footprints, Compass, Plus, CheckCircle2, Trash2, Calend
 
 interface GoalsManagerProps {
   goals: Goal[];
-  onAddGoal: (goal: Goal) => void;
+  onAddGoal: (goal: Goal) => Promise<void>;
   onCompleteGoal: (goalId: string, debriefNotes: string) => void;
   onDeleteGoal: (goalId: string) => void;
 }
@@ -19,6 +19,8 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
 
   // Modal States
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isSavingGoal, setIsSavingGoal] = useState(false);
+  const [goalSaveError, setGoalSaveError] = useState('');
   const [debriefModalGoal, setDebriefModalGoal] = useState<Goal | null>(null);
 
   // New Goal Form State
@@ -42,7 +44,7 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
     return true;
   });
 
-  const handleCreateGoal = (e: React.FormEvent) => {
+  const handleCreateGoal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !objectiveSummary.trim()) return;
 
@@ -61,9 +63,17 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
       status: 'ACTIVE',
     };
 
-    onAddGoal(newGoal);
-    setIsAddModalOpen(false);
-    resetAddForm();
+    setIsSavingGoal(true);
+    setGoalSaveError('');
+    try {
+      await onAddGoal(newGoal);
+      setIsAddModalOpen(false);
+      resetAddForm();
+    } catch (err) {
+      setGoalSaveError(err instanceof Error ? err.message : 'Goal could not be saved. Please try again.');
+    } finally {
+      setIsSavingGoal(false);
+    }
   };
 
   const resetAddForm = () => {
@@ -285,6 +295,11 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
             </div>
 
             <form onSubmit={handleCreateGoal} className="space-y-4">
+              {goalSaveError && (
+                <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">
+                  Goal was not saved: {goalSaveError}
+                </p>
+              )}
               <div>
                 <label className="text-xs font-semibold text-slate-300">Goal Event / Name</label>
                 <input
@@ -400,15 +415,17 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
+                  disabled={isSavingGoal}
                   className="px-4 py-2 rounded-xl bg-white/5 text-xs font-semibold text-slate-300"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 font-bold text-xs hover:opacity-90"
+                  disabled={isSavingGoal}
+                  className="min-h-11 px-5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 font-bold text-xs hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
                 >
-                  Save Goal Objective
+                  {isSavingGoal ? 'Saving...' : 'Save Goal Objective'}
                 </button>
               </div>
             </form>
