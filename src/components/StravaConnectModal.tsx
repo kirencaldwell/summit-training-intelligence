@@ -129,7 +129,7 @@ const FitUploadTab: React.FC<{ onActivitiesImported: (a: Activity[]) => void }> 
         <input
           ref={fileInputRef}
           type="file"
-          accept=".fit,.fit.gz,.gpx"
+          accept=".fit,.fit.gz,.gz,.gpx,application/gzip,application/octet-stream"
           multiple
           className="hidden"
           onChange={handleFileSelect}
