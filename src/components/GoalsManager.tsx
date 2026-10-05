@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import type { Goal, SportType } from '../types';
-import { Mountain, Bike, Footprints, Compass, Plus, CheckCircle2, Trash2, Calendar, Sparkles, Award, X } from 'lucide-react';
+import { Mountain, Bike, Footprints, Compass, Plus, CheckCircle2, Trash2, Calendar, Sparkles, Award, X, Layers, Flag, Bot } from 'lucide-react';
 
 interface GoalsManagerProps {
   goals: Goal[];
   onAddGoal: (goal: Goal) => Promise<void>;
   onCompleteGoal: (goalId: string, debriefNotes: string) => void;
   onDeleteGoal: (goalId: string) => void;
+  onNavigateToCoach?: (initialQuery?: string) => void;
 }
 
 export const GoalsManager: React.FC<GoalsManagerProps> = ({
@@ -14,6 +15,7 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
   onAddGoal,
   onCompleteGoal,
   onDeleteGoal,
+  onNavigateToCoach,
 }) => {
   const [filterStatus, setFilterStatus] = useState<'ACTIVE' | 'COMPLETED' | 'ALL'>('ACTIVE');
 
@@ -126,7 +128,7 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
           <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight flex items-center">
             <Sparkles className="w-6 h-6 mr-2 text-cyan-400" /> Multi-Sport Goal Objectives & Milestones
           </h1>
-          <p className="text-xs text-slate-400">High-level objectives, flexible timeframes, and post-event completion debriefs</p>
+          <p className="text-xs text-slate-400">High-level objectives, coach macrocycle strategies, and post-event completion debriefs</p>
         </div>
 
         <button
@@ -179,17 +181,18 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
         {filteredGoals.map((goal) => {
           const IconComponent = getSportIcon(goal.sport_type);
           const isCompleted = goal.status === 'COMPLETED';
+          const isCoachCreated = goal.creator === 'coach';
 
           return (
             <div
               key={goal.id}
               className={`glass-panel-interactive rounded-2xl p-6 flex flex-col justify-between space-y-4 ${
-                isCompleted ? 'border-emerald-500/30 bg-emerald-950/10' : ''
+                isCompleted ? 'border-emerald-500/30 bg-emerald-950/10' : isCoachCreated ? 'border-amber-500/30 bg-gradient-to-b from-slate-900 via-slate-900/90 to-slate-950' : ''
               }`}
             >
               <div className="space-y-3">
                 {/* Header Pills */}
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center space-x-2">
                     <span className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border flex items-center ${getSportBadgeColor(goal.sport_type)}`}>
                       <IconComponent className="w-3 h-3 mr-1" />
@@ -199,6 +202,13 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
                     <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-slate-900 text-slate-400 border border-white/5">
                       {goal.priority.replace('_', ' ')}
                     </span>
+
+                    {isCoachCreated && (
+                      <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                        <Bot className="w-3 h-3 text-amber-400" />
+                        Coach's Strategy
+                      </span>
+                    )}
                   </div>
 
                   {/* Timeframe or Date */}
@@ -244,6 +254,54 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
                   </div>
                 )}
 
+                {/* Periodization Phases Roadmap if available */}
+                {goal.periodization_phases && goal.periodization_phases.length > 0 && (
+                  <div className="space-y-2 pt-2 border-t border-white/10">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-slate-300">
+                      <Layers className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Periodization Phases ({goal.periodization_phases.length})</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {goal.periodization_phases.map((phase, pIdx) => (
+                        <div key={pIdx} className="rounded-lg bg-slate-950/70 p-2.5 border border-white/5 text-xs space-y-0.5">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-white text-[11px]">{phase.name}</span>
+                            <span className="text-[10px] text-cyan-300 font-mono bg-cyan-500/10 px-1.5 py-0.5 rounded">
+                              {phase.weeks} wks
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-400">{phase.focus}</p>
+                          {phase.target_ctl && (
+                            <p className="text-[10px] text-emerald-400 font-mono">Target CTL: ~{phase.target_ctl}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Milestones if available */}
+                {goal.milestones && goal.milestones.length > 0 && (
+                  <div className="space-y-1 pt-2 border-t border-white/10">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-slate-300">
+                      <Flag className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Checkpoints & Milestones</span>
+                    </div>
+                    <div className="space-y-1">
+                      {goal.milestones.map((ms, mIdx) => (
+                        <div key={mIdx} className="flex items-center justify-between text-xs bg-slate-950/50 p-2 rounded-lg border border-white/5">
+                          <span className="text-slate-300 text-[11px]">{ms.title}</span>
+                          {ms.target_metric && (
+                            <span className="text-[10px] font-mono text-amber-300 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                              {ms.target_metric}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Completed Debrief Card if finished */}
                 {isCompleted && goal.debrief_notes && (
                   <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-200 space-y-1">
@@ -256,25 +314,37 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
               </div>
 
               {/* Action Buttons */}
-              <div className="flex items-center justify-end space-x-2 pt-3 border-t border-white/5">
-                {!isCompleted && (
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/5">
+                {onNavigateToCoach && !isCompleted && (
                   <button
-                    onClick={() => setDebriefModalGoal(goal)}
-                    className="min-h-11 flex items-center space-x-1 px-3 py-2 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold transition-all"
+                    onClick={() => onNavigateToCoach(`Build next week's training plan specifically aligned with my active goal: ${goal.name}`)}
+                    className="min-h-10 inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-semibold transition-all"
                   >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Mark Completed</span>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Plan Next Week with AI</span>
                   </button>
                 )}
 
-                <button
-                  onClick={() => onDeleteGoal(goal.id)}
-                  className="min-h-11 flex items-center space-x-1 px-3 py-2 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs font-medium transition-all"
-                  title="Remove or deprioritize goal"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Remove</span>
-                </button>
+                <div className="flex items-center space-x-2 ml-auto">
+                  {!isCompleted && (
+                    <button
+                      onClick={() => setDebriefModalGoal(goal)}
+                      className="min-h-10 flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold transition-all"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Mark Completed</span>
+                    </button>
+                  )}
+
+                  <button
+                    onClick={() => onDeleteGoal(goal.id)}
+                    className="min-h-10 flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs font-medium transition-all"
+                    title="Remove or deprioritize goal"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Remove</span>
+                  </button>
+                </div>
               </div>
             </div>
           );

@@ -85,6 +85,21 @@ export interface AthleteProfile {
   };
 }
 
+export interface PeriodizationPhase {
+  name: string;
+  focus: string;
+  weeks: number;
+  target_ctl?: number;
+  status?: 'UPCOMING' | 'CURRENT' | 'COMPLETED';
+}
+
+export interface GoalMilestone {
+  title: string;
+  target_date?: string;
+  target_metric?: string;
+  completed?: boolean;
+}
+
 export interface Goal {
   id: string;
   name: string;
@@ -100,6 +115,9 @@ export interface Goal {
   status: GoalStatus;
   completed_at?: string;
   debrief_notes?: string;
+  creator?: 'athlete' | 'coach';
+  periodization_phases?: PeriodizationPhase[];
+  milestones?: GoalMilestone[];
 }
 
 export type TrainingSessionStatus = 'PROPOSED' | 'ACCEPTED' | 'COMPLETED' | 'DECLINED';
@@ -147,6 +165,13 @@ export interface ProposedPlanAction {
   isDeclined?: boolean;
 }
 
+export interface ProposedGoalAction {
+  goal: Goal;
+  summary?: string;
+  isAccepted?: boolean;
+  isDeclined?: boolean;
+}
+
 export interface AICoachMessage {
   id: string;
   sender: 'user' | 'coach' | 'system';
@@ -155,6 +180,7 @@ export interface AICoachMessage {
   toolCalls?: AICoachToolCall[];
   isThinking?: boolean;
   proposedPlan?: ProposedPlanAction;
+  proposedGoal?: ProposedGoalAction;
 }
 
 export interface StravaConnectState {

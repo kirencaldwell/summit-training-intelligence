@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Sparkles, Terminal, Activity, ShieldAlert, ChevronDown, ChevronUp, CalendarDays, Check, X, Zap } from 'lucide-react';
-import type { AICoachMessage, ProposedPlanAction, TrainingSession, TrainingSessionStatus } from '../types';
+import { Send, Bot, User, Sparkles, Terminal, Activity, ShieldAlert, ChevronDown, ChevronUp, CalendarDays, Check, X, Zap, Award, Flag, Layers } from 'lucide-react';
+import type { AICoachMessage, Goal, ProposedGoalAction, ProposedPlanAction, TrainingSession, TrainingSessionStatus } from '../types';
 import { coachEngine } from '../lib/ai/coachEngine';
 import { getNextTrainingWeekStartDate } from '../lib/trainingSessions';
 
@@ -10,6 +10,7 @@ interface AICoachPanelProps {
   onGenerateWeeklyPlan: () => Promise<void>;
   onUpdateTrainingSession: (id: string, status: TrainingSessionStatus) => Promise<void>;
   onAcceptProposedPlan?: (proposal: ProposedPlanAction) => Promise<void>;
+  onAcceptProposedGoal?: (goal: Goal) => Promise<void>;
 }
 
 export const AICoachPanel: React.FC<AICoachPanelProps> = ({
@@ -18,6 +19,7 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
   onGenerateWeeklyPlan,
   onUpdateTrainingSession,
   onAcceptProposedPlan,
+  onAcceptProposedGoal,
 }) => {
   const [messages, setMessages] = useState<AICoachMessage[]>([
     {
@@ -31,7 +33,7 @@ Welcome back! I am monitoring your multi-sport endurance metrics across **Road C
 - **Knee & Posterior Chain Status:** Active awareness on steep gradients >12%.
 - **Decompression Night Protocol:** Mid-week hamstring mobility + isometric knee extensions.
 
-I can also **generate, adjust, or reschedule your weekly workouts** on demand. How can I optimize your training load today?`,
+I can build **multi-week periodized macro plans**, set up **Coach's Goals**, and adapt your **weekly workouts** on demand. How can I optimize your training today?`,
       timestamp: '12:00 PM'
     }
   ]);
@@ -41,6 +43,7 @@ I can also **generate, adjust, or reschedule your weekly workouts** on demand. H
   const [planError, setPlanError] = useState('');
   const [updatingSessionId, setUpdatingSessionId] = useState<string | null>(null);
   const [planActionMsgId, setPlanActionMsgId] = useState<string | null>(null);
+  const [goalActionMsgId, setGoalActionMsgId] = useState<string | null>(null);
   const [expandedToolLogs, setExpandedToolLogs] = useState<Record<string, boolean>>({});
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
@@ -118,6 +121,37 @@ I can also **generate, adjust, or reschedule your weekly workouts** on demand. H
     );
   };
 
+  const handleAcceptGoalProposal = async (msgId: string, goalAction: ProposedGoalAction) => {
+    setGoalActionMsgId(msgId);
+    setPlanError('');
+    try {
+      if (onAcceptProposedGoal) {
+        await onAcceptProposedGoal(goalAction.goal);
+      }
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === msgId && m.proposedGoal
+            ? { ...m, proposedGoal: { ...m.proposedGoal, isAccepted: true, isDeclined: false } }
+            : m
+        )
+      );
+    } catch (err: any) {
+      setPlanError(err?.message || 'The coach goal could not be saved.');
+    } finally {
+      setGoalActionMsgId(null);
+    }
+  };
+
+  const handleDeclineGoalProposal = (msgId: string) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === msgId && m.proposedGoal
+          ? { ...m, proposedGoal: { ...m.proposedGoal, isDeclined: true, isAccepted: false } }
+          : m
+      )
+    );
+  };
+
   const handleGenerateWeeklyPlan = async () => {
     setPlanError('');
     try {
@@ -145,10 +179,10 @@ I can also **generate, adjust, or reschedule your weekly workouts** on demand. H
   );
 
   const quickPrompts = [
-    'Create next week training plan with skimo & climbing focus',
-    'Modify Wednesday workout for knee recovery',
-    'Mount Baker Hill Climb readiness check',
-    'Suggest recovery workout based on current TSB'
+    'Set up 12-week Mount Rainier alpine preparation plan',
+    'Create 8-week FTP boost block to 300W',
+    'Plan next week with skimo & climbing focus',
+    'Replan this week for knee recovery'
   ];
 
   return (
@@ -377,7 +411,6 @@ I can also **generate, adjust, or reschedule your weekly workouts** on demand. H
                   </div>
 
                   {/* Action Buttons if not yet accepted/declined */}
-                  {/* Action Buttons if not yet accepted/declined */}
                   {!msg.proposedPlan.isAccepted && !msg.proposedPlan.isDeclined && (
                     <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-white/10">
                       <button
@@ -407,6 +440,145 @@ I can also **generate, adjust, or reschedule your weekly workouts** on demand. H
                         type="button"
                         onClick={() => handleDeclinePlanProposal(msg.id)}
                         disabled={planActionMsgId === msg.id}
+                        className="min-h-10 inline-flex items-center justify-center gap-1.5 rounded-xl border border-white/10 px-3.5 py-2 text-xs font-semibold text-slate-400 hover:text-white hover:bg-white/5 transition-all disabled:opacity-50"
+                      >
+                        <X className="w-4 h-4" /> Decline
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Long-Term Goal & Periodization Proposal Card */}
+              {msg.proposedGoal && (
+                <div className="rounded-2xl border border-amber-500/30 bg-gradient-to-b from-slate-900 via-slate-900/95 to-slate-950 p-5 shadow-2xl space-y-4">
+                  {/* Header */}
+                  <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-400 p-[2px] flex-shrink-0">
+                        <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
+                          <Award className="w-4 h-4 text-amber-400" />
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-amber-300 uppercase tracking-wider">
+                            Coach's Long-Term Strategy & Goal
+                          </span>
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                            Macrocycle Plan
+                          </span>
+                        </div>
+                        <h4 className="text-base font-extrabold text-white mt-0.5">
+                          {msg.proposedGoal.goal.name}
+                        </h4>
+                      </div>
+                    </div>
+                    {msg.proposedGoal.isAccepted ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-3 py-1 rounded-full shrink-0">
+                        <Check className="w-3.5 h-3.5" /> Added to Active Goals
+                      </span>
+                    ) : msg.proposedGoal.isDeclined ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-400 bg-white/5 border border-white/10 px-3 py-1 rounded-full shrink-0">
+                        <X className="w-3.5 h-3.5" /> Declined
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {/* Objective & Target Specs */}
+                  <div className="space-y-2 text-xs">
+                    <p className="text-slate-300 leading-relaxed bg-slate-950/60 p-3 rounded-xl border border-white/5">
+                      <span className="text-amber-300 font-semibold">Objective:</span> {msg.proposedGoal.goal.objective_summary}
+                    </p>
+
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      {msg.proposedGoal.goal.target_date && (
+                        <div className="px-2.5 py-1 rounded-lg bg-slate-800/80 border border-white/10 text-slate-300 text-[11px] flex items-center gap-1">
+                          <CalendarDays className="w-3 h-3 text-cyan-400" /> Target Date: <span className="font-bold text-white">{msg.proposedGoal.goal.target_date}</span>
+                        </div>
+                      )}
+                      {msg.proposedGoal.goal.timeframe_text && (
+                        <div className="px-2.5 py-1 rounded-lg bg-slate-800/80 border border-white/10 text-slate-300 text-[11px]">
+                          Timeframe: <span className="font-bold text-white">{msg.proposedGoal.goal.timeframe_text}</span>
+                        </div>
+                      )}
+                      {msg.proposedGoal.goal.target_power_watts && (
+                        <div className="px-2.5 py-1 rounded-lg bg-slate-800/80 border border-white/10 text-amber-300 text-[11px]">
+                          Target Power: <span className="font-bold text-white">{msg.proposedGoal.goal.target_power_watts}W</span>
+                        </div>
+                      )}
+                      {msg.proposedGoal.goal.target_elevation_m && (
+                        <div className="px-2.5 py-1 rounded-lg bg-slate-800/80 border border-white/10 text-sky-300 text-[11px]">
+                          Target Vert: <span className="font-bold text-white">{msg.proposedGoal.goal.target_elevation_m}m</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Periodization Phases Breakdown */}
+                  {msg.proposedGoal.goal.periodization_phases && msg.proposedGoal.goal.periodization_phases.length > 0 && (
+                    <div className="space-y-2 pt-2 border-t border-white/10">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-300">
+                        <Layers className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Periodization Roadmap ({msg.proposedGoal.goal.periodization_phases.length} Phases)</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {msg.proposedGoal.goal.periodization_phases.map((phase, pIdx) => (
+                          <div key={pIdx} className="rounded-xl border border-white/5 bg-slate-950/70 p-3 text-xs space-y-1">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="font-bold text-white text-[11px]">{phase.name}</span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/20 font-semibold">
+                                {phase.weeks} wks
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 leading-snug">{phase.focus}</p>
+                            {phase.target_ctl && (
+                              <p className="text-[10px] text-emerald-400 font-mono">Target CTL: ~{phase.target_ctl}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Key Milestones */}
+                  {msg.proposedGoal.goal.milestones && msg.proposedGoal.goal.milestones.length > 0 && (
+                    <div className="space-y-1.5 pt-2 border-t border-white/10">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-300">
+                        <Flag className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Target Milestones</span>
+                      </div>
+                      <div className="space-y-1">
+                        {msg.proposedGoal.goal.milestones.map((ms, mIdx) => (
+                          <div key={mIdx} className="flex items-center justify-between text-xs bg-slate-950/50 p-2 rounded-lg border border-white/5">
+                            <span className="text-slate-300">{ms.title}</span>
+                            {ms.target_metric && (
+                              <span className="text-[10px] font-mono text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                                {ms.target_metric}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Action Buttons if not yet accepted/declined */}
+                  {!msg.proposedGoal.isAccepted && !msg.proposedGoal.isDeclined && (
+                    <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-white/10">
+                      <button
+                        type="button"
+                        onClick={() => handleAcceptGoalProposal(msg.id, msg.proposedGoal!)}
+                        disabled={goalActionMsgId === msg.id}
+                        className="min-h-10 inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-2 text-xs font-bold text-slate-950 hover:opacity-90 transition-all disabled:opacity-50 shadow-lg shadow-orange-500/20"
+                      >
+                        <Award className="w-4 h-4" />
+                        {goalActionMsgId === msg.id ? 'Saving Goal...' : 'Accept & Set as Priority Goal'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeclineGoalProposal(msg.id)}
+                        disabled={goalActionMsgId === msg.id}
                         className="min-h-10 inline-flex items-center justify-center gap-1.5 rounded-xl border border-white/10 px-3.5 py-2 text-xs font-semibold text-slate-400 hover:text-white hover:bg-white/5 transition-all disabled:opacity-50"
                       >
                         <X className="w-4 h-4" /> Decline

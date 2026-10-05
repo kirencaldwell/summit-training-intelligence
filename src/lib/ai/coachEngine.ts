@@ -1,4 +1,4 @@
-import type { Activity, AICoachMessage, AICoachToolCall, AthleteProfile, Goal, ProposedPlanAction, TrainingSession } from '../../types';
+import type { Activity, AICoachMessage, AICoachToolCall, AthleteProfile, Goal, ProposedGoalAction, ProposedPlanAction, TrainingSession } from '../../types';
 import { dataService } from '../supabase';
 import { calculatePMC, calculatePowerCurve } from '../trainingMath';
 
@@ -6,40 +6,67 @@ import { calculatePMC, calculatePowerCurve } from '../trainingMath';
 // Local data tools — gather context to send to the server-side Gemini proxy
 // ---------------------------------------------------------------------------
 
-function extractPlanProposal(rawText: string): { cleanText: string; proposedPlan?: ProposedPlanAction } {
+function extractProposals(rawText: string): {
+  cleanText: string;
+  proposedPlan?: ProposedPlanAction;
+  proposedGoal?: ProposedGoalAction;
+} {
   if (!rawText) return { cleanText: '' };
 
-  const proposalRegex = /```(?:json:plan_proposal|json)\s*(\{[\s\S]*?"sessions"[\s\S]*?\})\s*```/i;
-  const match = rawText.match(proposalRegex);
-  if (!match) {
-    return { cleanText: rawText };
-  }
+  let cleanText = rawText;
+  let proposedPlan: ProposedPlanAction | undefined;
+  let proposedGoal: ProposedGoalAction | undefined;
 
-  try {
-    const jsonStr = match[1];
-    const parsed = JSON.parse(jsonStr) as ProposedPlanAction;
-    if (Array.isArray(parsed.sessions) && parsed.sessions.length > 0) {
-      parsed.sessions = parsed.sessions.map((s, idx) => ({
-        id: s.id || `draft-${Date.now()}-${idx}`,
-        week_start_date: s.week_start_date || getNextMonday(),
-        session_date: s.session_date || getNextMonday(),
-        title: s.title || 'Training Session',
-        sport_type: s.sport_type || 'cycling',
-        duration_minutes: Number(s.duration_minutes) || 60,
-        focus: s.focus || 'Endurance Training',
-        details: s.details || '',
-        target_tss: s.target_tss ? Number(s.target_tss) : undefined,
-        status: 'PROPOSED',
-      }));
-
-      const cleanText = rawText.replace(match[0], '').trim();
-      return { cleanText, proposedPlan: parsed };
+  // Extract Goal proposal
+  const goalRegex = /```(?:json:goal_proposal|json)\s*(\{[\s\S]*?"goal"[\s\S]*?\})\s*```/i;
+  const goalMatch = rawText.match(goalRegex);
+  if (goalMatch) {
+    try {
+      const parsed = JSON.parse(goalMatch[1]) as { summary?: string; goal: Goal };
+      if (parsed.goal && parsed.goal.name) {
+        parsed.goal.id = parsed.goal.id || `goal-coach-${Date.now()}`;
+        parsed.goal.status = parsed.goal.status || 'ACTIVE';
+        parsed.goal.priority = parsed.goal.priority || 'A_RACE';
+        parsed.goal.creator = 'coach';
+        proposedGoal = {
+          goal: parsed.goal,
+          summary: parsed.summary || parsed.goal.objective_summary,
+        };
+        cleanText = cleanText.replace(goalMatch[0], '').trim();
+      }
+    } catch (err) {
+      console.warn('Could not parse goal_proposal JSON block:', err);
     }
-  } catch (err) {
-    console.warn('Could not parse plan_proposal JSON block:', err);
   }
 
-  return { cleanText: rawText };
+  // Extract Plan proposal
+  const planRegex = /```(?:json:plan_proposal|json)\s*(\{[\s\S]*?"sessions"[\s\S]*?\})\s*```/i;
+  const planMatch = cleanText.match(planRegex);
+  if (planMatch) {
+    try {
+      const parsed = JSON.parse(planMatch[1]) as ProposedPlanAction;
+      if (Array.isArray(parsed.sessions) && parsed.sessions.length > 0) {
+        parsed.sessions = parsed.sessions.map((s, idx) => ({
+          id: s.id || `draft-${Date.now()}-${idx}`,
+          week_start_date: s.week_start_date || getNextMonday(),
+          session_date: s.session_date || getNextMonday(),
+          title: s.title || 'Training Session',
+          sport_type: s.sport_type || 'cycling',
+          duration_minutes: Number(s.duration_minutes) || 60,
+          focus: s.focus || 'Endurance Training',
+          details: s.details || '',
+          target_tss: s.target_tss ? Number(s.target_tss) : undefined,
+          status: 'PROPOSED',
+        }));
+        proposedPlan = parsed;
+        cleanText = cleanText.replace(planMatch[0], '').trim();
+      }
+    } catch (err) {
+      console.warn('Could not parse plan_proposal JSON block:', err);
+    }
+  }
+
+  return { cleanText, proposedPlan, proposedGoal };
 }
 
 async function gatherAthleteContext(goalName: string = 'Mount Baker') {
@@ -171,7 +198,7 @@ class GeminiCoachEngine {
     }
 
     const { text } = await res.json();
-    const { cleanText, proposedPlan } = extractPlanProposal(text || '');
+    const { cleanText, proposedPlan, proposedGoal } = extractProposals(text || '');
 
     return {
       id: `coach-msg-${Date.now()}`,
@@ -180,6 +207,7 @@ class GeminiCoachEngine {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       toolCalls,
       proposedPlan,
+      proposedGoal,
     };
   }
 

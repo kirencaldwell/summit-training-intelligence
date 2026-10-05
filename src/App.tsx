@@ -66,7 +66,12 @@ export function App() {
 
   const handleAddGoal = async (newGoal: Goal) => {
     const savedGoal = await dataService.addGoal(newGoal);
-    setGoals((prev) => [savedGoal, ...prev]);
+    setGoals((prev) => [savedGoal, ...prev.filter(g => g.id !== savedGoal.id)]);
+  };
+
+  const handleAcceptProposedGoal = async (goal: Goal) => {
+    const savedGoal = await dataService.addGoal(goal);
+    setGoals((prev) => [savedGoal, ...prev.filter(g => g.id !== savedGoal.id)]);
   };
 
   const handleCompleteGoal = async (goalId: string, debriefNotes: string) => {
@@ -374,6 +379,7 @@ export function App() {
             onAddGoal={handleAddGoal}
             onCompleteGoal={handleCompleteGoal}
             onDeleteGoal={handleDeleteGoal}
+            onNavigateToCoach={() => setActiveTab('coach')}
           />
         )}
 
@@ -456,6 +462,7 @@ export function App() {
             onGenerateWeeklyPlan={handleGenerateWeeklyPlan}
             onUpdateTrainingSession={handleUpdateTrainingSession}
             onAcceptProposedPlan={handleAcceptProposedPlan}
+            onAcceptProposedGoal={handleAcceptProposedGoal}
           />
         )}
       </main>
