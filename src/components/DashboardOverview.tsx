@@ -171,15 +171,24 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
               <CalendarDays className="w-4 h-4 text-cyan-400" /> Upcoming Training Sessions
             </h2>
-            <p className="text-xs text-slate-400 mt-1">Accepted sessions for next week</p>
+            <p className="text-xs text-slate-400 mt-1">Scheduled & accepted workouts from your AI Coach</p>
           </div>
-          <button
-            type="button"
-            onClick={() => onNavigateTab('coach')}
-            className="text-xs font-semibold text-cyan-400 hover:text-cyan-300"
-          >
-            Review weekly plan
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onNavigateTab('coach')}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/20 transition-all"
+            >
+              <Sparkles className="w-3.5 h-3.5" /> Replan with Coach
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigateTab('coach')}
+              className="text-xs font-semibold text-slate-400 hover:text-white px-2 py-1.5"
+            >
+              Review weekly plan
+            </button>
+          </div>
         </div>
 
         {trainingSessions.length > 0 ? (
