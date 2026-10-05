@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Sparkles, Terminal, Activity, ShieldAlert, ChevronDown, ChevronUp, CalendarDays, Check, X } from 'lucide-react';
+import { Send, Bot, User, Sparkles, Terminal, Activity, ShieldAlert, ChevronDown, ChevronUp, CalendarDays, Check, X, Zap } from 'lucide-react';
 import type { AICoachMessage, TrainingSession, TrainingSessionStatus } from '../types';
 import { coachEngine } from '../lib/ai/coachEngine';
 import { getNextTrainingWeekStartDate } from '../lib/trainingSessions';
@@ -131,8 +131,9 @@ How can I optimize your training load today?`,
           <div>
             <h2 className="text-sm font-bold text-white flex items-center space-x-2">
               <span>Summit Intelligence AI Coach</span>
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                Tool Calling Active
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center gap-1">
+                <Zap className="w-2.5 h-2.5" />
+                Gemini 2.0 Flash
               </span>
             </h2>
             <p className="text-[11px] text-slate-400">Contextual multi-sport database integration & injury guardian</p>
@@ -302,7 +303,7 @@ How can I optimize your training load today?`,
             <div className="w-8 h-8 rounded-xl bg-amber-500/20 flex items-center justify-center animate-pulse">
               <Sparkles className="w-4 h-4 text-amber-400" />
             </div>
-            <span className="font-mono">Apex AI Engine querying Supabase database & calculating metrics...</span>
+            <span className="font-mono">Gemini AI querying training database & reasoning...</span>
           </div>
         )}
         <div ref={chatBottomRef} />
