@@ -399,6 +399,64 @@ class DataService {
     return proposed;
   }
 
+  public async saveTrainingSessions(
+    sessions: TrainingSession[]
+  ): Promise<TrainingSession[]> {
+    if (this.mode === 'supabase' && supabase) {
+      const profile = await this.getAuthenticatedProfile();
+      const results: TrainingSession[] = [];
+      for (const session of sessions) {
+        const isExistingUUID =
+          session.id &&
+          !session.id.startsWith('draft-') &&
+          !session.id.startsWith('temp-') &&
+          session.id.length >= 32;
+
+        if (isExistingUUID) {
+          const { id, ...rest } = session;
+          const { data, error } = await supabase
+            .from('training_sessions')
+            .upsert({ ...rest, id, user_id: profile.id })
+            .select('*')
+            .single();
+          if (!error && data) {
+            results.push(data as TrainingSession);
+          } else {
+            console.warn('Failed to upsert session:', error?.message);
+          }
+        } else {
+          const { id: _ignoredId, ...rest } = session;
+          const { data, error } = await supabase
+            .from('training_sessions')
+            .insert({ ...rest, user_id: profile.id })
+            .select('*')
+            .single();
+          if (!error && data) {
+            results.push(data as TrainingSession);
+          } else {
+            console.warn('Failed to insert session:', error?.message);
+          }
+        }
+      }
+      return results;
+    }
+
+    // Local storage
+    for (const session of sessions) {
+      const idx = this.localTrainingSessions.findIndex((s) => s.id === session.id);
+      if (idx >= 0) {
+        this.localTrainingSessions[idx] = { ...session };
+      } else {
+        this.localTrainingSessions.push({
+          ...session,
+          id: session.id || crypto.randomUUID(),
+        });
+      }
+    }
+    this.saveLocalState();
+    return sessions;
+  }
+
   public async updateTrainingSessionStatus(
     id: string,
     status: TrainingSessionStatus
@@ -422,6 +480,22 @@ class DataService {
     this.localTrainingSessions[index] = updated;
     this.saveLocalState();
     return updated;
+  }
+
+  public async deleteTrainingSession(id: string): Promise<void> {
+    if (this.mode === 'supabase' && supabase) {
+      const profile = await this.getAuthenticatedProfile();
+      const { error } = await supabase
+        .from('training_sessions')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', profile.id);
+      if (error) throw new Error(`Could not delete training session: ${error.message}`);
+      return;
+    }
+
+    this.localTrainingSessions = this.localTrainingSessions.filter((s) => s.id !== id);
+    this.saveLocalState();
   }
 }
 

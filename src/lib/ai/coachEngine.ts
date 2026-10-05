@@ -1,10 +1,46 @@
-import type { Activity, AICoachMessage, AICoachToolCall, AthleteProfile, Goal, TrainingSession } from '../../types';
+import type { Activity, AICoachMessage, AICoachToolCall, AthleteProfile, Goal, ProposedPlanAction, TrainingSession } from '../../types';
 import { dataService } from '../supabase';
 import { calculatePMC, calculatePowerCurve } from '../trainingMath';
 
 // ---------------------------------------------------------------------------
 // Local data tools — gather context to send to the server-side Gemini proxy
 // ---------------------------------------------------------------------------
+
+function extractPlanProposal(rawText: string): { cleanText: string; proposedPlan?: ProposedPlanAction } {
+  if (!rawText) return { cleanText: '' };
+
+  const proposalRegex = /```(?:json:plan_proposal|json)\s*(\{[\s\S]*?"sessions"[\s\S]*?\})\s*```/i;
+  const match = rawText.match(proposalRegex);
+  if (!match) {
+    return { cleanText: rawText };
+  }
+
+  try {
+    const jsonStr = match[1];
+    const parsed = JSON.parse(jsonStr) as ProposedPlanAction;
+    if (Array.isArray(parsed.sessions) && parsed.sessions.length > 0) {
+      parsed.sessions = parsed.sessions.map((s, idx) => ({
+        id: s.id || `draft-${Date.now()}-${idx}`,
+        week_start_date: s.week_start_date || getNextMonday(),
+        session_date: s.session_date || getNextMonday(),
+        title: s.title || 'Training Session',
+        sport_type: s.sport_type || 'cycling',
+        duration_minutes: Number(s.duration_minutes) || 60,
+        focus: s.focus || 'Endurance Training',
+        details: s.details || '',
+        target_tss: s.target_tss ? Number(s.target_tss) : undefined,
+        status: 'PROPOSED',
+      }));
+
+      const cleanText = rawText.replace(match[0], '').trim();
+      return { cleanText, proposedPlan: parsed };
+    }
+  } catch (err) {
+    console.warn('Could not parse plan_proposal JSON block:', err);
+  }
+
+  return { cleanText: rawText };
+}
 
 async function gatherAthleteContext(goalName: string = 'Mount Baker') {
   const [profileRes, activitiesRes, goalsRes, sessionsRes] = await Promise.allSettled([
@@ -135,13 +171,15 @@ class GeminiCoachEngine {
     }
 
     const { text } = await res.json();
+    const { cleanText, proposedPlan } = extractPlanProposal(text || '');
 
     return {
       id: `coach-msg-${Date.now()}`,
       sender: 'coach',
-      text: text || 'No response received. Please try again.',
+      text: cleanText || 'No response received. Please try again.',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       toolCalls,
+      proposedPlan,
     };
   }
 

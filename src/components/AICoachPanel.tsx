@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, Sparkles, Terminal, Activity, ShieldAlert, ChevronDown, ChevronUp, CalendarDays, Check, X, Zap } from 'lucide-react';
-import type { AICoachMessage, TrainingSession, TrainingSessionStatus } from '../types';
+import type { AICoachMessage, ProposedPlanAction, TrainingSession, TrainingSessionStatus } from '../types';
 import { coachEngine } from '../lib/ai/coachEngine';
 import { getNextTrainingWeekStartDate } from '../lib/trainingSessions';
 
@@ -9,6 +9,7 @@ interface AICoachPanelProps {
   isGeneratingWeeklyPlan: boolean;
   onGenerateWeeklyPlan: () => Promise<void>;
   onUpdateTrainingSession: (id: string, status: TrainingSessionStatus) => Promise<void>;
+  onAcceptProposedPlan?: (proposal: ProposedPlanAction) => Promise<void>;
 }
 
 export const AICoachPanel: React.FC<AICoachPanelProps> = ({
@@ -16,6 +17,7 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
   isGeneratingWeeklyPlan,
   onGenerateWeeklyPlan,
   onUpdateTrainingSession,
+  onAcceptProposedPlan,
 }) => {
   const [messages, setMessages] = useState<AICoachMessage[]>([
     {
@@ -29,7 +31,7 @@ Welcome back! I am monitoring your multi-sport endurance metrics across **Road C
 - **Knee & Posterior Chain Status:** Active awareness on steep gradients >12%.
 - **Decompression Night Protocol:** Mid-week hamstring mobility + isometric knee extensions.
 
-How can I optimize your training load today?`,
+I can also **generate, adjust, or reschedule your weekly workouts** on demand. How can I optimize your training load today?`,
       timestamp: '12:00 PM'
     }
   ]);
@@ -38,6 +40,7 @@ How can I optimize your training load today?`,
   const [isProcessing, setIsProcessing] = useState(false);
   const [planError, setPlanError] = useState('');
   const [updatingSessionId, setUpdatingSessionId] = useState<string | null>(null);
+  const [planActionMsgId, setPlanActionMsgId] = useState<string | null>(null);
   const [expandedToolLogs, setExpandedToolLogs] = useState<Record<string, boolean>>({});
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
@@ -84,6 +87,37 @@ How can I optimize your training load today?`,
     setExpandedToolLogs((prev) => ({ ...prev, [msgId]: !prev[msgId] }));
   };
 
+  const handleAcceptPlanProposal = async (msgId: string, proposal: ProposedPlanAction) => {
+    setPlanActionMsgId(msgId);
+    setPlanError('');
+    try {
+      if (onAcceptProposedPlan) {
+        await onAcceptProposedPlan(proposal);
+      }
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === msgId && m.proposedPlan
+            ? { ...m, proposedPlan: { ...m.proposedPlan, isAccepted: true, isDeclined: false } }
+            : m
+        )
+      );
+    } catch (err: any) {
+      setPlanError(err?.message || 'The proposed plan could not be applied.');
+    } finally {
+      setPlanActionMsgId(null);
+    }
+  };
+
+  const handleDeclinePlanProposal = (msgId: string) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === msgId && m.proposedPlan
+          ? { ...m, proposedPlan: { ...m.proposedPlan, isDeclined: true, isAccepted: false } }
+          : m
+      )
+    );
+  };
+
   const handleGenerateWeeklyPlan = async () => {
     setPlanError('');
     try {
@@ -111,9 +145,9 @@ How can I optimize your training load today?`,
   );
 
   const quickPrompts = [
+    'Create next week training plan with skimo & climbing focus',
+    'Modify Wednesday workout for knee recovery',
     'Mount Baker Hill Climb readiness check',
-    'Knee health & wind-down routine for tonight',
-    'Analyze my recent Skimo vs Cycling TSS',
     'Suggest recovery workout based on current TSB'
   ];
 
@@ -267,6 +301,109 @@ How can I optimize your training load today?`,
                   {msg.timestamp}
                 </div>
               </div>
+
+              {/* Proposal Card embedded in chat if AI generated/modified workouts */}
+              {msg.proposedPlan && msg.proposedPlan.sessions.length > 0 && (
+                <div className="rounded-2xl border border-cyan-500/30 bg-slate-900/95 p-4 shadow-2xl space-y-3">
+                  {/* Header */}
+                  <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-2.5">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-7 h-7 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center flex-shrink-0">
+                        <CalendarDays className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-bold text-cyan-300 uppercase tracking-wider">
+                            {msg.proposedPlan.type === 'REPLACE_WEEK'
+                              ? 'Proposed Weekly Training Plan'
+                              : msg.proposedPlan.type === 'UPDATE'
+                              ? 'Proposed Workout Modification'
+                              : msg.proposedPlan.type === 'DELETE'
+                              ? 'Proposed Workout Removal'
+                              : 'Proposed New Workout'}
+                          </span>
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/10 text-slate-300">
+                            {msg.proposedPlan.sessions.length} {msg.proposedPlan.sessions.length === 1 ? 'session' : 'sessions'}
+                          </span>
+                        </div>
+                        {msg.proposedPlan.summary && (
+                          <p className="text-xs text-slate-300 mt-0.5">{msg.proposedPlan.summary}</p>
+                        )}
+                      </div>
+                    </div>
+                    {msg.proposedPlan.isAccepted ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1 rounded-full shrink-0">
+                        <Check className="w-3.5 h-3.5" /> Added to Schedule
+                      </span>
+                    ) : msg.proposedPlan.isDeclined ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 bg-white/5 border border-white/10 px-2.5 py-1 rounded-full shrink-0">
+                        <X className="w-3.5 h-3.5" /> Declined
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {/* Sessions List */}
+                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                    {msg.proposedPlan.sessions.map((session, sIdx) => (
+                      <div key={session.id || sIdx} className="rounded-xl border border-white/10 bg-slate-950/70 p-3 text-xs space-y-1.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-white text-sm">{session.title}</span>
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/20 capitalize">
+                                {session.sport_type.replace('_', ' ')}
+                              </span>
+                            </div>
+                            <p className="text-[11px] font-medium text-slate-400 mt-1">
+                              {new Date(`${session.session_date}T12:00:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
+                              {' · '}{session.duration_minutes} min
+                              {session.target_tss ? ` · ${session.target_tss} TSS` : ''}
+                              {session.focus ? ` · Focus: ${session.focus}` : ''}
+                            </p>
+                          </div>
+                          {session.target_tss && (
+                            <span className="shrink-0 text-[11px] font-bold text-amber-300 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
+                              {session.target_tss} TSS
+                            </span>
+                          )}
+                        </div>
+                        {session.details && (
+                          <p className="text-slate-300 text-[11px] leading-relaxed bg-slate-900/90 p-2.5 rounded-lg border border-white/5 font-mono">
+                            {session.details}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Action Buttons if not yet accepted/declined */}
+                  {!msg.proposedPlan.isAccepted && !msg.proposedPlan.isDeclined && (
+                    <div className="flex items-center gap-2 pt-2 border-t border-white/10">
+                      <button
+                        type="button"
+                        onClick={() => handleAcceptPlanProposal(msg.id, msg.proposedPlan!)}
+                        disabled={planActionMsgId === msg.id}
+                        className="min-h-10 inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-cyan-400 transition-all disabled:opacity-50 shadow-lg shadow-cyan-500/20"
+                      >
+                        <Check className="w-4 h-4" />
+                        {planActionMsgId === msg.id
+                          ? 'Applying to Schedule...'
+                          : msg.proposedPlan.sessions.length > 1
+                          ? `Accept & Add ${msg.proposedPlan.sessions.length} Workouts`
+                          : 'Accept Workout & Add to Schedule'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeclinePlanProposal(msg.id)}
+                        disabled={planActionMsgId === msg.id}
+                        className="min-h-10 inline-flex items-center justify-center gap-1.5 rounded-xl border border-white/10 px-3.5 py-2 text-xs font-semibold text-slate-400 hover:text-white hover:bg-white/5 transition-all disabled:opacity-50"
+                      >
+                        <X className="w-4 h-4" /> Decline
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Tool Execution Logs if any */}
               {msg.toolCalls && msg.toolCalls.length > 0 && (

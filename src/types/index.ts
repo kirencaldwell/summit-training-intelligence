@@ -138,6 +138,15 @@ export interface AICoachToolCall {
   result?: any;
 }
 
+export interface ProposedPlanAction {
+  type: 'CREATE' | 'UPDATE' | 'REPLACE_WEEK' | 'DELETE';
+  sessions: TrainingSession[];
+  weekStartDate?: string;
+  summary?: string;
+  isAccepted?: boolean;
+  isDeclined?: boolean;
+}
+
 export interface AICoachMessage {
   id: string;
   sender: 'user' | 'coach' | 'system';
@@ -145,6 +154,7 @@ export interface AICoachMessage {
   timestamp: string;
   toolCalls?: AICoachToolCall[];
   isThinking?: boolean;
+  proposedPlan?: ProposedPlanAction;
 }
 
 export interface StravaConnectState {

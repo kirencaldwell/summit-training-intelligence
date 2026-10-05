@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { User } from '@supabase/supabase-js';
-import type { Activity, AthleteProfile, Goal, PMCDayPoint, PowerCurvePoint, TrainingSession, TrainingSessionStatus } from './types';
+import type { Activity, AthleteProfile, Goal, PMCDayPoint, PowerCurvePoint, ProposedPlanAction, TrainingSession, TrainingSessionStatus } from './types';
 import { dataService, isSupabaseConfigured, supabase } from './lib/supabase';
 import { triggerMockStravaSync, parseStravaAuthCode } from './lib/strava';
 import { calculatePMC, calculatePowerCurve, hasPowerCurveData } from './lib/trainingMath';
@@ -129,6 +129,49 @@ export function App() {
   const handleUpdateTrainingSession = async (id: string, status: TrainingSessionStatus) => {
     const updated = await dataService.updateTrainingSessionStatus(id, status);
     setTrainingSessions((previous) => previous.map((session) => session.id === id ? updated : session));
+  };
+
+  const handleAcceptProposedPlan = async (proposal: ProposedPlanAction) => {
+    if (proposal.type === 'REPLACE_WEEK' && proposal.weekStartDate) {
+      const drafts = proposal.sessions.map((s) => ({
+        week_start_date: s.week_start_date,
+        session_date: s.session_date,
+        title: s.title,
+        sport_type: s.sport_type,
+        duration_minutes: s.duration_minutes,
+        focus: s.focus,
+        details: s.details,
+        target_tss: s.target_tss,
+      }));
+      const proposed = await dataService.replaceProposedTrainingSessions(proposal.weekStartDate, drafts);
+      const acceptedSessions: TrainingSession[] = [];
+      for (const p of proposed) {
+        const acc = await dataService.updateTrainingSessionStatus(p.id, 'ACCEPTED');
+        acceptedSessions.push(acc);
+      }
+      setTrainingSessions((previous) => [
+        ...previous.filter((session) => session.week_start_date !== proposal.weekStartDate),
+        ...acceptedSessions,
+      ]);
+    } else if (proposal.type === 'DELETE') {
+      for (const session of proposal.sessions) {
+        await dataService.deleteTrainingSession(session.id);
+      }
+      const deleteIds = new Set(proposal.sessions.map((s) => s.id));
+      setTrainingSessions((previous) => previous.filter((s) => !deleteIds.has(s.id)));
+    } else {
+      // CREATE or UPDATE
+      const toSave: TrainingSession[] = proposal.sessions.map((s) => ({
+        ...s,
+        status: 'ACCEPTED',
+      }));
+      const saved = await dataService.saveTrainingSessions(toSave);
+      const savedIds = new Set(saved.map((s) => s.id));
+      setTrainingSessions((previous) => [
+        ...previous.filter((s) => !savedIds.has(s.id)),
+        ...saved,
+      ]);
+    }
   };
 
   const handleSyncStrava = async () => {
@@ -412,6 +455,7 @@ export function App() {
             isGeneratingWeeklyPlan={isGeneratingWeeklyPlan}
             onGenerateWeeklyPlan={handleGenerateWeeklyPlan}
             onUpdateTrainingSession={handleUpdateTrainingSession}
+            onAcceptProposedPlan={handleAcceptProposedPlan}
           />
         )}
       </main>
