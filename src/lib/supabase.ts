@@ -11,6 +11,32 @@ export const supabase = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null;
 
+function sportFamily(sportType: string): string {
+  if (sportType === 'cycling' || sportType === 'zwift') return 'cycling';
+  if (sportType === 'skimo' || sportType === 'backcountry_skiing') return 'skiing';
+  return sportType;
+}
+
+function isDuplicateActivity(candidate: Activity, existing: Activity): boolean {
+  const candidateStart = new Date(candidate.start_date).getTime();
+  const existingStart = new Date(existing.start_date).getTime();
+  if (!Number.isFinite(candidateStart) || !Number.isFinite(existingStart)) return false;
+  if (Math.abs(candidateStart - existingStart) > 5 * 60 * 1000) return false;
+  if (sportFamily(candidate.sport_type) !== sportFamily(existing.sport_type)) return false;
+
+  const candidateDuration = candidate.moving_time_seconds || candidate.duration_seconds;
+  const existingDuration = existing.moving_time_seconds || existing.duration_seconds;
+  const durationTolerance = Math.max(120, Math.max(candidateDuration, existingDuration) * 0.03);
+  if (Math.abs(candidateDuration - existingDuration) > durationTolerance) return false;
+
+  if (candidate.distance_meters > 0 && existing.distance_meters > 0) {
+    const distanceTolerance = Math.max(300, Math.max(candidate.distance_meters, existing.distance_meters) * 0.03);
+    if (Math.abs(candidate.distance_meters - existing.distance_meters) > distanceTolerance) return false;
+  }
+
+  return true;
+}
+
 const STORAGE_KEYS = {
   PROFILE: 'summit_athlete_profile',
   ACTIVITIES: 'summit_activities_list',
@@ -154,6 +180,33 @@ class DataService {
   public async getActivityById(id: string): Promise<Activity | undefined> {
     const list = await this.getActivities();
     return list.find(a => a.id === id);
+  }
+
+  public async findDuplicateActivity(candidate: Activity): Promise<Activity | undefined> {
+    const candidateStart = new Date(candidate.start_date).getTime();
+    if (!Number.isFinite(candidateStart)) return undefined;
+    const startWindow = new Date(candidateStart - 5 * 60 * 1000).toISOString();
+    const endWindow = new Date(candidateStart + 5 * 60 * 1000).toISOString();
+    let possibleMatches: Activity[];
+
+    if (this.mode === 'supabase' && supabase) {
+      const profile = await this.getAuthenticatedProfile();
+      const { data, error } = await supabase
+        .from('activities')
+        .select('id, title, sport_type, start_date, duration_seconds, moving_time_seconds, distance_meters')
+        .eq('user_id', profile.id)
+        .gte('start_date', startWindow)
+        .lte('start_date', endWindow);
+      if (error) throw new Error(`Could not check for duplicate activities: ${error.message}`);
+      possibleMatches = (data || []) as Activity[];
+    } else {
+      possibleMatches = this.localActivities.filter((activity) => {
+        const start = new Date(activity.start_date).getTime();
+        return Number.isFinite(start) && Math.abs(start - candidateStart) <= 5 * 60 * 1000;
+      });
+    }
+
+    return possibleMatches.find((activity) => isDuplicateActivity(candidate, activity));
   }
 
   public async addActivity(newActivity: Activity): Promise<Activity> {

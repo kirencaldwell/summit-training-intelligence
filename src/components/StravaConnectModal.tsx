@@ -5,7 +5,7 @@
  */
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
-  X, Upload, CheckCircle2, AlertCircle, Loader2, Watch, RefreshCw,
+  X, Upload, CheckCircle2, AlertCircle, Loader2, Watch, RefreshCw, CopyCheck,
   Key, ExternalLink, Mountain, Zap, ChevronRight, FileCode2,
 } from 'lucide-react';
 import type { Activity } from '../types';
@@ -168,11 +168,15 @@ const FitUploadTab: React.FC<{ onActivitiesImported: (a: Activity[]) => void }> 
               className={`flex items-start space-x-3 p-3 rounded-xl border text-xs ${
                 r.status === 'success'
                   ? 'bg-emerald-500/10 border-emerald-500/30'
+                  : r.status === 'duplicate'
+                  ? 'bg-amber-500/10 border-amber-500/30'
                   : 'bg-rose-500/10 border-rose-500/30'
               }`}
             >
               {r.status === 'success' ? (
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+              ) : r.status === 'duplicate' ? (
+                <CopyCheck className="w-4 h-4 text-amber-300 flex-shrink-0 mt-0.5" />
               ) : (
                 <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
               )}
@@ -197,6 +201,8 @@ const FitUploadTab: React.FC<{ onActivitiesImported: (a: Activity[]) => void }> 
                       </span>
                     )}
                   </div>
+                ) : r.status === 'duplicate' ? (
+                  <p className="text-amber-200 mt-0.5">Already imported; skipped{r.activity ? ` (matches ${r.activity.title})` : ''}.</p>
                 ) : (
                   <p className="text-rose-300 mt-0.5">{r.error}</p>
                 )}

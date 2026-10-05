@@ -359,25 +359,13 @@ export async function parseGpxFile(file: File): Promise<Activity> {
 
 export interface FitImportResult {
   file: string;
-  status: 'success' | 'error';
+  status: 'success' | 'duplicate' | 'error';
   activity?: Activity;
   error?: string;
 }
 
 export async function parseFitFiles(files: File[]): Promise<FitImportResult[]> {
-  const results: FitImportResult[] = [];
-
-  for (const file of files) {
-    try {
-      const parsedActivity = await parseFitFile(file);
-      const activity = await dataService.addActivity(parsedActivity);
-      results.push({ file: file.name, status: 'success', activity });
-    } catch (err: any) {
-      results.push({ file: file.name, status: 'error', error: err.message });
-    }
-  }
-
-  return results;
+  return parseActivityFiles(files);
 }
 
 export async function parseActivityFiles(files: File[]): Promise<FitImportResult[]> {
@@ -389,6 +377,11 @@ export async function parseActivityFiles(files: File[]): Promise<FitImportResult
       const parsedActivity = /\.gpx$/i.test(file.name)
         ? await parseGpxFile(file)
         : await parseFitFile(file);
+      const duplicate = await dataService.findDuplicateActivity(parsedActivity);
+      if (duplicate) {
+        results.push({ file: file.name, status: 'duplicate', activity: duplicate });
+        continue;
+      }
       const activity = await dataService.addActivity(parsedActivity);
       results.push({ file: file.name, status: 'success', activity });
     } catch (err) {
