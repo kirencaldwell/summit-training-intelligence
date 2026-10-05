@@ -11,6 +11,9 @@ interface ActivityListProps {
 export const ActivityList: React.FC<ActivityListProps> = ({ activities, onSelectActivity, onDeleteActivity }) => {
   const [selectedSport, setSelectedSport] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
   const [deletingActivityId, setDeletingActivityId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState('');
 
@@ -41,7 +44,15 @@ export const ActivityList: React.FC<ActivityListProps> = ({ activities, onSelect
   const filteredActivities = activities.filter((act) => {
     const matchesSport = selectedSport === 'all' || act.sport_type === selectedSport || (selectedSport === 'cycling' && act.sport_type === 'zwift');
     const matchesSearch = act.title.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesSport && matchesSearch;
+    const activityDate = new Date(act.start_date);
+    if (!Number.isFinite(activityDate.getTime())) return false;
+    const activityDay = `${activityDate.getFullYear()}-${String(activityDate.getMonth() + 1).padStart(2, '0')}-${String(activityDate.getDate()).padStart(2, '0')}`;
+    const matchesFrom = !dateFrom || activityDay >= dateFrom;
+    const matchesTo = !dateTo || activityDay <= dateTo;
+    return matchesSport && matchesSearch && matchesFrom && matchesTo;
+  }).sort((first, second) => {
+    const difference = new Date(first.start_date).getTime() - new Date(second.start_date).getTime();
+    return sortOrder === 'newest' ? -difference : difference;
   });
 
   const getSportBadgeColor = (sport: SportType) => {
@@ -94,10 +105,57 @@ export const ActivityList: React.FC<ActivityListProps> = ({ activities, onSelect
         </div>
       </div>
 
+      <div className="grid grid-cols-2 sm:grid-cols-[1fr_1fr_auto_auto] items-end gap-3 border-b border-white/10 pb-4">
+        <label className="min-w-0 text-xs font-medium text-slate-400">
+          From
+          <input
+            type="date"
+            value={dateFrom}
+            max={dateTo || undefined}
+            onChange={(event) => setDateFrom(event.target.value)}
+            className="mt-1 min-h-11 w-full rounded-lg border border-white/10 bg-slate-900 px-3 text-sm text-white focus:border-cyan-500 focus:outline-none"
+          />
+        </label>
+        <label className="min-w-0 text-xs font-medium text-slate-400">
+          To
+          <input
+            type="date"
+            value={dateTo}
+            min={dateFrom || undefined}
+            onChange={(event) => setDateTo(event.target.value)}
+            className="mt-1 min-h-11 w-full rounded-lg border border-white/10 bg-slate-900 px-3 text-sm text-white focus:border-cyan-500 focus:outline-none"
+          />
+        </label>
+        <label className="col-span-2 sm:col-span-1 text-xs font-medium text-slate-400">
+          Sort by
+          <select
+            value={sortOrder}
+            onChange={(event) => setSortOrder(event.target.value as 'newest' | 'oldest')}
+            className="mt-1 min-h-11 w-full rounded-lg border border-white/10 bg-slate-900 px-3 text-sm text-white focus:border-cyan-500 focus:outline-none sm:min-w-36"
+          >
+            <option value="newest">Most recent</option>
+            <option value="oldest">Oldest first</option>
+          </select>
+        </label>
+        <div className="col-span-2 flex min-h-11 items-center justify-between sm:col-span-1 sm:justify-end sm:gap-3">
+          <span className="text-xs text-slate-500">{filteredActivities.length} of {activities.length}</span>
+          {(dateFrom || dateTo) && (
+            <button
+              type="button"
+              onClick={() => { setDateFrom(''); setDateTo(''); }}
+              className="min-h-11 px-3 text-xs font-semibold text-cyan-300 hover:text-cyan-200"
+            >
+              Clear dates
+            </button>
+          )}
+        </div>
+      </div>
+
       {deleteError && <p role="alert" className="text-sm text-rose-300">{deleteError}</p>}
 
       {/* Activity Card Feed */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {filteredActivities.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredActivities.map((act) => {
           const distanceKm = (act.distance_meters / 1000).toFixed(1);
 
@@ -173,7 +231,12 @@ export const ActivityList: React.FC<ActivityListProps> = ({ activities, onSelect
             </div>
           );
         })}
-      </div>
+        </div>
+      ) : (
+        <div className="border-t border-white/10 py-12 text-center text-sm text-slate-400">
+          No activities match these filters.
+        </div>
+      )}
     </div>
   );
 };
