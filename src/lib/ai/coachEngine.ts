@@ -6,16 +6,31 @@ import { calculatePMC, calculatePowerCurve } from '../trainingMath';
 // Local data tools — gather context to send to the server-side Gemini proxy
 // ---------------------------------------------------------------------------
 
-async function getAthleteStatus(): Promise<{
-  profile: AthleteProfile;
-  pmc: { ctl: number; atl: number; tsb: number; formCategory: string };
-  injuries: string[];
-  routines: AthleteProfile['recovery_routines'];
-  nextGoal?: Goal;
-}> {
-  const profile = await dataService.getProfile();
-  const activities = await dataService.getActivities();
-  const goals = await dataService.getGoals();
+async function gatherAthleteContext(goalName: string = 'Mount Baker') {
+  const [profileRes, activitiesRes, goalsRes, sessionsRes] = await Promise.allSettled([
+    dataService.getProfile(),
+    dataService.getActivities(),
+    dataService.getGoals(),
+    dataService.getTrainingSessions(),
+  ]);
+
+  const profile: AthleteProfile = profileRes.status === 'fulfilled' ? profileRes.value : {
+    id: 'local-athlete',
+    full_name: 'Endurance Athlete',
+    ftp: 285,
+    max_hr: 192,
+    lthr: 172,
+    weight_kg: 70.5,
+    injury_notes: ['Left patellar tendonitis (active awareness on >12% grades)', 'Posterior chain tightness'],
+    recovery_routines: {
+      wednesday: 'Decompression Night (Mid-week reset: foam roll, hamstring stretch, isometric knee extensions)',
+      sunday: 'Decompression Night (End-of-week reset: full lower body mobility, hip flexor release, light walk)',
+    },
+  };
+
+  const activities: Activity[] = activitiesRes.status === 'fulfilled' ? activitiesRes.value : [];
+  const goals: Goal[] = goalsRes.status === 'fulfilled' ? goalsRes.value : [];
+  const trainingSessions: TrainingSession[] = sessionsRes.status === 'fulfilled' ? sessionsRes.value : [];
 
   const pmcData = calculatePMC(activities, 30);
   const latestPmc = pmcData[pmcData.length - 1] || { ctl: 65, atl: 70, tsb: -5, tss: 0 };
@@ -25,29 +40,15 @@ async function getAthleteStatus(): Promise<{
   else if (latestPmc.tsb > 15) formCategory = 'Fresh & Tapered (Race Ready)';
   else if (latestPmc.tsb < -10) formCategory = 'Productive Overload Zone';
 
-  return {
+  const statusData = {
     profile,
     pmc: { ...latestPmc, formCategory },
     injuries: profile.injury_notes,
     routines: profile.recovery_routines,
     nextGoal: goals[0],
   };
-}
 
-async function queryActivities(params: {
-  sportType?: string;
-  minElevationMeters?: number;
-  limit?: number;
-}): Promise<Partial<Activity>[]> {
-  const activities = await dataService.getActivities(params.sportType);
-  let filtered = activities;
-
-  if (params.minElevationMeters) {
-    filtered = filtered.filter(a => a.total_elevation_gain_m >= params.minElevationMeters!);
-  }
-
-  const limit = params.limit || 8;
-  return filtered.slice(0, limit).map(a => ({
+  const recentActivities = activities.slice(0, 8).map(a => ({
     id: a.id,
     title: a.title,
     sport_type: a.sport_type,
@@ -61,21 +62,8 @@ async function queryActivities(params: {
     avg_hr: a.avg_hr,
     knee_discomfort_level: a.knee_discomfort_level,
   }));
-}
 
-async function getMilestoneReadiness(goalName: string = 'Mount Baker'): Promise<{
-  goal: Goal | undefined;
-  daysRemaining: number;
-  powerCurve20m: number;
-  targetPowerWatts: number;
-  readinessScorePct: number;
-  coachingAdvice: string;
-}> {
-  const goals = await dataService.getGoals();
   const goal = goals.find(g => g.name.toLowerCase().includes(goalName.toLowerCase())) || goals[0];
-  const activities = await dataService.getActivities();
-  const profile = await dataService.getProfile();
-
   const powerCurve = calculatePowerCurve(activities, profile.weight_kg);
   const point20m = powerCurve.find(p => p.label === '20m')?.watts || 275;
   const targetW = goal?.target_power_watts || 280;
@@ -96,7 +84,9 @@ async function getMilestoneReadiness(goalName: string = 'Mount Baker'): Promise<
       ? 'Target 2x20m sweetspot/threshold efforts to lift 20m power closer to target.'
       : 'Power target is within reach! Prioritize grade-specific climbing simulation and knee health management.';
 
-  return { goal, daysRemaining, powerCurve20m: point20m, targetPowerWatts: targetW, readinessScorePct, coachingAdvice };
+  const milestoneData = { goal, daysRemaining, powerCurve20m: point20m, targetPowerWatts: targetW, readinessScorePct, coachingAdvice };
+
+  return { statusData, recentActivities, milestoneData, trainingSessions };
 }
 
 /** Returns the next Monday as a YYYY-MM-DD string */
@@ -115,12 +105,8 @@ class GeminiCoachEngine {
   public async processUserQuery(userQuery: string): Promise<AICoachMessage> {
     const toolCalls: AICoachToolCall[] = [];
 
-    // Gather all local context in parallel before sending to server
-    const [statusData, recentActivities, milestoneData] = await Promise.all([
-      getAthleteStatus(),
-      queryActivities({ limit: 8 }),
-      getMilestoneReadiness('Mount Baker'),
-    ]);
+    // Gather all local context in a single unified step
+    const { statusData, recentActivities, milestoneData, trainingSessions } = await gatherAthleteContext('Mount Baker');
 
     toolCalls.push(
       { toolName: 'getAthleteStatus', args: {}, result: statusData },
@@ -138,6 +124,7 @@ class GeminiCoachEngine {
           athleteStatus: statusData,
           recentActivities,
           milestoneReadiness: milestoneData,
+          scheduledTrainingSessions: trainingSessions.slice(0, 10),
         },
       }),
     });
@@ -160,11 +147,7 @@ class GeminiCoachEngine {
 
   /** Generate a proposed weekly training plan via Gemini */
   public async generateWeeklyPlan(occupiedDates: string[]): Promise<TrainingSession[]> {
-    const [statusData, recentActivities, milestoneData] = await Promise.all([
-      getAthleteStatus(),
-      queryActivities({ limit: 8 }),
-      getMilestoneReadiness('Mount Baker'),
-    ]);
+    const { statusData, recentActivities, milestoneData } = await gatherAthleteContext('Mount Baker');
 
     const nextMonday = getNextMonday();
 

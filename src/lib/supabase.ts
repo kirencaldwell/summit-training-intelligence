@@ -159,16 +159,29 @@ class DataService {
 
   public async getActivities(sportFilter?: string): Promise<Activity[]> {
     if (this.mode === 'supabase' && supabase) {
-      const profile = await this.getAuthenticatedProfile();
-      let query = supabase
-        .from('activities')
-        .select('*')
-        .eq('user_id', profile.id)
-        .order('start_date', { ascending: false });
-      if (sportFilter && sportFilter !== 'all') query = query.eq('sport_type', sportFilter);
-      const { data, error } = await query;
-      if (error) throw new Error(`Activities could not be loaded: ${error.message}`);
-      return (data || []) as Activity[];
+      try {
+        const profile = await this.getAuthenticatedProfile();
+        let query = supabase
+          .from('activities')
+          .select(
+            'id, user_id, strava_activity_id, title, sport_type, start_date, duration_seconds, moving_time_seconds, distance_meters, total_elevation_gain_m, avg_power, max_power, normalized_power, intensity_factor, training_stress_score, avg_hr, max_hr, avg_cadence, max_speed_kmh, avg_vam_mh, time_in_hr_zones, time_in_power_zones, power_curve_best_efforts, map_summary_polyline, gear_notes, pack_weight_kg, perceived_exertion, knee_discomfort_level, created_at'
+          )
+          .eq('user_id', profile.id)
+          .order('start_date', { ascending: false });
+        if (sportFilter && sportFilter !== 'all') query = query.eq('sport_type', sportFilter);
+        const { data, error } = await query;
+        if (error) {
+          console.warn('Supabase getActivities query warning:', error.message);
+          // If statement timed out or failed, fall back to local cached activities
+          if (this.localActivities.length > 0) return this.localActivities;
+          throw new Error(`Activities could not be loaded: ${error.message}`);
+        }
+        return (data || []) as Activity[];
+      } catch (err: any) {
+        console.warn('getActivities fallback to local activities:', err?.message);
+        if (this.localActivities.length > 0) return this.localActivities;
+        throw err;
+      }
     }
 
     if (sportFilter && sportFilter !== 'all') {
@@ -178,8 +191,21 @@ class DataService {
   }
 
   public async getActivityById(id: string): Promise<Activity | undefined> {
-    const list = await this.getActivities();
-    return list.find(a => a.id === id);
+    if (this.mode === 'supabase' && supabase) {
+      try {
+        const profile = await this.getAuthenticatedProfile();
+        const { data, error } = await supabase
+          .from('activities')
+          .select('*')
+          .eq('id', id)
+          .eq('user_id', profile.id)
+          .maybeSingle();
+        if (!error && data) return data as Activity;
+      } catch (err) {
+        console.warn('Supabase getActivityById error:', err);
+      }
+    }
+    return this.localActivities.find(a => a.id === id);
   }
 
   public async findDuplicateActivity(candidate: Activity): Promise<Activity | undefined> {
