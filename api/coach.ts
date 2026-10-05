@@ -73,9 +73,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
+    const modelName = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
     const model = genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash',
+      model: modelName,
       systemInstruction: SYSTEM_PROMPT,
     });
 

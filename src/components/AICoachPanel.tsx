@@ -167,7 +167,7 @@ I can also **generate, adjust, or reschedule your weekly workouts** on demand. H
               <span>Summit Intelligence AI Coach</span>
               <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center gap-1">
                 <Zap className="w-2.5 h-2.5" />
-                Gemini 2.0 Flash
+                Gemini Flash
               </span>
             </h2>
             <p className="text-[11px] text-slate-400">Contextual multi-sport database integration & injury guardian</p>
