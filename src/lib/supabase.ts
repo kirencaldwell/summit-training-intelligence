@@ -40,6 +40,8 @@ function isDuplicateActivity(candidate: Activity, existing: Activity): boolean {
 const ACTIVITY_LIST_COLUMNS =
   'id, user_id, strava_activity_id, title, sport_type, start_date, duration_seconds, moving_time_seconds, distance_meters, total_elevation_gain_m, avg_power, max_power, normalized_power, intensity_factor, training_stress_score, avg_hr, max_hr, avg_cadence, max_speed_kmh, avg_vam_mh, time_in_hr_zones, time_in_power_zones, power_curve_best_efforts, map_summary_polyline, gear_notes, pack_weight_kg, perceived_exertion, knee_discomfort_level, coach_assessment, coach_assessment_at, created_at';
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const STORAGE_KEYS = {
   PROFILE: 'summit_athlete_profile',
   ACTIVITIES: 'summit_activities_list',
@@ -415,11 +417,11 @@ class DataService {
       if (deleteError) throw new Error(`Old proposals could not be replaced: ${deleteError.message}`);
 
       if (sessions.length === 0) return [];
-      const rows = sessions.map((session) => ({
-        ...session,
-        user_id: profile.id,
-        status: 'PROPOSED' as const,
-      }));
+      // The model's draft JSON carries its own ids (e.g. "session-1"); the DB generates real UUIDs
+      const rows = sessions.map((session) => {
+        const { id: _modelId, status: _modelStatus, ...fields } = session as Partial<TrainingSession>;
+        return { ...fields, user_id: profile.id, status: 'PROPOSED' as const };
+      });
       const { data, error } = await supabase.from('training_sessions').insert(rows).select('*');
       if (error) throw new Error(`Weekly plan could not be saved: ${error.message}`);
       return (data || []) as TrainingSession[];
@@ -445,11 +447,7 @@ class DataService {
       const profile = await this.getAuthenticatedProfile();
       const results: TrainingSession[] = [];
       for (const session of sessions) {
-        const isExistingUUID =
-          session.id &&
-          !session.id.startsWith('draft-') &&
-          !session.id.startsWith('temp-') &&
-          session.id.length >= 32;
+        const isExistingUUID = UUID_PATTERN.test(session.id || '');
 
         if (isExistingUUID) {
           const { id, ...rest } = session;
