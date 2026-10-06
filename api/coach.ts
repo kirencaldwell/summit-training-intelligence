@@ -415,7 +415,19 @@ function buildEngine(req: VercelRequest, res: VercelResponse): Engine | null {
       return null;
     }
     const model = CLAUDE_MODELS.includes(body.claudeModel) ? body.claudeModel : DEFAULT_CLAUDE_MODEL;
-    return { provider: 'claude', client: new Anthropic({ apiKey, maxRetries: 1 }), model };
+    // Keys that aren't scoped to a workspace must say which workspace to use
+    const wsHeader = req.headers['x-anthropic-workspace-id'];
+    const workspaceId = (Array.isArray(wsHeader) ? wsHeader[0] : wsHeader)?.trim();
+    if (workspaceId && !/^wrkspc_[A-Za-z0-9_-]+$/.test(workspaceId)) {
+      res.status(400).json({ error: 'The workspace ID should look like wrkspc_... (copy it from the Anthropic console).' });
+      return null;
+    }
+    const client = new Anthropic({
+      apiKey,
+      maxRetries: 1,
+      defaultHeaders: workspaceId ? { 'anthropic-workspace-id': workspaceId } : undefined,
+    });
+    return { provider: 'claude', client, model };
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
