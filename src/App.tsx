@@ -112,6 +112,18 @@ export function App() {
     setIsOnboardingOpen(false);
   };
 
+  // The list query leaves out the heavy streams_data (map + time-series), so fetch it when an activity is opened
+  const handleOpenActivity = (activity: Activity | null) => {
+    setSelectedActivity(activity);
+    if (!activity || (activity.streams_data && activity.streams_data.length > 0)) return;
+    void dataService.getActivityById(activity.id)
+      .then((full) => {
+        if (!full?.streams_data?.length) return;
+        setSelectedActivity((prev) => (prev?.id === full.id ? { ...prev, streams_data: full.streams_data } : prev));
+      })
+      .catch((err) => console.warn('Could not load activity streams:', err));
+  };
+
   // Ask the coach how an activity fits the accepted plan and goals, and save it with the activity
   const handleAssessActivity = async (activity: Activity) => {
     setAssessingIds((prev) => [...prev, activity.id]);
@@ -397,7 +409,7 @@ export function App() {
             pmcData={pmcData}
             powerCurve={powerCurveData}
             trainingSessions={upcomingSessions}
-            onOpenActivity={setSelectedActivity}
+            onOpenActivity={handleOpenActivity}
             onNavigateTab={setActiveTab}
           />
         )}
@@ -426,7 +438,7 @@ export function App() {
 
             <ActivityList
               activities={activities}
-              onSelectActivity={setSelectedActivity}
+              onSelectActivity={handleOpenActivity}
               onDeleteActivity={handleDeleteActivity}
             />
           </div>

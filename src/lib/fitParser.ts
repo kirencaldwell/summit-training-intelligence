@@ -33,6 +33,23 @@ function mapFitSport(sport?: string, subSport?: string): SportType {
   return 'cycling';
 }
 
+/** Total climb from altitude samples (meters), ignoring sub-3m wobble. Fallback for files with no session ascent. */
+function ascentFromAltitude(samples: unknown[]): number {
+  const alts = samples.filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+  if (alts.length < 2) return 0;
+  let gain = 0;
+  let anchor = alts[0];
+  for (const alt of alts) {
+    if (alt - anchor >= 3) {
+      gain += alt - anchor;
+      anchor = alt;
+    } else if (alt < anchor) {
+      anchor = alt;
+    }
+  }
+  return gain;
+}
+
 // ─── Parse a single File object → Activity ─────────────────────────────────
 
 export async function parseFitFile(file: File): Promise<Activity> {
@@ -51,7 +68,7 @@ export async function parseFitFile(file: File): Promise<Activity> {
     const parser = new FitParser({
       force: true,
       speedUnit: 'km/h',
-      lengthUnit: 'km',
+      lengthUnit: 'm', // distance, ascent and altitude all in meters
       temperatureUnit: 'celsius',
       elapsedRecordField: true,
       mode: 'both', // gives us both list and cascade
@@ -84,8 +101,9 @@ export async function parseFitFile(file: File): Promise<Activity> {
         const durationSec: number =
           session.total_elapsed_time || session.total_timer_time || records.length || 0;
         const movingTimeSec: number = session.total_timer_time || durationSec;
-        const distanceM: number = (session.total_distance || 0) * 1000; // fit-file-parser gives km
-        const elevM: number = session.total_ascent || 0;
+        const distanceM: number = session.total_distance || 0;
+        let elevM: number = session.total_ascent || 0;
+        if (!elevM) elevM = ascentFromAltitude(records.map((r: any) => r.altitude));
 
         // ── Stream arrays ─────────────────────────────────────────────────
         const wattsArray: number[] = records
