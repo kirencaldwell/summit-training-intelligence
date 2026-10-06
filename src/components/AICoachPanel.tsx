@@ -10,15 +10,10 @@ export const INITIAL_COACH_MESSAGES: AICoachMessage[] = [
     id: 'init-msg',
     sender: 'coach',
     text: `### 🏔️ Summit AI Coach Ready
-Welcome back! I am monitoring your multi-sport endurance metrics across **Road Cycling, Skimo, Backcountry Skiing, Peak Scrambling, and Weighted Hiking**.
+I can see the profile, goals and activities you've added, and I'll work from those. Ask me about your training load, recovery, or an upcoming event.
 
-#### ⚡ Current Snapshot:
-- **Mount Baker Hill Climb Goal:** 280W target (98% readiness)
-- **Knee & Posterior Chain Status:** Active awareness on steep gradients >12%.
-- **Decompression Night Protocol:** Mid-week hamstring mobility + isometric knee extensions.
-
-I can build **multi-week periodized macro plans**, set up **Coach's Goals**, and adapt your **weekly workouts** on demand. How can I optimize your training today?`,
-    timestamp: '12:00 PM'
+I can build **multi-week periodized plans**, set up **Coach's Goals**, and adapt your **weekly workouts** on demand. What would you like to work on?`,
+    timestamp: ''
   }
 ];
 
@@ -185,10 +180,10 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
   );
 
   const quickPrompts = [
-    'Set up 12-week Mount Rainier alpine preparation plan',
-    'Create 8-week FTP boost block to 300W',
-    'Plan next week with skimo & climbing focus',
-    'Replan this week for knee recovery'
+    'Plan my training for next week',
+    'Build a multi-week plan for my priority goal',
+    'How is my training load looking?',
+    'Replan this week around my recovery needs'
   ];
 
   return (
@@ -222,7 +217,7 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
           </div>
           <div className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400">
             <ShieldAlert className="w-3.5 h-3.5" />
-            <span>Knee Guardian</span>
+            <span>Injury Awareness</span>
           </div>
         </div>
       </div>
@@ -661,7 +656,7 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
         >
           <input
             type="text"
-            placeholder="Ask AI Coach about Mount Baker prep, knee routines, skimo VAM, or recovery..."
+            placeholder="Ask your AI Coach about training load, upcoming goals, or recovery..."
             value={inputQuery}
             onChange={(e) => setInputQuery(e.target.value)}
             disabled={isProcessing}

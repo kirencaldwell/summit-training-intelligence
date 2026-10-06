@@ -6,7 +6,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   X, Upload, CheckCircle2, AlertCircle, Loader2, Watch, RefreshCw, CopyCheck,
-  Key, ExternalLink, Mountain, Zap, ChevronRight, FileCode2,
+  Key, ExternalLink, Mountain, ChevronRight, FileCode2,
 } from 'lucide-react';
 import type { Activity } from '../types';
 import { parseActivityFiles, type FitImportResult } from '../lib/fitParser';
@@ -27,7 +27,6 @@ interface DataSyncModalProps {
   isOpen: boolean;
   onClose: () => void;
   onActivitiesImported: (activities: Activity[]) => void;
-  isSyncing: boolean;
 }
 
 // ─── FIT Upload Tab ────────────────────────────────────────────────────────────
@@ -368,10 +367,7 @@ const CorosTab: React.FC<{ onActivitiesImported: (a: Activity[]) => void }> = ({
 
 // ─── Strava Tab (legacy) ───────────────────────────────────────────────────────
 
-const StravaTab: React.FC<{ onImportSample: () => void; isSyncing: boolean }> = ({
-  onImportSample,
-  isSyncing,
-}) => {
+const StravaTab: React.FC = () => {
   const [clientIdInput, setClientIdInput] = useState(getStoredStravaClientId());
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -420,21 +416,6 @@ const StravaTab: React.FC<{ onImportSample: () => void; isSyncing: boolean }> = 
         <RefreshCw className="w-4 h-4" />
         <span>Authorize Strava OAuth</span>
       </button>
-
-      <div className="relative flex py-1 items-center">
-        <div className="flex-grow border-t border-white/10" />
-        <span className="flex-shrink mx-3 text-[11px] text-slate-500 font-mono uppercase">or test pipeline</span>
-        <div className="flex-grow border-t border-white/10" />
-      </div>
-
-      <button
-        onClick={onImportSample}
-        disabled={isSyncing}
-        className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-white/10 text-cyan-400 font-bold text-xs flex items-center justify-center space-x-2"
-      >
-        <Zap className="w-4 h-4" />
-        <span>{isSyncing ? 'Ingesting...' : 'Import Sample Activity (No Auth)'}</span>
-      </button>
     </div>
   );
 };
@@ -445,7 +426,6 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   isOpen,
   onClose,
   onActivitiesImported,
-  isSyncing,
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('fit');
 
@@ -555,10 +535,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             <CorosTab onActivitiesImported={onActivitiesImported} />
           )}
           {activeTab === 'strava' && (
-            <StravaTab
-              onImportSample={() => { onActivitiesImported([]); onClose(); }}
-              isSyncing={isSyncing}
-            />
+            <StravaTab />
           )}
         </div>
       </div>

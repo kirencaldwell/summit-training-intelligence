@@ -12,25 +12,19 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
-  full_name TEXT NOT NULL DEFAULT 'Endurance Athlete',
+  full_name TEXT NOT NULL DEFAULT '',
   avatar_url TEXT,
-  ftp INTEGER NOT NULL DEFAULT 280, -- Functional Threshold Power (Watts)
-  max_hr INTEGER NOT NULL DEFAULT 192, -- Max Heart Rate (BPM)
-  lthr INTEGER NOT NULL DEFAULT 172, -- Lactate Threshold HR (BPM)
-  weight_kg NUMERIC(5,2) NOT NULL DEFAULT 70.5,
-  
+  ftp INTEGER NOT NULL DEFAULT 0, -- Functional Threshold Power (Watts), supplied by the athlete
+  max_hr INTEGER NOT NULL DEFAULT 0, -- Max Heart Rate (BPM)
+  lthr INTEGER NOT NULL DEFAULT 0, -- Lactate Threshold HR (BPM)
+  weight_kg NUMERIC(5,2) NOT NULL DEFAULT 0,
+
   -- Injury & Health Considerations
-  injury_notes TEXT[] DEFAULT ARRAY[
-    'Posterior chain tight post high-ascent skimo',
-    'Left patellar tendonitis awareness on steep climbs >12%'
-  ],
-  
-  -- Decompression & Recovery Routines
-  recovery_routines JSONB DEFAULT '{
-    "wednesday": "Post-workout foam roll (15 min) + hamstrings mobility + low-load isometric knee extensions",
-    "sunday": "Metabolic flushing spin (45 min @ Z1 <120W) + sauna / cold plunge"
-  }'::jsonb,
-  
+  injury_notes TEXT[] DEFAULT ARRAY[]::TEXT[],
+
+  -- Recovery Routines
+  recovery_routines JSONB DEFAULT '{"wednesday": "", "sunday": ""}'::jsonb,
+
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

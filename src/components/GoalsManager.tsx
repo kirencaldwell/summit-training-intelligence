@@ -375,7 +375,7 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Mount Baker Car-to-Car Push, Artist Point Sub-1:45"
+                  placeholder="e.g. Local hill climb, sub-1:45 finish"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="w-full mt-1 bg-slate-900 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:border-cyan-500"
