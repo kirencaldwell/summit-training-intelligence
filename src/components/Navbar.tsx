@@ -1,15 +1,13 @@
 import React, { useState } from 'react';
-import { Activity, Mountain, ShieldCheck, Zap, User, Upload, Sparkles, RefreshCw, LogOut, MoreHorizontal, HeartPulse } from 'lucide-react';
+import { Activity, Mountain, ShieldCheck, Zap, User, Upload, Sparkles, LogOut, MoreHorizontal, HeartPulse } from 'lucide-react';
 import type { AthleteProfile } from '../types';
 
 interface NavbarProps {
   profile: AthleteProfile;
   activeTab: 'dashboard' | 'goals' | 'activities' | 'power' | 'heart-rate' | 'coach';
   setActiveTab: (tab: 'dashboard' | 'goals' | 'activities' | 'power' | 'heart-rate' | 'coach') => void;
-  dataMode: 'demo' | 'supabase';
-  onToggleDataMode: () => void;
+  dataMode: 'local' | 'supabase';
   onSyncStrava: () => void;
-  isSyncingStrava: boolean;
   onOpenProfile: () => void;
   onOpenOnboarding: () => void;
   isAuthenticated?: boolean;
@@ -22,9 +20,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   setActiveTab,
   dataMode,
-  onToggleDataMode,
   onSyncStrava,
-  isSyncingStrava,
   onOpenProfile,
   onOpenOnboarding,
   isAuthenticated = false,
@@ -160,15 +156,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Import Data Button */}
             <button
               onClick={onSyncStrava}
-              disabled={isSyncingStrava}
               className="flex min-h-10 items-center space-x-1.5 px-3 py-2 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 border border-cyan-500/30 text-xs font-semibold transition-all"
             >
-              {isSyncingStrava ? (
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Upload className="w-3.5 h-3.5" />
-              )}
-              <span>{isSyncingStrava ? 'Importing...' : 'Import Data'}</span>
+              <Upload className="w-3.5 h-3.5" />
+              <span>Import Data</span>
             </button>
 
             {isAuthenticated ? (
@@ -184,17 +175,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </button>
               </div>
             ) : (
-              <button
-                onClick={onToggleDataMode}
-                className={`min-h-10 px-2.5 py-2 rounded-lg text-xs font-semibold border transition-all ${
-                  dataMode === 'supabase'
-                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                    : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
-                }`}
-                title="Click to toggle between Supabase Live DB and Demo Mode"
+              <span
+                className="min-h-10 flex items-center px-2.5 py-2 rounded-lg text-xs font-semibold border bg-slate-500/10 text-slate-300 border-white/10"
+                title="Data is stored only in this browser. Configure Supabase to sync across devices."
               >
-                {dataMode === 'supabase' ? 'Supabase DB' : 'Demo Mode'}
-              </button>
+                {dataMode === 'supabase' ? 'Supabase DB' : 'Local storage'}
+              </span>
             )}
 
             {/* Profile Avatar */}
@@ -202,14 +188,22 @@ export const Navbar: React.FC<NavbarProps> = ({
               onClick={onOpenProfile}
               className="min-h-10 flex items-center space-x-2 p-1 rounded-xl glass-panel-interactive border-white/10"
             >
-              <img
-                src={profile.avatar_url}
-                alt={profile.full_name}
-                className="w-8 h-8 rounded-lg object-cover ring-2 ring-cyan-500/40"
-              />
-              <span className="hidden lg:inline-block text-xs font-semibold text-slate-200">
-                {profile.ftp}W FTP
-              </span>
+              {profile.avatar_url ? (
+                <img
+                  src={profile.avatar_url}
+                  alt={profile.full_name}
+                  className="w-8 h-8 rounded-lg object-cover ring-2 ring-cyan-500/40"
+                />
+              ) : (
+                <span className="w-8 h-8 rounded-lg bg-slate-800 ring-2 ring-cyan-500/40 flex items-center justify-center">
+                  <User className="w-4 h-4 text-slate-400" />
+                </span>
+              )}
+              {profile.ftp > 0 && (
+                <span className="hidden lg:inline-block text-xs font-semibold text-slate-200">
+                  {profile.ftp}W FTP
+                </span>
+              )}
               <User className="w-4 h-4 text-slate-400 lg:hidden" />
             </button>
           </div>
@@ -223,7 +217,9 @@ export const Navbar: React.FC<NavbarProps> = ({
             title="Athlete profile"
             className="min-h-11 min-w-11 flex items-center justify-center rounded-lg border border-white/10 bg-white/5"
           >
-            <img src={profile.avatar_url} alt="" className="w-7 h-7 rounded-md object-cover" />
+            {profile.avatar_url
+              ? <img src={profile.avatar_url} alt="" className="w-7 h-7 rounded-md object-cover" />
+              : <User className="w-5 h-5 text-slate-400" />}
           </button>
           <button
             type="button"
@@ -241,18 +237,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button type="button" onClick={() => { onOpenOnboarding(); setIsMobileMenuOpen(false); }} className="min-h-11 flex items-center justify-center gap-2 rounded-lg border border-cyan-500/25 bg-cyan-500/10 px-3 text-xs font-semibold text-cyan-200">
               <Sparkles className="w-4 h-4" /> Setup wizard
             </button>
-            <button type="button" onClick={() => { onSyncStrava(); setIsMobileMenuOpen(false); }} disabled={isSyncingStrava} className="min-h-11 flex items-center justify-center gap-2 rounded-lg border border-cyan-500/25 bg-cyan-500/10 px-3 text-xs font-semibold text-cyan-200 disabled:opacity-50">
-              {isSyncingStrava ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-              {isSyncingStrava ? 'Importing...' : 'Import data'}
+            <button type="button" onClick={() => { onSyncStrava(); setIsMobileMenuOpen(false); }} className="min-h-11 flex items-center justify-center gap-2 rounded-lg border border-cyan-500/25 bg-cyan-500/10 px-3 text-xs font-semibold text-cyan-200">
+              <Upload className="w-4 h-4" />
+              Import data
             </button>
             {isAuthenticated ? (
               <button type="button" onClick={() => { onSignOut?.(); setIsMobileMenuOpen(false); }} className="min-h-11 col-span-2 flex items-center justify-center gap-2 rounded-lg border border-white/10 px-3 text-xs font-semibold text-slate-300">
                 <LogOut className="w-4 h-4" /> Sign out {authEmail ? `(${authEmail})` : ''}
               </button>
             ) : (
-              <button type="button" onClick={onToggleDataMode} className="min-h-11 col-span-2 rounded-lg border border-white/10 px-3 text-xs font-semibold text-slate-300">
-                {dataMode === 'supabase' ? 'Supabase DB' : 'Demo Mode'}
-              </button>
+              <span className="min-h-11 col-span-2 flex items-center justify-center rounded-lg border border-white/10 px-3 text-xs font-semibold text-slate-300">
+                {dataMode === 'supabase' ? 'Supabase DB' : 'Local storage'}
+              </span>
             )}
           </div>
         )}

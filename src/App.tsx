@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import type { User } from '@supabase/supabase-js';
 import type { AICoachMessage, Activity, AthleteProfile, Goal, PMCDayPoint, PowerCurvePoint, ProposedPlanAction, TrainingSession, TrainingSessionStatus } from './types';
 import { dataService, isSupabaseConfigured, supabase } from './lib/supabase';
-import { triggerMockStravaSync, parseStravaAuthCode } from './lib/strava';
 import { calculatePMC, calculatePowerCurve, hasPowerCurveData } from './lib/trainingMath';
 import { addDaysToDateOnly, getNextTrainingWeekStartDate } from './lib/trainingSessions';
 import {
@@ -38,7 +37,10 @@ export function App() {
     try {
       const saved = localStorage.getItem('summit-coach-messages');
       const parsed = saved ? JSON.parse(saved) : null;
-      if (Array.isArray(parsed) && parsed.length) return parsed;
+      // Swap any previously saved greeting for the current one
+      if (Array.isArray(parsed) && parsed.length) {
+        return parsed.map((m: AICoachMessage) => (m.id === 'init-msg' ? INITIAL_COACH_MESSAGES[0] : m));
+      }
     } catch { /* ignore corrupt/unavailable storage */ }
     return INITIAL_COACH_MESSAGES;
   });
@@ -48,7 +50,7 @@ export function App() {
 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'goals' | 'activities' | 'power' | 'heart-rate' | 'coach'>('dashboard');
   const [powerCurveYear, setPowerCurveYear] = useState<'all' | number>('all');
-  const [dataMode, setDataMode] = useState<'demo' | 'supabase'>(dataService.getMode());
+  const [dataMode] = useState<'local' | 'supabase'>(dataService.getMode());
   
   const [profile, setProfile] = useState<AthleteProfile | null>(null);
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -63,7 +65,6 @@ export function App() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
   const [isStravaModalOpen, setIsStravaModalOpen] = useState<boolean>(false);
-  const [isSyncingStrava, setIsSyncingStrava] = useState<boolean>(false);
 
   // Load active data
   const loadAppData = async () => {
@@ -72,6 +73,8 @@ export function App() {
     const g = await dataService.getGoals();
     const sessions = await dataService.getTrainingSessions();
     setProfile(p);
+    // A profile with no thresholds means the athlete hasn't supplied their data yet
+    if (!p.ftp) setIsOnboardingOpen(true);
     setActivities(a);
     setGoals(g);
     setTrainingSessions(sessions);
@@ -97,18 +100,14 @@ export function App() {
     setGoals((prev) => prev.filter(g => g.id !== goalId));
   };
 
-  const handleCompleteOnboarding = async (newProfile: AthleteProfile, newGoal: Goal) => {
+  const handleCompleteOnboarding = async (newProfile: AthleteProfile, newGoal: Goal | null) => {
     const savedProfile = await dataService.updateProfile(newProfile);
-    const savedGoal = await dataService.addGoal(newGoal);
     setProfile(savedProfile);
-    setGoals((prev) => [savedGoal, ...prev.filter(g => g.id !== savedGoal.id)]);
+    if (newGoal) {
+      const savedGoal = await dataService.addGoal(newGoal);
+      setGoals((prev) => [savedGoal, ...prev.filter(g => g.id !== savedGoal.id)]);
+    }
     setIsOnboardingOpen(false);
-  };
-
-  const handleToggleDataMode = () => {
-    const nextMode = dataMode === 'demo' ? 'supabase' : 'demo';
-    dataService.setMode(nextMode);
-    setDataMode(nextMode);
   };
 
   const handleFitImport = (importedActivities: Activity[]) => {
@@ -192,19 +191,6 @@ export function App() {
     }
   };
 
-  const handleSyncStrava = async () => {
-    setIsSyncingStrava(true);
-    try {
-      const newAct = await triggerMockStravaSync();
-      await loadAppData();
-      setSelectedActivity(newAct);
-    } catch (err) {
-      console.error('Strava Sync Failed:', err);
-    } finally {
-      setIsSyncingStrava(false);
-    }
-  };
-
   const handleSaveProfile = async (updated: Partial<AthleteProfile>) => {
     const newProfile = await dataService.updateProfile(updated);
     setProfile(newProfile);
@@ -274,12 +260,6 @@ export function App() {
     if (!authReady || (isSupabaseConfigured && !authUser)) return;
 
     const params = new URLSearchParams(window.location.search);
-    const stravaCode = params.has('scope') ? parseStravaAuthCode() : null;
-    if (stravaCode) {
-      window.history.replaceState({}, document.title, window.location.pathname);
-      void handleSyncStrava();
-      return;
-    }
 
     const corosCode = params.get('coros_code') || (params.has('scope') ? parseCorosAuthCode() : null);
     if (corosCode) {
@@ -361,9 +341,7 @@ export function App() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         dataMode={dataMode}
-        onToggleDataMode={handleToggleDataMode}
         onSyncStrava={() => setIsStravaModalOpen(true)}
-        isSyncingStrava={isSyncingStrava}
         onOpenProfile={() => setIsProfileModalOpen(true)}
         onOpenOnboarding={() => setIsOnboardingOpen(true)}
         isAuthenticated={Boolean(authUser)}
@@ -441,7 +419,7 @@ export function App() {
                     {powerCurveYears.map((year) => <option key={year} value={year}>{year}</option>)}
                   </select>
                   <span className="text-xs font-bold text-amber-400 bg-amber-500/10 px-3 py-1.5 rounded-full border border-amber-500/20 whitespace-nowrap">
-                    {profile.ftp}W FTP ({(profile.ftp / profile.weight_kg).toFixed(2)} W/kg)
+                    {profile.ftp}W FTP{profile.weight_kg > 0 ? ` (${(profile.ftp / profile.weight_kg).toFixed(2)} W/kg)` : ''}
                   </span>
                 </div>
               </div>
@@ -497,19 +475,17 @@ export function App() {
       />
 
       {/* Onboarding Wizard Setup Modal */}
+      {isOnboardingOpen && (
       <OnboardingWizard
-        isOpen={isOnboardingOpen}
         onCompleteOnboarding={handleCompleteOnboarding}
-        onSyncStrava={handleSyncStrava}
-        isSyncingStrava={isSyncingStrava}
       />
+      )}
 
       {/* Unified Data Sources Modal */}
       <DataSyncModal
         isOpen={isStravaModalOpen}
         onClose={() => setIsStravaModalOpen(false)}
         onActivitiesImported={handleFitImport}
-        isSyncing={isSyncingStrava}
       />
 
       {/* Modern Footer */}
@@ -524,10 +500,8 @@ export function App() {
           <div className="flex items-center space-x-4">
             <span className="flex items-center text-slate-400">
               <span className="w-2 h-2 rounded-full bg-emerald-400 mr-1.5 animate-pulse" />
-              Supabase & Strava Sync Ready
+              Multi-sport training data
             </span>
-            <span>•</span>
-            <span className="text-amber-400 font-semibold">Mount Baker Hill Climb Target: 280W</span>
           </div>
         </div>
       </footer>

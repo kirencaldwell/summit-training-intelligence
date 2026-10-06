@@ -69,7 +69,7 @@ function extractProposals(rawText: string): {
   return { cleanText, proposedPlan, proposedGoal };
 }
 
-async function gatherAthleteContext(goalName: string = 'Mount Baker') {
+async function gatherAthleteContext() {
   const [profileRes, activitiesRes, goalsRes, sessionsRes] = await Promise.allSettled([
     dataService.getProfile(),
     dataService.getActivities(),
@@ -77,26 +77,14 @@ async function gatherAthleteContext(goalName: string = 'Mount Baker') {
     dataService.getTrainingSessions(),
   ]);
 
-  const profile: AthleteProfile = profileRes.status === 'fulfilled' ? profileRes.value : {
-    id: 'local-athlete',
-    full_name: 'Endurance Athlete',
-    ftp: 285,
-    max_hr: 192,
-    lthr: 172,
-    weight_kg: 70.5,
-    injury_notes: ['Left patellar tendonitis (active awareness on >12% grades)', 'Posterior chain tightness'],
-    recovery_routines: {
-      wednesday: 'Decompression Night (Mid-week reset: foam roll, hamstring stretch, isometric knee extensions)',
-      sunday: 'Decompression Night (End-of-week reset: full lower body mobility, hip flexor release, light walk)',
-    },
-  };
+  const profile: AthleteProfile | null = profileRes.status === 'fulfilled' ? profileRes.value : null;
 
   const activities: Activity[] = activitiesRes.status === 'fulfilled' ? activitiesRes.value : [];
   const goals: Goal[] = goalsRes.status === 'fulfilled' ? goalsRes.value : [];
   const trainingSessions: TrainingSession[] = sessionsRes.status === 'fulfilled' ? sessionsRes.value : [];
 
   const pmcData = calculatePMC(activities, 30);
-  const latestPmc = pmcData[pmcData.length - 1] || { ctl: 65, atl: 70, tsb: -5, tss: 0 };
+  const latestPmc = pmcData[pmcData.length - 1] || { ctl: 0, atl: 0, tsb: 0, tss: 0 };
 
   let formCategory = 'Optimal Training Window';
   if (latestPmc.tsb < -20) formCategory = 'High Fatigue Warning (Risk of Overreaching)';
@@ -106,8 +94,8 @@ async function gatherAthleteContext(goalName: string = 'Mount Baker') {
   const statusData = {
     profile,
     pmc: { ...latestPmc, formCategory },
-    injuries: profile.injury_notes,
-    routines: profile.recovery_routines,
+    injuries: profile?.injury_notes ?? [],
+    routines: profile?.recovery_routines,
     nextGoal: goals[0],
   };
 
@@ -126,28 +114,30 @@ async function gatherAthleteContext(goalName: string = 'Mount Baker') {
     knee_discomfort_level: a.knee_discomfort_level,
   }));
 
-  const goal = goals.find(g => g.name.toLowerCase().includes(goalName.toLowerCase())) || goals[0];
-  const powerCurve = calculatePowerCurve(activities, profile.weight_kg);
-  const point20m = powerCurve.find(p => p.label === '20m')?.watts || 275;
-  const targetW = goal?.target_power_watts || 280;
+  const goal = goals.find(g => g.status === 'ACTIVE') || goals[0];
+  const powerCurve = calculatePowerCurve(activities, profile?.weight_kg || undefined);
+  const power20m = powerCurve.find(p => p.label === '20m')?.watts || 0;
+  const targetW = goal?.target_power_watts || 0;
 
   const daysRemaining =
-    goal && goal.target_date
+    goal?.target_date
       ? Math.max(
           0,
           Math.ceil(
             (new Date(goal.target_date).getTime() - new Date().getTime()) / (1000 * 3600 * 24)
           )
         )
-      : 42;
+      : null;
 
-  const readinessScorePct = Math.min(100, Math.round((point20m / targetW) * 100));
+  const readinessScorePct = targetW > 0 && power20m > 0 ? Math.min(100, Math.round((power20m / targetW) * 100)) : null;
   const coachingAdvice =
-    readinessScorePct < 92
+    readinessScorePct === null
+      ? null
+      : readinessScorePct < 92
       ? 'Target 2x20m sweetspot/threshold efforts to lift 20m power closer to target.'
-      : 'Power target is within reach! Prioritize grade-specific climbing simulation and knee health management.';
+      : 'Power target is within reach! Prioritize event-specific simulation and injury management.';
 
-  const milestoneData = { goal, daysRemaining, powerCurve20m: point20m, targetPowerWatts: targetW, readinessScorePct, coachingAdvice };
+  const milestoneData = { goal, daysRemaining, powerCurve20m: power20m || null, targetPowerWatts: targetW || null, readinessScorePct, coachingAdvice };
 
   // Full (compact) dataset — the server filters this down to what the question needs
   const allActivities = activities.map(a => ({
@@ -195,12 +185,12 @@ class GeminiCoachEngine {
 
     // Gather all local context in a single unified step
     const { statusData, recentActivities, milestoneData, trainingSessions, allActivities, goals } =
-      await gatherAthleteContext('Mount Baker');
+      await gatherAthleteContext();
 
     toolCalls.push(
       { toolName: 'getAthleteStatus', args: {}, result: statusData },
       { toolName: 'queryActivities', args: { limit: 8 }, result: recentActivities },
-      { toolName: 'getMilestoneReadiness', args: { goalName: 'Mount Baker' }, result: milestoneData }
+      { toolName: 'getMilestoneReadiness', args: {}, result: milestoneData }
     );
 
     // POST to /api/coach — key stays server-side, never in the browser bundle
@@ -249,7 +239,7 @@ class GeminiCoachEngine {
     _occupiedDates: string[] = [],
     customInstructions?: string
   ): Promise<TrainingSession[]> {
-    const { statusData, recentActivities, milestoneData, trainingSessions } = await gatherAthleteContext('Mount Baker');
+    const { statusData, recentActivities, milestoneData, trainingSessions } = await gatherAthleteContext();
 
     const nextMonday = getNextMonday();
     const promptMessage = customInstructions

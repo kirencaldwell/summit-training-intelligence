@@ -114,24 +114,3 @@ export async function ingestStravaActivity(rawActivity: any, streamsData?: any):
 
   return dataService.addActivity(parsedActivity);
 }
-
-// Mock Strava Sync Trigger for UI demonstration
-export async function triggerMockStravaSync(): Promise<Activity> {
-  const mockStravaPayload = {
-    id: Math.floor(Math.random() * 900000000) + 100000000,
-    name: 'Artist Point Hill Climb Interval Blast',
-    type: 'Ride',
-    start_date: new Date().toISOString(),
-    moving_time: 5400, // 1.5h
-    elapsed_time: 5600,
-    distance: 41200, // 41.2 km
-    total_elevation_gain: 1120, // 1120m
-    average_watts: 262,
-    max_watts: 440,
-    weighted_average_watts: 278,
-    average_heartrate: 166,
-    max_heartrate: 185
-  };
-
-  return await ingestStravaActivity(mockStravaPayload);
-}

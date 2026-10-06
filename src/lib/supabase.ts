@@ -1,6 +1,5 @@
 import { createClient, type User } from '@supabase/supabase-js';
 import type { Activity, AthleteProfile, Goal, TrainingSession, TrainingSessionStatus } from '../types';
-import { MOCK_ACTIVITIES, MOCK_GOALS, MOCK_PROFILE } from './mockData';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
@@ -42,32 +41,41 @@ const STORAGE_KEYS = {
   ACTIVITIES: 'summit_activities_list',
   GOALS: 'summit_goals_list',
   TRAINING_SESSIONS: 'summit_training_sessions',
-  MODE: 'summit_data_mode',
 };
 
 // Dual-mode Storage Manager (LocalStorage fallback vs Supabase Live DB)
+const EMPTY_PROFILE: AthleteProfile = {
+  id: 'local-athlete',
+  full_name: '',
+  ftp: 0,
+  max_hr: 0,
+  lthr: 0,
+  weight_kg: 0,
+  injury_notes: [],
+  recovery_routines: { wednesday: '', sunday: '' },
+};
+
 class DataService {
   private localActivities: Activity[];
   private localProfile: AthleteProfile;
   private localGoals: Goal[];
   private localTrainingSessions: TrainingSession[];
-  private mode: 'demo' | 'supabase';
+  private mode: 'local' | 'supabase';
   private authUser: User | null = null;
   private authenticatedProfile: AthleteProfile | null = null;
 
   constructor() {
-    const savedMode = localStorage.getItem(STORAGE_KEYS.MODE) as 'demo' | 'supabase' | null;
-    this.mode = isSupabaseConfigured ? 'supabase' : savedMode || 'demo';
+    this.mode = isSupabaseConfigured ? 'supabase' : 'local';
 
-    // Load from localStorage or seed with defaults
+    // Load from localStorage; a new user starts empty and supplies everything themselves
     const savedProfile = localStorage.getItem(STORAGE_KEYS.PROFILE);
-    this.localProfile = savedProfile ? JSON.parse(savedProfile) : { ...MOCK_PROFILE };
+    this.localProfile = savedProfile ? JSON.parse(savedProfile) : { ...EMPTY_PROFILE };
 
     const savedActivities = localStorage.getItem(STORAGE_KEYS.ACTIVITIES);
-    this.localActivities = savedActivities ? JSON.parse(savedActivities) : [...MOCK_ACTIVITIES];
+    this.localActivities = savedActivities ? JSON.parse(savedActivities) : [];
 
     const savedGoals = localStorage.getItem(STORAGE_KEYS.GOALS);
-    this.localGoals = savedGoals ? JSON.parse(savedGoals) : [...MOCK_GOALS];
+    this.localGoals = savedGoals ? JSON.parse(savedGoals) : [];
 
     const savedTrainingSessions = localStorage.getItem(STORAGE_KEYS.TRAINING_SESSIONS);
     this.localTrainingSessions = savedTrainingSessions ? JSON.parse(savedTrainingSessions) : [];
@@ -80,13 +88,8 @@ class DataService {
     localStorage.setItem(STORAGE_KEYS.TRAINING_SESSIONS, JSON.stringify(this.localTrainingSessions));
   }
 
-  public getMode(): 'demo' | 'supabase' {
+  public getMode(): 'local' | 'supabase' {
     return this.mode;
-  }
-
-  public setMode(mode: 'demo' | 'supabase') {
-    this.mode = isSupabaseConfigured ? 'supabase' : mode;
-    localStorage.setItem(STORAGE_KEYS.MODE, this.mode);
   }
 
   public setAuthenticatedUser(user: User | null) {
@@ -113,11 +116,22 @@ class DataService {
     }
 
     const metadata = this.authUser.user_metadata || {};
-    const fullName = metadata.full_name || metadata.name || this.authUser.email?.split('@')[0] || 'Endurance Athlete';
+    const fullName = metadata.full_name || metadata.name || this.authUser.email?.split('@')[0] || '';
     const avatarUrl = metadata.avatar_url || metadata.picture;
     const { data: created, error: createError } = await supabase
       .from('profiles')
-      .insert({ user_id: this.authUser.id, full_name: fullName, avatar_url: avatarUrl })
+      .insert({
+        user_id: this.authUser.id,
+        full_name: fullName,
+        avatar_url: avatarUrl,
+        // Blank until the athlete completes onboarding
+        ftp: 0,
+        max_hr: 0,
+        lthr: 0,
+        weight_kg: 0,
+        injury_notes: [],
+        recovery_routines: { wednesday: '', sunday: '' },
+      })
       .select('*')
       .single();
     if (createError || !created) {
