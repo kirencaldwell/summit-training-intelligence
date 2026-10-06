@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Sparkles, Terminal, Activity, ShieldAlert, ChevronDown, ChevronUp, CalendarDays, Check, X, Zap, Award, Flag, Layers } from 'lucide-react';
+import { Settings, Send, Bot, User, Sparkles, Terminal, Activity, ShieldAlert, ChevronDown, ChevronUp, CalendarDays, Check, X, Zap, Award, Flag, Layers } from 'lucide-react';
 import type { AICoachMessage, Goal, ProposedGoalAction, ProposedPlanAction, TrainingSession, TrainingSessionStatus } from '../types';
 import { coachEngine } from '../lib/ai/coachEngine';
+import { activeCoachLabel } from '../lib/coachSettings';
+import { CoachSettingsModal } from './CoachSettingsModal';
 import { getNextTrainingWeekStartDate } from '../lib/trainingSessions';
 import { formatFeetFromMeters } from '../lib/units';
 
@@ -50,6 +52,9 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
   onFocusPromptConsumed,
 }) => {
 
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  // Bumped after settings change so the model label re-reads localStorage
+  const [, setSettingsVersion] = useState(0);
   const [inputQuery, setInputQuery] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [planError, setPlanError] = useState('');
@@ -227,12 +232,22 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
               <span>Summit Intelligence AI Coach</span>
               <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center gap-1">
                 <Zap className="w-2.5 h-2.5" />
-                Gemini Flash
+                {activeCoachLabel()}
               </span>
             </h2>
             <p className="text-[11px] text-slate-400">Contextual multi-sport database integration & injury guardian</p>
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={() => setIsSettingsOpen(true)}
+          aria-label="Coach settings"
+          title="Coach settings: choose Gemini or your own Claude API key"
+          className="mr-2 flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-[11px] font-semibold text-slate-300 hover:bg-white/10 hover:text-white"
+        >
+          <Settings className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Coach settings</span>
+        </button>
 
         {/* Quick Context Chips */}
         <div className="hidden md:flex items-center space-x-2 text-xs">
@@ -722,6 +737,13 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
           </button>
         </form>
       </div>
+
+      {isSettingsOpen && (
+        <CoachSettingsModal
+          onClose={() => setIsSettingsOpen(false)}
+          onSaved={() => setSettingsVersion((v) => v + 1)}
+        />
+      )}
     </div>
   );
 };
