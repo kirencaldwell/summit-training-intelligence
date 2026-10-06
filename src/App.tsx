@@ -89,6 +89,12 @@ export function App() {
     setGoals((prev) => [savedGoal, ...prev.filter(g => g.id !== savedGoal.id)]);
   };
 
+  const handleUpdateGoal = async (goalId: string, updates: Partial<Goal>) => {
+    const saved = await dataService.updateGoal(goalId, updates);
+    if (!saved) throw new Error('Goal not found. It may have been deleted.');
+    setGoals((prev) => prev.map((g) => (g.id === goalId ? { ...g, ...saved } : g)));
+  };
+
   const handleAcceptProposedGoal = async (goal: Goal) => {
     const savedGoal = await dataService.addGoal(goal);
     setGoals((prev) => [savedGoal, ...prev.filter(g => g.id !== savedGoal.id)]);
@@ -431,6 +437,7 @@ export function App() {
           <GoalsManager
             goals={goals}
             onAddGoal={handleAddGoal}
+            onUpdateGoal={handleUpdateGoal}
             onCompleteGoal={handleCompleteGoal}
             onDeleteGoal={handleDeleteGoal}
             onNavigateToCoach={() => setActiveTab('coach')}
