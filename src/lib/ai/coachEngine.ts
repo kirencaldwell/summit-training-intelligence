@@ -1,10 +1,27 @@
 import type { Activity, AICoachMessage, AICoachToolCall, AthleteProfile, Goal, ProposedGoalAction, ProposedPlanAction, TrainingSession } from '../../types';
 import { dataService } from '../supabase';
 import { calculatePMC, calculatePowerCurve } from '../trainingMath';
+import { coachRequestExtras } from '../coachSettings';
 import { ftToM, kgToLb, kmToMi, mToFt, miToKm, roundTo } from '../units';
 
 // The athlete works in imperial units. Data is stored metric, so everything sent to the model
 // is converted here and named with its unit; the model's proposals are converted back below.
+/** POST to /api/coach with the active provider's settings (Gemini via the server key, or the athlete's own Claude key). */
+async function postCoach(body: Record<string, unknown>): Promise<string> {
+  const extras = coachRequestExtras();
+  const res = await fetch('/api/coach', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...extras.headers },
+    body: JSON.stringify({ ...body, ...extras.body }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Unknown server error' }));
+    throw new Error(err.error || `Server returned ${res.status}`);
+  }
+  const { text } = await res.json();
+  return text ?? '';
+}
+
 const kmToMiRounded = (km?: number) => (km ? roundTo(kmToMi(km), 1) : undefined);
 const mToFtRounded = (m?: number) => (m ? Math.round(mToFt(m)) : undefined);
 
@@ -238,36 +255,27 @@ class GeminiCoachEngine {
       { toolName: 'getMilestoneReadiness', args: {}, result: milestoneData }
     );
 
-    // POST to /api/coach — key stays server-side, never in the browser bundle
-    const res = await fetch('/api/coach', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: userQuery,
-        // The goal being discussed/replanned, with its readiness, so the coach stays on it
-        focusGoal: focusGoal ? { ...focusGoal, milestone_readiness: { ...milestoneData, goal: undefined } } : undefined,
-        // Prior turns so Gemini keeps the conversation context (greeting/system/error msgs excluded)
-        history: previousMessages
-          .filter((m) => (m.sender === 'user' || m.sender === 'coach') && m.id !== 'init-msg' && !m.id.startsWith('err-'))
-          .slice(-20)
-          .map((m) => ({ role: m.sender === 'user' ? 'user' : 'model', text: m.text })),
-        // Server-side cheap model filters this down before the main model sees it
-        fullData: {
-          athleteStatus: statusData,
-          activities: allActivities,
-          goals,
-          milestoneReadiness: milestoneData,
-          sessions: trainingSessions,
-        },
-      }),
+    // POST to /api/coach — provider keys never ship in the bundle (Gemini's lives on the server;
+    // Claude uses the athlete's own key from Coach Settings, sent per request)
+    const text = await postCoach({
+      message: userQuery,
+      // The goal being discussed/replanned, with its readiness, so the coach stays on it
+      focusGoal: focusGoal ? { ...focusGoal, milestone_readiness: { ...milestoneData, goal: undefined } } : undefined,
+      // Prior turns so the model keeps the conversation context (greeting/system/error msgs excluded)
+      history: previousMessages
+        .filter((m) => (m.sender === 'user' || m.sender === 'coach') && m.id !== 'init-msg' && !m.id.startsWith('err-'))
+        .slice(-20)
+        .map((m) => ({ role: m.sender === 'user' ? 'user' : 'model', text: m.text })),
+      // Server-side cheap model filters this down before the main model sees it
+      fullData: {
+        athleteStatus: statusData,
+        activities: allActivities,
+        goals,
+        milestoneReadiness: milestoneData,
+        sessions: trainingSessions,
+      },
     });
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Unknown server error' }));
-      throw new Error(err.error || `Server returned ${res.status}`);
-    }
-
-    const { text } = await res.json();
     const { cleanText, proposedPlan, proposedGoal } = extractProposals(text || '', focusGoal?.id);
 
     return {
@@ -390,25 +398,16 @@ class GeminiCoachEngine {
         .map(compact),
     };
 
-    const res = await fetch('/api/coach', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        mode: 'activity_assessment',
-        message: 'Write the coach assessment for this new activity.',
-        context,
-      }),
+    const text = await postCoach({
+      mode: 'activity_assessment',
+      message: 'Write the coach assessment for this new activity.',
+      context,
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Unknown server error' }));
-      throw new Error(err.error || `Server returned ${res.status}`);
-    }
-    const { text } = await res.json();
     if (!text) throw new Error('The coach returned an empty assessment.');
     return String(text).trim();
   }
 
-  /** Generate or replan a proposed weekly training plan via Gemini */
+  /** Generate or replan a proposed weekly training plan via the active coach model */
   public async generateWeeklyPlan(
     _occupiedDates: string[] = [],
     customInstructions?: string
@@ -437,29 +436,18 @@ Return ONLY a valid JSON array of TrainingSession objects with these exact field
 - Consider the athlete's current fitness, fatigue, injuries, and upcoming goals
 Return only the JSON array, no markdown, no explanation.`;
 
-    const res = await fetch('/api/coach', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: promptMessage,
-        context: {
-          athleteStatus: statusData,
-          recentActivities,
-          milestoneReadiness: milestoneData,
-          scheduledTrainingSessions: trainingSessions,
-        },
-        mode: 'json',
-      }),
+    const text = await postCoach({
+      message: promptMessage,
+      context: {
+        athleteStatus: statusData,
+        recentActivities,
+        milestoneReadiness: milestoneData,
+        scheduledTrainingSessions: trainingSessions,
+      },
+      mode: 'json',
     });
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Unknown server error' }));
-      throw new Error(err.error || `Server returned ${res.status}`);
-    }
-
-    const { text } = await res.json();
-
-    // Extract JSON array from the response (strip markdown fences if Gemini includes them)
+    // Extract JSON array from the response (strip markdown fences if the model includes them)
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (!jsonMatch) throw new Error('Could not parse weekly plan from AI response.');
 

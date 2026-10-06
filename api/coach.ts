@@ -10,6 +10,128 @@
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import Anthropic from '@anthropic-ai/sdk';
+
+// Claude responses with thinking + big plan JSON can take a while
+export const config = { maxDuration: 60 };
+
+// ---------------------------------------------------------------------------
+// Provider abstraction. Gemini uses the server's GEMINI_API_KEY. Claude uses a key the
+// athlete supplies in the app (sent per request in the x-anthropic-key header, never stored
+// or logged), so nobody else can spend the account owner's Claude tokens.
+// ---------------------------------------------------------------------------
+
+const CLAUDE_MODELS = ['claude-sonnet-5-5', 'claude-opus-5-5'];
+const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-5-5';
+// Small, cheap model for the data-filter planning step
+const CLAUDE_FILTER_MODEL = 'claude-haiku-4-5';
+
+type Turn = { role: 'user' | 'model'; text: string };
+
+type Engine =
+  | { provider: 'gemini'; genAI: GoogleGenerativeAI }
+  | { provider: 'claude'; client: Anthropic; model: string };
+
+interface CompleteRequest {
+  system: string;
+  turns?: Turn[];
+  user: string;
+  /** 'filter' = cheap JSON-planning model, 'main' = the coach */
+  tier: 'main' | 'filter';
+}
+
+/** Prior turns must start with a user turn, alternate roles and end on a model turn (both APIs). */
+function sanitizeTurns(history: unknown): Turn[] {
+  const turns: Turn[] = [];
+  if (Array.isArray(history)) {
+    for (const h of history.slice(-20)) {
+      if (!h || typeof h.text !== 'string' || (h.role !== 'user' && h.role !== 'model')) continue;
+      const last = turns[turns.length - 1];
+      if (last && last.role === h.role) last.text += `\n\n${h.text}`;
+      else if (last || h.role === 'user') turns.push({ role: h.role, text: h.text });
+    }
+    if (turns.length && turns[turns.length - 1].role === 'user') turns.pop();
+  }
+  return turns;
+}
+
+function claudeText(response: { content: Array<{ type: string; text?: string }> }): string {
+  return response.content
+    .filter((block) => block.type === 'text')
+    .map((block) => block.text ?? '')
+    .join('')
+    .trim();
+}
+
+async function complete(engine: Engine, req: CompleteRequest): Promise<string> {
+  const turns = req.turns ?? [];
+
+  if (engine.provider === 'gemini') {
+    if (req.tier === 'filter') {
+      const model = engine.genAI.getGenerativeModel({
+        model: process.env.GEMINI_FILTER_MODEL || 'gemini-3.5-flash-lite',
+        systemInstruction: req.system,
+        generationConfig: { responseMimeType: 'application/json', temperature: 0 },
+      });
+      return (await model.generateContent(req.user)).response.text();
+    }
+    const model = engine.genAI.getGenerativeModel({
+      model: process.env.GEMINI_MODEL || 'gemini-3.5-flash',
+      systemInstruction: req.system,
+    });
+    const chat = model.startChat({
+      history: turns.map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
+    });
+    return (await chat.sendMessage(req.user)).response.text();
+  }
+
+  const messages: Anthropic.MessageParam[] = [
+    ...turns.map((t): Anthropic.MessageParam => ({ role: t.role === 'model' ? 'assistant' : 'user', content: t.text })),
+    { role: 'user', content: req.user },
+  ];
+
+  if (req.tier === 'filter') {
+    const response = await engine.client.messages.create({
+      model: CLAUDE_FILTER_MODEL,
+      max_tokens: 1024,
+      temperature: 0,
+      system: `${req.system}\n\nReturn only the raw JSON object: no markdown fences, no commentary.`,
+      messages,
+    });
+    return claudeText(response);
+  }
+
+  const params = {
+    model: engine.model,
+    max_tokens: 16000,
+    system: req.system,
+    messages,
+    // Thinking is always on for these models; medium keeps coaching replies responsive
+    output_config: { effort: 'medium' as const },
+  };
+
+  let response;
+  try {
+    // Refusal fallback: if a safety classifier declines, the API re-runs on the server-defined fallback model
+    response = await engine.client.beta.messages.create({
+      ...params,
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+    });
+  } catch (err) {
+    // The fallback beta is an optimization; if it's not accepted for this key, retry without it
+    if (err instanceof Anthropic.BadRequestError) {
+      response = await engine.client.messages.create(params);
+    } else {
+      throw err;
+    }
+  }
+
+  if (response.stop_reason === 'refusal') {
+    throw new Error('Claude declined to answer this request. Try rephrasing it.');
+  }
+  return claudeText(response);
+}
 
 const ASSESSMENT_PROMPT = `You are Summit Intelligence, an elite endurance coach. The athlete just added a new activity. Write the coach's assessment of it, grounded ONLY in the JSON context provided (athlete profile, the activity, training load, active goals, and accepted/completed training sessions).
 
@@ -213,19 +335,21 @@ function sanitizeSpec(raw: any): FilterSpec {
   };
 }
 
-async function planFilter(genAI: GoogleGenerativeAI, message: string): Promise<FilterSpec> {
+async function planFilter(engine: Engine, message: string): Promise<FilterSpec> {
   try {
-    const model = genAI.getGenerativeModel({
-      model: process.env.GEMINI_FILTER_MODEL || 'gemini-3.5-flash-lite',
-      systemInstruction: FILTER_PROMPT,
-      generationConfig: { responseMimeType: 'application/json', temperature: 0 },
-    });
     const today = new Date().toISOString().slice(0, 10);
-    const result = await model.generateContent(`Today's date: ${today}\nAthlete message: ${message}`);
-    return sanitizeSpec(JSON.parse(result.response.text()));
+    const raw = await complete(engine, {
+      tier: 'filter',
+      system: FILTER_PROMPT,
+      user: `Today's date: ${today}\nAthlete message: ${message}`,
+    });
+    // Tolerate stray prose or fences around the JSON object
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    return sanitizeSpec(JSON.parse(start >= 0 && end > start ? raw.slice(start, end + 1) : raw));
   } catch (err) {
     // Filtering is an optimization — never fail the chat because of it.
-    console.warn('Filter planning failed, using default spec:', err);
+    console.warn('Filter planning failed, using default spec:', err instanceof Error ? err.message : 'unknown error');
     return DEFAULT_SPEC;
   }
 }
@@ -280,45 +404,89 @@ function applyFilter(spec: FilterSpec, data: any) {
   return out;
 }
 
+function buildEngine(req: VercelRequest, res: VercelResponse): Engine | null {
+  const body = req.body ?? {};
+
+  if (body.provider === 'claude') {
+    const header = req.headers['x-anthropic-key'];
+    const apiKey = (Array.isArray(header) ? header[0] : header)?.trim();
+    if (!apiKey || !apiKey.startsWith('sk-ant-')) {
+      res.status(400).json({ error: 'Missing or invalid Anthropic API key. Add it in Coach Settings.' });
+      return null;
+    }
+    const model = CLAUDE_MODELS.includes(body.claudeModel) ? body.claudeModel : DEFAULT_CLAUDE_MODEL;
+    return { provider: 'claude', client: new Anthropic({ apiKey, maxRetries: 1 }), model };
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    res.status(500).json({ error: 'GEMINI_API_KEY not configured on server.' });
+    return null;
+  }
+  return { provider: 'gemini', genAI: new GoogleGenerativeAI(apiKey) };
+}
+
+function sendError(res: VercelResponse, err: unknown) {
+  if (err instanceof Anthropic.AuthenticationError) {
+    return res.status(401).json({ error: 'Anthropic rejected your API key. Check it in Coach Settings.' });
+  }
+  if (err instanceof Anthropic.PermissionDeniedError) {
+    return res.status(403).json({ error: 'Your Anthropic key is not allowed to use this model. Try another model in Coach Settings.' });
+  }
+  if (err instanceof Anthropic.RateLimitError) {
+    return res.status(429).json({ error: 'Anthropic rate limit reached. Wait a moment and try again.' });
+  }
+  if (err instanceof Anthropic.APIError) {
+    return res.status(502).json({ error: `Claude API error (${err.status ?? 'network'}): ${err.message}` });
+  }
+  const message = err instanceof Error ? err.message : 'Failed to get a response from the coach.';
+  // Log only the message: errors from the provider SDKs can carry request details
+  console.error('Coach error:', message);
+  return res.status(500).json({ error: message });
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return res.status(500).json({ error: 'GEMINI_API_KEY not configured on server.' });
-  }
+  const engine = buildEngine(req, res);
+  if (!engine) return;
 
   const { message, context, fullData, history, mode, focusGoal } = req.body;
-  if (!message) {
-    return res.status(400).json({ error: 'Missing required field: message' });
-  }
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const modelName = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
+    // Key check from the settings screen: a tiny, cheap call that proves the key works
+    if (mode === 'ping') {
+      if (engine.provider !== 'claude') return res.status(200).json({ ok: true });
+      await engine.client.messages.create({
+        model: CLAUDE_FILTER_MODEL,
+        max_tokens: 8,
+        messages: [{ role: 'user', content: 'Reply with OK.' }],
+      });
+      return res.status(200).json({ ok: true });
+    }
+
+    if (!message) {
+      return res.status(400).json({ error: 'Missing required field: message' });
+    }
 
     // Single-shot activity assessment: the client sends a curated context, no chat history or filtering
     if (mode === 'activity_assessment') {
       if (!context) return res.status(400).json({ error: 'Missing required field: context' });
-      const assessor = genAI.getGenerativeModel({ model: modelName, systemInstruction: ASSESSMENT_PROMPT });
-      const out = await assessor.generateContent(
-        `<activity_context>\n${JSON.stringify(context, null, 2)}\n</activity_context>\n\n${message}`
-      );
-      return res.status(200).json({ text: out.response.text() });
+      const text = await complete(engine, {
+        tier: 'main',
+        system: ASSESSMENT_PROMPT,
+        user: `<activity_context>\n${JSON.stringify(context, null, 2)}\n</activity_context>\n\n${message}`,
+      });
+      return res.status(200).json({ text });
     }
-
-    const model = genAI.getGenerativeModel({
-      model: modelName,
-      systemInstruction: SYSTEM_PROMPT,
-    });
 
     // Step 1+2 (chat only): cheap model plans a filter, server applies it to the full dataset.
     // Callers that already send a curated `context` (e.g. weekly plan generation) skip this.
     let spec: FilterSpec | undefined;
     if (fullData) {
-      spec = await planFilter(genAI, message);
+      spec = await planFilter(engine, message);
       if (focusGoal) {
         // Goal discussions always need the full picture: profile, load, goals, readiness, plan and recent training
         spec.include_profile = spec.include_pmc = spec.include_goals = spec.include_milestone = true;
@@ -335,25 +503,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ? `<focus_goal>\n${JSON.stringify(focusGoal, null, 2)}\n</focus_goal>\n\n`
       : '';
 
-    // Rebuild prior turns for Gemini: must start with a user turn and alternate roles.
-    const turns: { role: 'user' | 'model'; parts: { text: string }[] }[] = [];
-    if (Array.isArray(history)) {
-      for (const h of history.slice(-20)) {
-        if (!h || typeof h.text !== 'string' || (h.role !== 'user' && h.role !== 'model')) continue;
-        const last = turns[turns.length - 1];
-        if (last && last.role === h.role) last.parts[0].text += `\n\n${h.text}`;
-        else if (last || h.role === 'user') turns.push({ role: h.role, parts: [{ text: h.text }] });
-      }
-      if (turns.length && turns[turns.length - 1].role === 'user') turns.pop(); // must end on a model turn
-    }
-
-    const chat = model.startChat({ history: turns });
-    const result = await chat.sendMessage(`${contextBlock}${focusBlock}User question: ${message}`);
-    const text = result.response.text();
+    const text = await complete(engine, {
+      tier: 'main',
+      system: SYSTEM_PROMPT,
+      turns: sanitizeTurns(history),
+      user: `${contextBlock}${focusBlock}User question: ${message}`,
+    });
 
     return res.status(200).json({ text });
-  } catch (err: any) {
-    console.error('Gemini API error:', err);
-    return res.status(500).json({ error: err.message || 'Failed to get response from Gemini.' });
+  } catch (err) {
+    return sendError(res, err);
   }
 }
