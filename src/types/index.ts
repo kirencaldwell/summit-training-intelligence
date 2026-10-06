@@ -174,6 +174,8 @@ export interface ProposedPlanAction {
 
 export interface ProposedGoalAction {
   goal: Goal;
+  /** Set when the coach is replanning an existing goal rather than proposing a new one */
+  updatesGoalId?: string;
   summary?: string;
   isAccepted?: boolean;
   isDeclined?: boolean;

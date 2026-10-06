@@ -1,22 +1,40 @@
 import React, { useState } from 'react';
-import type { Goal, SportType } from '../types';
-import { formatFeetFromMeters, formatMilesFromKm, ftToM, miToKm, roundTo } from '../lib/units';
-import { Mountain, Bike, Footprints, Compass, Plus, CheckCircle2, Trash2, Calendar, Sparkles, Award, X, Layers, Flag, Bot } from 'lucide-react';
+import type { Goal, GoalMilestone, PeriodizationPhase, SportType } from '../types';
+import { formatFeetFromMeters, formatMilesFromKm, ftToM, kmToMi, mToFt, miToKm, roundTo } from '../lib/units';
+import { Mountain, Bike, Footprints, Compass, Plus, CheckCircle2, Trash2, Calendar, Sparkles, Award, X, Layers, Flag, Bot, Pencil } from 'lucide-react';
 
 interface GoalsManagerProps {
   goals: Goal[];
   onAddGoal: (goal: Goal) => Promise<void>;
+  onUpdateGoal: (goalId: string, updates: Partial<Goal>) => Promise<void>;
   onCompleteGoal: (goalId: string, debriefNotes: string) => void;
   onDeleteGoal: (goalId: string) => void;
-  onNavigateToCoach?: (initialQuery?: string) => void;
+  /** Open the coach chat focused on this goal, optionally with a prompt prefilled */
+  onDiscussGoal?: (goal: Goal, prompt?: string) => void;
+}
+
+interface PhaseDraft {
+  name: string;
+  focus: string;
+  weeks: string;
+  target_ctl: string;
+  status: NonNullable<PeriodizationPhase['status']>;
+}
+
+interface MilestoneDraft {
+  title: string;
+  target_date: string;
+  target_metric: string;
+  completed: boolean;
 }
 
 export const GoalsManager: React.FC<GoalsManagerProps> = ({
   goals,
   onAddGoal,
+  onUpdateGoal,
   onCompleteGoal,
   onDeleteGoal,
-  onNavigateToCoach,
+  onDiscussGoal,
 }) => {
   const [filterStatus, setFilterStatus] = useState<'ACTIVE' | 'COMPLETED' | 'ALL'>('ACTIVE');
 
@@ -37,6 +55,11 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
   const [targetElevationFt, setTargetElevationFt] = useState<string>('');
   const [targetPowerWatts, setTargetPowerWatts] = useState<string>('');
   const [notes, setNotes] = useState('');
+  // Phases and milestones are edited as strings and parsed on save
+  const [phases, setPhases] = useState<PhaseDraft[]>([]);
+  const [milestones, setMilestones] = useState<MilestoneDraft[]>([]);
+  // When set, the goal form edits this goal instead of creating a new one
+  const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
 
   // Debrief Form State
   const [debriefNotesInput, setDebriefNotesInput] = useState('');
@@ -47,36 +70,108 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
     return true;
   });
 
-  const handleCreateGoal = async (e: React.FormEvent) => {
+  const handleSubmitGoal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !objectiveSummary.trim()) return;
 
-    const newGoal: Goal = {
-      id: `goal-${Date.now()}`,
-      name: name.trim(),
-      sport_type: sportType,
-      target_date: targetDate || undefined,
-      timeframe_text: timeframeText.trim() || (targetDate ? `Target Date: ${targetDate}` : 'Flexible'),
-      objective_summary: objectiveSummary.trim(),
-      target_distance_km: targetDistanceMi ? roundTo(miToKm(Number(targetDistanceMi)), 2) : undefined,
-      target_elevation_m: targetElevationFt ? roundTo(ftToM(Number(targetElevationFt)), 2) : undefined,
-      target_power_watts: targetPowerWatts ? Number(targetPowerWatts) : undefined,
-      notes: notes.trim() || undefined,
-      priority,
-      status: 'ACTIVE',
-    };
+    const distanceKm = targetDistanceMi ? roundTo(miToKm(Number(targetDistanceMi)), 2) : undefined;
+    const elevationM = targetElevationFt ? roundTo(ftToM(Number(targetElevationFt)), 2) : undefined;
+    const powerWatts = targetPowerWatts ? Number(targetPowerWatts) : undefined;
 
     setIsSavingGoal(true);
     setGoalSaveError('');
     try {
-      await onAddGoal(newGoal);
-      setIsAddModalOpen(false);
-      resetAddForm();
+      if (editingGoal) {
+        // null (not undefined) so a cleared field is actually removed in the database
+        const phaseList: PeriodizationPhase[] = phases
+          .filter((p) => p.name.trim())
+          .map((p) => ({
+            name: p.name.trim(),
+            focus: p.focus.trim(),
+            weeks: Math.max(1, Math.round(Number(p.weeks)) || 1),
+            target_ctl: p.target_ctl ? Number(p.target_ctl) : undefined,
+            status: p.status,
+          }));
+        const milestoneList: GoalMilestone[] = milestones
+          .filter((m) => m.title.trim())
+          .map((m) => ({
+            title: m.title.trim(),
+            target_date: m.target_date || undefined,
+            target_metric: m.target_metric.trim() || undefined,
+            completed: m.completed,
+          }));
+        await onUpdateGoal(editingGoal.id, {
+          name: name.trim(),
+          sport_type: sportType,
+          priority,
+          objective_summary: objectiveSummary.trim(),
+          timeframe_text: timeframeText.trim() || (targetDate ? `Target Date: ${targetDate}` : 'Flexible'),
+          target_date: targetDate || null,
+          target_distance_km: distanceKm ?? null,
+          target_elevation_m: elevationM ?? null,
+          target_power_watts: powerWatts ?? null,
+          notes: notes.trim() || null,
+          periodization_phases: phaseList,
+          milestones: milestoneList,
+        } as unknown as Partial<Goal>);
+      } else {
+        await onAddGoal({
+          id: `goal-${Date.now()}`,
+          name: name.trim(),
+          sport_type: sportType,
+          target_date: targetDate || undefined,
+          timeframe_text: timeframeText.trim() || (targetDate ? `Target Date: ${targetDate}` : 'Flexible'),
+          objective_summary: objectiveSummary.trim(),
+          target_distance_km: distanceKm,
+          target_elevation_m: elevationM,
+          target_power_watts: powerWatts,
+          notes: notes.trim() || undefined,
+          priority,
+          status: 'ACTIVE',
+        });
+      }
+      closeGoalModal();
     } catch (err) {
       setGoalSaveError(err instanceof Error ? err.message : 'Goal could not be saved. Please try again.');
     } finally {
       setIsSavingGoal(false);
     }
+  };
+
+  const openEditGoal = (goal: Goal) => {
+    setEditingGoal(goal);
+    setGoalSaveError('');
+    setName(goal.name);
+    setSportType(goal.sport_type);
+    setPriority(goal.priority);
+    setTargetDate(goal.target_date ?? '');
+    setTimeframeText(goal.timeframe_text ?? '');
+    setObjectiveSummary(goal.objective_summary ?? '');
+    setTargetDistanceMi(goal.target_distance_km ? String(roundTo(kmToMi(goal.target_distance_km), 2)) : '');
+    setTargetElevationFt(goal.target_elevation_m ? String(Math.round(mToFt(goal.target_elevation_m))) : '');
+    setTargetPowerWatts(goal.target_power_watts ? String(goal.target_power_watts) : '');
+    setNotes(goal.notes ?? '');
+    setPhases((goal.periodization_phases ?? []).map((p) => ({
+      name: p.name,
+      focus: p.focus ?? '',
+      weeks: String(p.weeks ?? 1),
+      target_ctl: p.target_ctl ? String(p.target_ctl) : '',
+      status: p.status ?? 'UPCOMING',
+    })));
+    setMilestones((goal.milestones ?? []).map((m) => ({
+      title: m.title,
+      target_date: m.target_date ?? '',
+      target_metric: m.target_metric ?? '',
+      completed: Boolean(m.completed),
+    })));
+    setIsAddModalOpen(true);
+  };
+
+  const closeGoalModal = () => {
+    setIsAddModalOpen(false);
+    setEditingGoal(null);
+    setGoalSaveError('');
+    resetAddForm();
   };
 
   const resetAddForm = () => {
@@ -88,6 +183,10 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
     setTargetElevationFt('');
     setTargetPowerWatts('');
     setNotes('');
+    setSportType('cycling');
+    setPriority('A_RACE');
+    setPhases([]);
+    setMilestones([]);
   };
 
   const handleConfirmDebrief = () => {
@@ -133,7 +232,7 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
         </div>
 
         <button
-          onClick={() => setIsAddModalOpen(true)}
+          onClick={() => { resetAddForm(); setEditingGoal(null); setIsAddModalOpen(true); }}
           className="min-h-11 w-full sm:w-auto justify-center px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 font-bold text-xs hover:opacity-90 transition-all flex items-center space-x-1.5 shadow-lg shadow-cyan-500/20"
         >
           <Plus className="w-4 h-4" />
@@ -316,17 +415,36 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
 
               {/* Action Buttons */}
               <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/5">
-                {onNavigateToCoach && !isCompleted && (
-                  <button
-                    onClick={() => onNavigateToCoach(`Build next week's training plan specifically aligned with my active goal: ${goal.name}`)}
-                    className="min-h-10 inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-semibold transition-all"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>Plan Next Week with AI</span>
-                  </button>
+                {onDiscussGoal && !isCompleted && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => onDiscussGoal(goal)}
+                      className="min-h-10 inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-semibold transition-all"
+                      title="Discuss or replan this goal with the AI coach"
+                    >
+                      <Bot className="w-3.5 h-3.5" />
+                      <span>Discuss / Replan with Coach</span>
+                    </button>
+                    <button
+                      onClick={() => onDiscussGoal(goal, `Build next week's training plan specifically aligned with my goal: ${goal.name}`)}
+                      className="min-h-10 inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 text-xs font-semibold transition-all"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Plan Next Week</span>
+                    </button>
+                  </div>
                 )}
 
                 <div className="flex items-center space-x-2 ml-auto">
+                  <button
+                    onClick={() => openEditGoal(goal)}
+                    className="min-h-10 flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 text-xs font-semibold transition-all"
+                    title="Edit goal"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                    <span>Edit</span>
+                  </button>
+
                   {!isCompleted && (
                     <button
                       onClick={() => setDebriefModalGoal(goal)}
@@ -355,17 +473,19 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
       {/* CREATE NEW GOAL MODAL */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
-          <div className="w-full max-w-xl glass-panel rounded-3xl border border-cyan-500/30 p-6 shadow-2xl space-y-5">
+          <div className="w-full max-w-xl glass-panel rounded-3xl border border-cyan-500/30 p-6 shadow-2xl space-y-5 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <h2 className="text-lg font-bold text-white flex items-center">
-                <Plus className="w-5 h-5 mr-1.5 text-cyan-400" /> Add New Goal Objective
+                {editingGoal
+                  ? <><Pencil className="w-5 h-5 mr-1.5 text-cyan-400" /> Edit Goal Objective</>
+                  : <><Plus className="w-5 h-5 mr-1.5 text-cyan-400" /> Add New Goal Objective</>}
               </h2>
-              <button onClick={() => setIsAddModalOpen(false)} className="p-1 text-slate-400 hover:text-white">
+              <button onClick={closeGoalModal} className="p-1 text-slate-400 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateGoal} className="space-y-4">
+            <form onSubmit={handleSubmitGoal} className="space-y-4">
               {goalSaveError && (
                 <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">
                   Goal was not saved: {goalSaveError}
@@ -482,10 +602,156 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
                 </div>
               </div>
 
+              <div>
+                <label className="text-xs font-semibold text-slate-300">Notes (Optional)</label>
+                <textarea
+                  rows={2}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  className="w-full mt-1 bg-slate-900 border border-white/10 rounded-xl p-3 text-xs text-slate-200 focus:border-cyan-500"
+                />
+              </div>
+
+              {editingGoal && (
+                <>
+                  {/* Periodization phases */}
+                  <div className="space-y-2 border-t border-white/10 pt-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-300 flex items-center"><Layers className="w-3.5 h-3.5 mr-1 text-cyan-400" /> Periodization Phases</span>
+                      <button
+                        type="button"
+                        onClick={() => setPhases((prev) => [...prev, { name: '', focus: '', weeks: '4', target_ctl: '', status: 'UPCOMING' }])}
+                        className="text-xs font-semibold text-cyan-300 hover:text-cyan-200"
+                      >
+                        + Add phase
+                      </button>
+                    </div>
+                    {phases.map((phase, i) => (
+                      <div key={i} className="rounded-xl bg-slate-950/60 border border-white/5 p-2.5 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            placeholder="Phase name"
+                            value={phase.name}
+                            onChange={(e) => setPhases((prev) => prev.map((p, j) => j === i ? { ...p, name: e.target.value } : p))}
+                            className="flex-1 min-w-0 bg-slate-900 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setPhases((prev) => prev.filter((_, j) => j !== i))}
+                            aria-label={`Remove phase ${phase.name || i + 1}`}
+                            className="p-1 text-slate-400 hover:text-rose-300"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="Focus"
+                          value={phase.focus}
+                          onChange={(e) => setPhases((prev) => prev.map((p, j) => j === i ? { ...p, focus: e.target.value } : p))}
+                          className="w-full bg-slate-900 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-slate-200"
+                        />
+                        <div className="grid grid-cols-3 gap-2">
+                          <label className="text-[10px] text-slate-400">
+                            Weeks
+                            <input
+                              type="number"
+                              min={1}
+                              value={phase.weeks}
+                              onChange={(e) => setPhases((prev) => prev.map((p, j) => j === i ? { ...p, weeks: e.target.value } : p))}
+                              className="w-full mt-0.5 bg-slate-900 border border-white/10 rounded-lg px-2 py-1 text-xs text-white"
+                            />
+                          </label>
+                          <label className="text-[10px] text-slate-400">
+                            Target CTL
+                            <input
+                              type="number"
+                              value={phase.target_ctl}
+                              onChange={(e) => setPhases((prev) => prev.map((p, j) => j === i ? { ...p, target_ctl: e.target.value } : p))}
+                              className="w-full mt-0.5 bg-slate-900 border border-white/10 rounded-lg px-2 py-1 text-xs text-white"
+                            />
+                          </label>
+                          <label className="text-[10px] text-slate-400">
+                            Status
+                            <select
+                              value={phase.status}
+                              onChange={(e) => setPhases((prev) => prev.map((p, j) => j === i ? { ...p, status: e.target.value as PhaseDraft['status'] } : p))}
+                              className="w-full mt-0.5 bg-slate-900 border border-white/10 rounded-lg px-1.5 py-1 text-xs text-white"
+                            >
+                              <option value="UPCOMING">Upcoming</option>
+                              <option value="CURRENT">Current</option>
+                              <option value="COMPLETED">Completed</option>
+                            </select>
+                          </label>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Milestones */}
+                  <div className="space-y-2 border-t border-white/10 pt-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-300 flex items-center"><Flag className="w-3.5 h-3.5 mr-1 text-amber-400" /> Checkpoints & Milestones</span>
+                      <button
+                        type="button"
+                        onClick={() => setMilestones((prev) => [...prev, { title: '', target_date: '', target_metric: '', completed: false }])}
+                        className="text-xs font-semibold text-cyan-300 hover:text-cyan-200"
+                      >
+                        + Add milestone
+                      </button>
+                    </div>
+                    {milestones.map((ms, i) => (
+                      <div key={i} className="rounded-xl bg-slate-950/60 border border-white/5 p-2.5 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={ms.completed}
+                            onChange={(e) => setMilestones((prev) => prev.map((m, j) => j === i ? { ...m, completed: e.target.checked } : m))}
+                            aria-label="Completed"
+                            className="h-4 w-4 accent-cyan-500"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Milestone"
+                            value={ms.title}
+                            onChange={(e) => setMilestones((prev) => prev.map((m, j) => j === i ? { ...m, title: e.target.value } : m))}
+                            className="flex-1 min-w-0 bg-slate-900 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setMilestones((prev) => prev.filter((_, j) => j !== i))}
+                            aria-label={`Remove milestone ${ms.title || i + 1}`}
+                            className="p-1 text-slate-400 hover:text-rose-300"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <input
+                            type="date"
+                            value={ms.target_date}
+                            onChange={(e) => setMilestones((prev) => prev.map((m, j) => j === i ? { ...m, target_date: e.target.value } : m))}
+                            className="bg-slate-900 border border-white/10 rounded-lg px-2 py-1 text-xs text-white"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Target metric (e.g. 275 W)"
+                            value={ms.target_metric}
+                            onChange={(e) => setMilestones((prev) => prev.map((m, j) => j === i ? { ...m, target_metric: e.target.value } : m))}
+                            className="bg-slate-900 border border-white/10 rounded-lg px-2 py-1 text-xs text-white"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
               <div className="flex justify-end space-x-2 pt-3 border-t border-white/10">
                 <button
                   type="button"
-                  onClick={() => setIsAddModalOpen(false)}
+                  onClick={closeGoalModal}
                   disabled={isSavingGoal}
                   className="px-4 py-2 rounded-xl bg-white/5 text-xs font-semibold text-slate-300"
                 >
@@ -496,7 +762,7 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
                   disabled={isSavingGoal}
                   className="min-h-11 px-5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 font-bold text-xs hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
                 >
-                  {isSavingGoal ? 'Saving...' : 'Save Goal Objective'}
+                  {isSavingGoal ? 'Saving...' : editingGoal ? 'Save Changes' : 'Save Goal Objective'}
                 </button>
               </div>
             </form>
