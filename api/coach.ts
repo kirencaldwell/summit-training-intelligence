@@ -276,7 +276,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ error: 'GEMINI_API_KEY not configured on server.' });
   }
 
-  const { message, context, fullData } = req.body;
+  const { message, context, fullData, history } = req.body;
   if (!message) {
     return res.status(400).json({ error: 'Missing required field: message' });
   }
@@ -296,7 +296,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ? `\n\n<athlete_context>\n${JSON.stringify(filtered, null, 2)}\n</athlete_context>\n\n`
       : '';
 
-    const result = await model.generateContent(`${contextBlock}User question: ${message}`);
+    // Rebuild prior turns for Gemini: must start with a user turn and alternate roles.
+    const turns: { role: 'user' | 'model'; parts: { text: string }[] }[] = [];
+    if (Array.isArray(history)) {
+      for (const h of history.slice(-20)) {
+        if (!h || typeof h.text !== 'string' || (h.role !== 'user' && h.role !== 'model')) continue;
+        const last = turns[turns.length - 1];
+        if (last && last.role === h.role) last.parts[0].text += `\n\n${h.text}`;
+        else if (last || h.role === 'user') turns.push({ role: h.role, parts: [{ text: h.text }] });
+      }
+      if (turns.length && turns[turns.length - 1].role === 'user') turns.pop(); // must end on a model turn
+    }
+
+    const chat = model.startChat({ history: turns });
+    const result = await chat.sendMessage(`${contextBlock}User question: ${message}`);
     const text = result.response.text();
 
     return res.status(200).json({ text });

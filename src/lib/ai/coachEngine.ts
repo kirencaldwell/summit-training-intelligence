@@ -187,7 +187,10 @@ function getNextMonday(): string {
 
 class GeminiCoachEngine {
   /** Chat with the AI coach — key lives on the server, never in the bundle */
-  public async processUserQuery(userQuery: string): Promise<AICoachMessage> {
+  public async processUserQuery(
+    userQuery: string,
+    previousMessages: AICoachMessage[] = []
+  ): Promise<AICoachMessage> {
     const toolCalls: AICoachToolCall[] = [];
 
     // Gather all local context in a single unified step
@@ -206,6 +209,11 @@ class GeminiCoachEngine {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         message: userQuery,
+        // Prior turns so Gemini keeps the conversation context (greeting/system/error msgs excluded)
+        history: previousMessages
+          .filter((m) => (m.sender === 'user' || m.sender === 'coach') && m.id !== 'init-msg' && !m.id.startsWith('err-'))
+          .slice(-20)
+          .map((m) => ({ role: m.sender === 'user' ? 'user' : 'model', text: m.text })),
         // Server-side cheap model filters this down before the main model sees it
         fullData: {
           athleteStatus: statusData,
