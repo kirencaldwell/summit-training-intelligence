@@ -88,6 +88,8 @@ When the user asks you to:
 }
 \`\`\`
 
+When the context includes a <focus_goal> block, the conversation is about that single goal. Keep every answer about it: how the athlete is tracking (use the milestone readiness, load and recent activities), what to change, and why. If the athlete asks to replan, adjust, re-time, or rebuild it, do NOT create a new goal: append a \`json:goal_proposal\` block as above with the COMPLETE updated goal (every field, including all phases and milestones, not just the changes), and add a top-level field "updates_goal_id" set to the focus_goal's id. Phase weeks must fit before the target date, and past/completed phases should keep status "COMPLETED". If they only want to discuss or are asking a question, answer in prose with no block.
+
 2. Create, replan, or modify specific WEEKLY workout sessions (e.g. "plan next week", "replan Wednesday", "add weekend skimo"):
    -> Append a structured \`json:plan_proposal\` block at the end of your response:
 \`\`\`json:plan_proposal
@@ -288,7 +290,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ error: 'GEMINI_API_KEY not configured on server.' });
   }
 
-  const { message, context, fullData, history, mode } = req.body;
+  const { message, context, fullData, history, mode, focusGoal } = req.body;
   if (!message) {
     return res.status(400).json({ error: 'Missing required field: message' });
   }
@@ -314,9 +316,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // Step 1+2 (chat only): cheap model plans a filter, server applies it to the full dataset.
     // Callers that already send a curated `context` (e.g. weekly plan generation) skip this.
-    const filtered = fullData ? applyFilter(await planFilter(genAI, message), fullData) : context;
+    let spec: FilterSpec | undefined;
+    if (fullData) {
+      spec = await planFilter(genAI, message);
+      if (focusGoal) {
+        // Goal discussions always need the full picture: profile, load, goals, readiness, plan and recent training
+        spec.include_profile = spec.include_pmc = spec.include_goals = spec.include_milestone = true;
+        spec.sessions.include = true;
+        spec.activities.include = true;
+        spec.activities.limit = Math.max(spec.activities.limit ?? 0, 15);
+      }
+    }
+    const filtered = spec ? applyFilter(spec, fullData) : context;
     const contextBlock = filtered
       ? `\n\n<athlete_context>\n${JSON.stringify(filtered, null, 2)}\n</athlete_context>\n\n`
+      : '';
+    const focusBlock = focusGoal
+      ? `<focus_goal>\n${JSON.stringify(focusGoal, null, 2)}\n</focus_goal>\n\n`
       : '';
 
     // Rebuild prior turns for Gemini: must start with a user turn and alternate roles.
@@ -332,7 +348,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const chat = model.startChat({ history: turns });
-    const result = await chat.sendMessage(`${contextBlock}User question: ${message}`);
+    const result = await chat.sendMessage(`${contextBlock}${focusBlock}User question: ${message}`);
     const text = result.response.text();
 
     return res.status(200).json({ text });

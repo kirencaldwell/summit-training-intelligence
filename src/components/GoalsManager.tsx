@@ -9,7 +9,8 @@ interface GoalsManagerProps {
   onUpdateGoal: (goalId: string, updates: Partial<Goal>) => Promise<void>;
   onCompleteGoal: (goalId: string, debriefNotes: string) => void;
   onDeleteGoal: (goalId: string) => void;
-  onNavigateToCoach?: (initialQuery?: string) => void;
+  /** Open the coach chat focused on this goal, optionally with a prompt prefilled */
+  onDiscussGoal?: (goal: Goal, prompt?: string) => void;
 }
 
 interface PhaseDraft {
@@ -33,7 +34,7 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
   onUpdateGoal,
   onCompleteGoal,
   onDeleteGoal,
-  onNavigateToCoach,
+  onDiscussGoal,
 }) => {
   const [filterStatus, setFilterStatus] = useState<'ACTIVE' | 'COMPLETED' | 'ALL'>('ACTIVE');
 
@@ -414,14 +415,24 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
 
               {/* Action Buttons */}
               <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/5">
-                {onNavigateToCoach && !isCompleted && (
-                  <button
-                    onClick={() => onNavigateToCoach(`Build next week's training plan specifically aligned with my active goal: ${goal.name}`)}
-                    className="min-h-10 inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-semibold transition-all"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>Plan Next Week with AI</span>
-                  </button>
+                {onDiscussGoal && !isCompleted && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => onDiscussGoal(goal)}
+                      className="min-h-10 inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-semibold transition-all"
+                      title="Discuss or replan this goal with the AI coach"
+                    >
+                      <Bot className="w-3.5 h-3.5" />
+                      <span>Discuss / Replan with Coach</span>
+                    </button>
+                    <button
+                      onClick={() => onDiscussGoal(goal, `Build next week's training plan specifically aligned with my goal: ${goal.name}`)}
+                      className="min-h-10 inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 text-xs font-semibold transition-all"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Plan Next Week</span>
+                    </button>
+                  </div>
                 )}
 
                 <div className="flex items-center space-x-2 ml-auto">

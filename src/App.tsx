@@ -63,6 +63,8 @@ export function App() {
   const [authReady, setAuthReady] = useState(!isSupabaseConfigured);
   const [appError, setAppError] = useState('');
 
+  // Goal the coach chat is focused on (set from the Goals tab), with an optional prompt to prefill
+  const [coachFocus, setCoachFocus] = useState<{ goalId: string; prompt?: string } | null>(null);
   const [assessingIds, setAssessingIds] = useState<string[]>([]);
   const [assessmentErrors, setAssessmentErrors] = useState<Record<string, string>>({});
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
@@ -89,13 +91,30 @@ export function App() {
     setGoals((prev) => [savedGoal, ...prev.filter(g => g.id !== savedGoal.id)]);
   };
 
+  // useCallback-free is fine here: the panel only runs this when a new prompt arrives
+  const handleFocusPromptConsumed = () => setCoachFocus((prev) => (prev ? { ...prev, prompt: undefined } : prev));
+
   const handleUpdateGoal = async (goalId: string, updates: Partial<Goal>) => {
     const saved = await dataService.updateGoal(goalId, updates);
     if (!saved) throw new Error('Goal not found. It may have been deleted.');
     setGoals((prev) => prev.map((g) => (g.id === goalId ? { ...g, ...saved } : g)));
   };
 
-  const handleAcceptProposedGoal = async (goal: Goal) => {
+  const handleAcceptProposedGoal = async (goal: Goal, updatesGoalId?: string) => {
+    if (updatesGoalId) {
+      // Replan of an existing goal: apply the coach's fields, keep its status, creator and debrief
+      const changes: Partial<Goal> = {};
+      const keys = [
+        'name', 'sport_type', 'priority', 'objective_summary', 'timeframe_text', 'target_date',
+        'target_distance_km', 'target_elevation_m', 'target_power_watts', 'notes',
+        'periodization_phases', 'milestones',
+      ] as const;
+      for (const key of keys) {
+        if (goal[key] !== undefined) (changes as Record<string, unknown>)[key] = goal[key];
+      }
+      await handleUpdateGoal(updatesGoalId, changes);
+      return;
+    }
     const savedGoal = await dataService.addGoal(goal);
     setGoals((prev) => [savedGoal, ...prev.filter(g => g.id !== savedGoal.id)]);
   };
@@ -440,7 +459,10 @@ export function App() {
             onUpdateGoal={handleUpdateGoal}
             onCompleteGoal={handleCompleteGoal}
             onDeleteGoal={handleDeleteGoal}
-            onNavigateToCoach={() => setActiveTab('coach')}
+            onDiscussGoal={(goal, prompt) => {
+              setCoachFocus({ goalId: goal.id, prompt });
+              setActiveTab('coach');
+            }}
           />
         )}
 
@@ -526,6 +548,10 @@ export function App() {
             onUpdateTrainingSession={handleUpdateTrainingSession}
             onAcceptProposedPlan={handleAcceptProposedPlan}
             onAcceptProposedGoal={handleAcceptProposedGoal}
+            focusGoal={coachFocus ? goals.find((g) => g.id === coachFocus.goalId) ?? null : null}
+            focusPrompt={coachFocus?.prompt}
+            onClearFocus={() => setCoachFocus(null)}
+            onFocusPromptConsumed={handleFocusPromptConsumed}
           />
         )}
       </main>

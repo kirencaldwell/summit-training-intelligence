@@ -26,7 +26,13 @@ interface AICoachPanelProps {
   onGenerateWeeklyPlan: () => Promise<void>;
   onUpdateTrainingSession: (id: string, status: TrainingSessionStatus) => Promise<void>;
   onAcceptProposedPlan?: (proposal: ProposedPlanAction) => Promise<void>;
-  onAcceptProposedGoal?: (goal: Goal) => Promise<void>;
+  onAcceptProposedGoal?: (goal: Goal, updatesGoalId?: string) => Promise<void>;
+  /** Goal the conversation is currently about (set from the Goals tab) */
+  focusGoal?: Goal | null;
+  /** A prompt to drop into the input box when arriving from a goal */
+  focusPrompt?: string;
+  onClearFocus?: () => void;
+  onFocusPromptConsumed?: () => void;
 }
 
 export const AICoachPanel: React.FC<AICoachPanelProps> = ({
@@ -38,6 +44,10 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
   onUpdateTrainingSession,
   onAcceptProposedPlan,
   onAcceptProposedGoal,
+  focusGoal,
+  focusPrompt,
+  onClearFocus,
+  onFocusPromptConsumed,
 }) => {
 
   const [inputQuery, setInputQuery] = useState('');
@@ -52,6 +62,13 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isProcessing]);
+
+  // Arriving from a goal with a suggested prompt: put it in the input for the athlete to send or edit
+  useEffect(() => {
+    if (!focusPrompt) return;
+    setInputQuery(focusPrompt);
+    onFocusPromptConsumed?.();
+  }, [focusPrompt, onFocusPromptConsumed]);
 
   const handleSendMessage = async (textToSend?: string) => {
     const query = textToSend || inputQuery;
@@ -70,7 +87,7 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
 
     try {
       // Execute AI Coach tool calling engine
-      const coachResponse = await coachEngine.processUserQuery(query, messages);
+      const coachResponse = await coachEngine.processUserQuery(query, messages, focusGoal?.id);
       setMessages((prev) => [...prev, coachResponse]);
     } catch (err) {
       console.error('AI Coach Error:', err);
@@ -128,7 +145,7 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
     setPlanError('');
     try {
       if (onAcceptProposedGoal) {
-        await onAcceptProposedGoal(goalAction.goal);
+        await onAcceptProposedGoal(goalAction.goal, goalAction.updatesGoalId);
       }
       setMessages((prev) =>
         prev.map((m) =>
@@ -180,12 +197,19 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
     (session) => session.status === 'PROPOSED' && session.week_start_date === nextWeekStartDate
   );
 
-  const quickPrompts = [
-    'Plan my training for next week',
-    'Build a multi-week plan for my priority goal',
-    'How is my training load looking?',
-    'Replan this week around my recovery needs'
-  ];
+  const quickPrompts = focusGoal
+    ? [
+        'How am I tracking toward this goal?',
+        'Replan this goal based on my recent training',
+        "I'm more fatigued than expected, make this plan easier",
+        'Plan next week for this goal',
+      ]
+    : [
+        'Plan my training for next week',
+        'Build a multi-week plan for my priority goal',
+        'How is my training load looking?',
+        'Replan this week around my recovery needs'
+      ];
 
   return (
     <div className="w-full max-w-5xl mx-auto glass-panel rounded-2xl border border-white/10 flex flex-col h-[min(750px,calc(100dvh-9rem))] min-h-[560px] shadow-2xl overflow-hidden">
@@ -222,6 +246,29 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Goal focus banner: the conversation is about one goal */}
+      {focusGoal && (
+        <div className="flex items-center justify-between gap-3 border-b border-amber-500/25 bg-amber-500/10 px-4 sm:px-6 py-2.5">
+          <div className="min-w-0 flex items-center gap-2 text-xs text-amber-200">
+            <Award className="w-4 h-4 flex-shrink-0 text-amber-400" />
+            <span className="truncate">
+              Discussing goal: <strong className="text-white">{focusGoal.name}</strong>
+              {focusGoal.target_date ? <span className="text-amber-300/80"> · {focusGoal.target_date}</span> : null}
+            </span>
+          </div>
+          {onClearFocus && (
+            <button
+              type="button"
+              onClick={onClearFocus}
+              className="flex-shrink-0 flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-amber-200 hover:bg-white/10"
+              title="Stop focusing on this goal"
+            >
+              <X className="w-3.5 h-3.5" /> Clear focus
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Individually accepted weekly proposals */}
       <section className="border-b border-white/10 bg-slate-950/35 px-5 py-4 space-y-3">
@@ -465,10 +512,10 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-bold text-amber-300 uppercase tracking-wider">
-                            Coach's Long-Term Strategy & Goal
+                            {msg.proposedGoal.updatesGoalId ? "Coach's Proposed Goal Update" : "Coach's Long-Term Strategy & Goal"}
                           </span>
                           <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/20">
-                            Macrocycle Plan
+                            {msg.proposedGoal.updatesGoalId ? 'Replan' : 'Macrocycle Plan'}
                           </span>
                         </div>
                         <h4 className="text-base font-extrabold text-white mt-0.5">
@@ -478,7 +525,7 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
                     </div>
                     {msg.proposedGoal.isAccepted ? (
                       <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-3 py-1 rounded-full shrink-0">
-                        <Check className="w-3.5 h-3.5" /> Added to Active Goals
+                        <Check className="w-3.5 h-3.5" /> {msg.proposedGoal.updatesGoalId ? 'Goal Updated' : 'Added to Active Goals'}
                       </span>
                     ) : msg.proposedGoal.isDeclined ? (
                       <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-400 bg-white/5 border border-white/10 px-3 py-1 rounded-full shrink-0">
@@ -575,7 +622,9 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
                         className="min-h-10 inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-2 text-xs font-bold text-slate-950 hover:opacity-90 transition-all disabled:opacity-50 shadow-lg shadow-orange-500/20"
                       >
                         <Award className="w-4 h-4" />
-                        {goalActionMsgId === msg.id ? 'Saving Goal...' : 'Accept & Set as Priority Goal'}
+                        {goalActionMsgId === msg.id
+                          ? 'Saving Goal...'
+                          : msg.proposedGoal.updatesGoalId ? 'Apply Changes to Goal' : 'Accept & Set as Priority Goal'}
                       </button>
                       <button
                         type="button"

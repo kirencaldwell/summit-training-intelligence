@@ -36,7 +36,7 @@ function activityUnitsForAI(a: Activity) {
 // Local data tools — gather context to send to the server-side Gemini proxy
 // ---------------------------------------------------------------------------
 
-function extractProposals(rawText: string): {
+function extractProposals(rawText: string, focusGoalId?: string): {
   cleanText: string;
   proposedPlan?: ProposedPlanAction;
   proposedGoal?: ProposedGoalAction;
@@ -52,7 +52,7 @@ function extractProposals(rawText: string): {
   const goalMatch = rawText.match(goalRegex);
   if (goalMatch) {
     try {
-      const parsed = JSON.parse(goalMatch[1]) as { summary?: string; goal: Goal };
+      const parsed = JSON.parse(goalMatch[1]) as { summary?: string; goal: Goal; updates_goal_id?: string };
       if (parsed.goal && parsed.goal.name) {
         parsed.goal.id = parsed.goal.id || `goal-coach-${Date.now()}`;
         parsed.goal.status = parsed.goal.status || 'ACTIVE';
@@ -71,6 +71,8 @@ function extractProposals(rawText: string): {
         proposedGoal = {
           goal: parsed.goal,
           summary: parsed.summary || parsed.goal.objective_summary,
+          // Only trust an update that targets the goal being discussed; anything else is a new goal
+          updatesGoalId: focusGoalId && parsed.updates_goal_id === focusGoalId ? focusGoalId : undefined,
         };
         cleanText = cleanText.replace(goalMatch[0], '').trim();
       }
@@ -109,7 +111,7 @@ function extractProposals(rawText: string): {
   return { cleanText, proposedPlan, proposedGoal };
 }
 
-async function gatherAthleteContext() {
+async function gatherAthleteContext(focusGoalId?: string) {
   const [profileRes, activitiesRes, goalsRes, sessionsRes] = await Promise.allSettled([
     dataService.getProfile(),
     dataService.getActivities(),
@@ -153,7 +155,8 @@ async function gatherAthleteContext() {
     knee_discomfort_level: a.knee_discomfort_level,
   }));
 
-  const goal = goals.find(g => g.status === 'ACTIVE') || goals[0];
+  // A goal under discussion takes the place of the default priority goal in the readiness numbers
+  const goal = (focusGoalId && goals.find(g => g.id === focusGoalId)) || goals.find(g => g.status === 'ACTIVE') || goals[0];
   const powerCurve = calculatePowerCurve(activities, profile?.weight_kg || undefined);
   const power20m = powerCurve.find(p => p.label === '20m')?.watts || 0;
   const targetW = goal?.target_power_watts || 0;
@@ -200,7 +203,9 @@ async function gatherAthleteContext() {
     tags: a.tags,
   }));
 
-  return { statusData, recentActivities, milestoneData, trainingSessions, allActivities, goals: goals.map(goalForAI) };
+  const focusGoal = focusGoalId && goal?.id === focusGoalId ? goalForAI(goal) : undefined;
+
+  return { statusData, recentActivities, milestoneData, trainingSessions, allActivities, goals: goals.map(goalForAI), focusGoal };
 }
 
 /** Returns the next Monday as a YYYY-MM-DD string */
@@ -218,13 +223,14 @@ class GeminiCoachEngine {
   /** Chat with the AI coach — key lives on the server, never in the bundle */
   public async processUserQuery(
     userQuery: string,
-    previousMessages: AICoachMessage[] = []
+    previousMessages: AICoachMessage[] = [],
+    focusGoalId?: string
   ): Promise<AICoachMessage> {
     const toolCalls: AICoachToolCall[] = [];
 
     // Gather all local context in a single unified step
-    const { statusData, recentActivities, milestoneData, trainingSessions, allActivities, goals } =
-      await gatherAthleteContext();
+    const { statusData, recentActivities, milestoneData, trainingSessions, allActivities, goals, focusGoal } =
+      await gatherAthleteContext(focusGoalId);
 
     toolCalls.push(
       { toolName: 'getAthleteStatus', args: {}, result: statusData },
@@ -238,6 +244,8 @@ class GeminiCoachEngine {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         message: userQuery,
+        // The goal being discussed/replanned, with its readiness, so the coach stays on it
+        focusGoal: focusGoal ? { ...focusGoal, milestone_readiness: { ...milestoneData, goal: undefined } } : undefined,
         // Prior turns so Gemini keeps the conversation context (greeting/system/error msgs excluded)
         history: previousMessages
           .filter((m) => (m.sender === 'user' || m.sender === 'coach') && m.id !== 'init-msg' && !m.id.startsWith('err-'))
@@ -260,7 +268,7 @@ class GeminiCoachEngine {
     }
 
     const { text } = await res.json();
-    const { cleanText, proposedPlan, proposedGoal } = extractProposals(text || '');
+    const { cleanText, proposedPlan, proposedGoal } = extractProposals(text || '', focusGoal?.id);
 
     return {
       id: `coach-msg-${Date.now()}`,
