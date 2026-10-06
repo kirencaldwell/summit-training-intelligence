@@ -3,6 +3,7 @@ import { Send, Bot, User, Sparkles, Terminal, Activity, ShieldAlert, ChevronDown
 import type { AICoachMessage, Goal, ProposedGoalAction, ProposedPlanAction, TrainingSession, TrainingSessionStatus } from '../types';
 import { coachEngine } from '../lib/ai/coachEngine';
 import { getNextTrainingWeekStartDate } from '../lib/trainingSessions';
+import { formatFeetFromMeters } from '../lib/units';
 
 /** Greeting shown on a fresh chat. */
 export const INITIAL_COACH_MESSAGES: AICoachMessage[] = [
@@ -510,7 +511,7 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
                       )}
                       {msg.proposedGoal.goal.target_elevation_m && (
                         <div className="px-2.5 py-1 rounded-lg bg-slate-800/80 border border-white/10 text-sky-300 text-[11px]">
-                          Target Vert: <span className="font-bold text-white">{msg.proposedGoal.goal.target_elevation_m}m</span>
+                          Target Vert: <span className="font-bold text-white">{formatFeetFromMeters(msg.proposedGoal.goal.target_elevation_m)}</span>
                         </div>
                       )}
                     </div>

@@ -1,6 +1,36 @@
 import type { Activity, AICoachMessage, AICoachToolCall, AthleteProfile, Goal, ProposedGoalAction, ProposedPlanAction, TrainingSession } from '../../types';
 import { dataService } from '../supabase';
 import { calculatePMC, calculatePowerCurve } from '../trainingMath';
+import { ftToM, kgToLb, kmToMi, mToFt, miToKm, roundTo } from '../units';
+
+// The athlete works in imperial units. Data is stored metric, so everything sent to the model
+// is converted here and named with its unit; the model's proposals are converted back below.
+const kmToMiRounded = (km?: number) => (km ? roundTo(kmToMi(km), 1) : undefined);
+const mToFtRounded = (m?: number) => (m ? Math.round(mToFt(m)) : undefined);
+
+function goalForAI(goal?: Goal) {
+  if (!goal) return goal;
+  const { target_distance_km, target_elevation_m, ...rest } = goal;
+  return {
+    ...rest,
+    target_distance_mi: kmToMiRounded(target_distance_km),
+    target_elevation_ft: mToFtRounded(target_elevation_m),
+  };
+}
+
+function profileForAI(profile: AthleteProfile | null) {
+  if (!profile) return profile;
+  const { weight_kg, ...rest } = profile;
+  return { ...rest, weight_lb: weight_kg ? roundTo(kgToLb(weight_kg), 1) : null };
+}
+
+/** Imperial distance / climb / load fields for an activity. */
+function activityUnitsForAI(a: Activity) {
+  return {
+    distance_mi: roundTo(kmToMi(a.distance_meters / 1000), 1),
+    elevation_gain_ft: Math.round(mToFt(a.total_elevation_gain_m)),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Local data tools — gather context to send to the server-side Gemini proxy
@@ -28,6 +58,16 @@ function extractProposals(rawText: string): {
         parsed.goal.status = parsed.goal.status || 'ACTIVE';
         parsed.goal.priority = parsed.goal.priority || 'A_RACE';
         parsed.goal.creator = 'coach';
+        // The model proposes imperial targets; store metric like every other goal
+        const imperial = parsed.goal as Goal & { target_distance_mi?: number; target_elevation_ft?: number };
+        if (Number(imperial.target_distance_mi) > 0) {
+          imperial.target_distance_km = roundTo(miToKm(Number(imperial.target_distance_mi)), 2);
+        }
+        if (Number(imperial.target_elevation_ft) > 0) {
+          imperial.target_elevation_m = roundTo(ftToM(Number(imperial.target_elevation_ft)), 2);
+        }
+        delete imperial.target_distance_mi;
+        delete imperial.target_elevation_ft;
         proposedGoal = {
           goal: parsed.goal,
           summary: parsed.summary || parsed.goal.objective_summary,
@@ -92,11 +132,11 @@ async function gatherAthleteContext() {
   else if (latestPmc.tsb < -10) formCategory = 'Productive Overload Zone';
 
   const statusData = {
-    profile,
+    profile: profileForAI(profile),
     pmc: { ...latestPmc, formCategory },
     injuries: profile?.injury_notes ?? [],
     routines: profile?.recovery_routines,
-    nextGoal: goals[0],
+    nextGoal: goalForAI(goals[0]),
   };
 
   const recentActivities = activities.slice(0, 8).map(a => ({
@@ -105,8 +145,7 @@ async function gatherAthleteContext() {
     sport_type: a.sport_type,
     start_date: a.start_date,
     duration_minutes: Math.round(a.duration_seconds / 60),
-    distance_km: Number((a.distance_meters / 1000).toFixed(1)),
-    total_elevation_gain_m: a.total_elevation_gain_m,
+    ...activityUnitsForAI(a),
     normalized_power: a.normalized_power,
     intensity_factor: a.intensity_factor,
     tss: a.training_stress_score,
@@ -137,7 +176,7 @@ async function gatherAthleteContext() {
       ? 'Target 2x20m sweetspot/threshold efforts to lift 20m power closer to target.'
       : 'Power target is within reach! Prioritize event-specific simulation and injury management.';
 
-  const milestoneData = { goal, daysRemaining, powerCurve20m: power20m || null, targetPowerWatts: targetW || null, readinessScorePct, coachingAdvice };
+  const milestoneData = { goal: goalForAI(goal), daysRemaining, powerCurve20m: power20m || null, targetPowerWatts: targetW || null, readinessScorePct, coachingAdvice };
 
   // Full (compact) dataset — the server filters this down to what the question needs
   const allActivities = activities.map(a => ({
@@ -146,22 +185,21 @@ async function gatherAthleteContext() {
     sport_type: a.sport_type,
     start_date: a.start_date,
     duration_minutes: Math.round(a.duration_seconds / 60),
-    distance_km: Number((a.distance_meters / 1000).toFixed(1)),
-    total_elevation_gain_m: a.total_elevation_gain_m,
+    ...activityUnitsForAI(a),
     avg_power: a.avg_power,
     normalized_power: a.normalized_power,
     intensity_factor: a.intensity_factor,
     tss: a.training_stress_score,
     avg_hr: a.avg_hr,
     max_hr: a.max_hr,
-    avg_vam_mh: a.avg_vam_mh,
-    pack_weight_kg: a.pack_weight_kg,
+    avg_vam_ft_per_hour: mToFtRounded(a.avg_vam_mh),
+    pack_weight_lb: a.pack_weight_kg ? roundTo(kgToLb(a.pack_weight_kg), 1) : undefined,
     perceived_exertion: a.perceived_exertion,
     knee_discomfort_level: a.knee_discomfort_level,
     gear_notes: a.gear_notes,
   }));
 
-  return { statusData, recentActivities, milestoneData, trainingSessions, allActivities, goals };
+  return { statusData, recentActivities, milestoneData, trainingSessions, allActivities, goals: goals.map(goalForAI) };
 }
 
 /** Returns the next Monday as a YYYY-MM-DD string */
@@ -273,8 +311,7 @@ class GeminiCoachEngine {
       title: a.title,
       sport_type: a.sport_type,
       duration_minutes: Math.round(a.duration_seconds / 60),
-      distance_km: Number((a.distance_meters / 1000).toFixed(1)),
-      total_elevation_gain_m: a.total_elevation_gain_m,
+      ...activityUnitsForAI(a),
       tss: a.training_stress_score,
     });
 
@@ -284,7 +321,7 @@ class GeminiCoachEngine {
         ftp: profile.ftp || null,
         lthr: profile.lthr || null,
         max_hr: profile.max_hr || null,
-        weight_kg: profile.weight_kg || null,
+        weight_lb: profile.weight_kg ? roundTo(kgToLb(profile.weight_kg), 1) : null,
         injury_notes: profile.injury_notes,
       },
       activity: {
@@ -297,10 +334,10 @@ class GeminiCoachEngine {
         avg_hr: activity.avg_hr,
         max_hr: activity.max_hr,
         avg_cadence: activity.avg_cadence,
-        avg_vam_mh: activity.avg_vam_mh,
+        avg_vam_ft_per_hour: mToFtRounded(activity.avg_vam_mh),
         time_in_hr_zones_seconds: activity.time_in_hr_zones,
         time_in_power_zones_seconds: activity.time_in_power_zones,
-        pack_weight_kg: activity.pack_weight_kg,
+        pack_weight_lb: activity.pack_weight_kg ? roundTo(kgToLb(activity.pack_weight_kg), 1) : undefined,
         perceived_exertion: activity.perceived_exertion,
         knee_discomfort_level: activity.knee_discomfort_level,
         gear_notes: activity.gear_notes,
@@ -318,8 +355,8 @@ class GeminiCoachEngine {
           sport_type: g.sport_type,
           target_date: g.target_date,
           objective_summary: g.objective_summary,
-          target_distance_km: g.target_distance_km,
-          target_elevation_m: g.target_elevation_m,
+          target_distance_mi: kmToMiRounded(g.target_distance_km),
+          target_elevation_ft: mToFtRounded(g.target_elevation_m),
           target_power_watts: g.target_power_watts,
           periodization_phases: g.periodization_phases,
         })),

@@ -19,6 +19,7 @@ import {
   getCorosAccessToken,
   syncCorosActivities,
 } from '../lib/coros';
+import { formatFeetFromMeters } from '../lib/units';
 import { getStoredStravaClientId, setStoredStravaClientId, getStravaAuthUrl } from '../lib/strava';
 
 type Tab = 'fit' | 'coros' | 'strava';
@@ -196,7 +197,7 @@ const FitUploadTab: React.FC<{ onActivitiesImported: (a: Activity[]) => void }> 
                     )}
                     {r.activity.total_elevation_gain_m > 0 && (
                       <span className="text-cyan-400">
-                        ↑ {r.activity.total_elevation_gain_m}m
+                        ↑ {formatFeetFromMeters(r.activity.total_elevation_gain_m)}
                       </span>
                     )}
                   </div>

@@ -2,6 +2,7 @@ import React from 'react';
 import type { Activity, Goal, AthleteProfile, PMCDayPoint, PowerCurvePoint, TrainingSession } from '../types';
 import { Mountain, Zap, ShieldAlert, Calendar, ArrowUpRight, TrendingUp, Sparkles, ChevronRight, Activity as ActivityIcon, CalendarDays, Clock3 } from 'lucide-react';
 import { PerformanceManagementChart } from './PerformanceManagementChart';
+import { formatFeetFromMeters, formatMilesFromKm, formatMilesFromMeters } from '../lib/units';
 
 interface DashboardOverviewProps {
   profile: AthleteProfile;
@@ -92,12 +93,12 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               <div className="flex flex-wrap items-center gap-3 pt-1">
                 {!!priorityGoal.target_distance_km && (
                   <div className="px-3 py-1.5 rounded-xl bg-slate-900/80 border border-white/10 text-xs text-slate-200 font-medium">
-                    Distance: <span className="font-bold text-white">{priorityGoal.target_distance_km} km</span>
+                    Distance: <span className="font-bold text-white">{formatMilesFromKm(priorityGoal.target_distance_km)}</span>
                   </div>
                 )}
                 {!!priorityGoal.target_elevation_m && (
                   <div className="px-3 py-1.5 rounded-xl bg-slate-900/80 border border-white/10 text-xs text-slate-200 font-medium">
-                    Elevation Gain: <span className="font-bold text-white">{priorityGoal.target_elevation_m} m</span>
+                    Elevation Gain: <span className="font-bold text-white">{formatFeetFromMeters(priorityGoal.target_elevation_m)}</span>
                   </div>
                 )}
                 {!!priorityGoal.target_power_watts && (
@@ -178,7 +179,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <Mountain className="w-4 h-4 mr-1 text-sky-400" /> Multi-Sport Ascent
           </span>
           <div className="flex items-baseline space-x-2">
-            <span className="text-3xl font-extrabold text-white">{totalElevM.toLocaleString()} m</span>
+            <span className="text-3xl font-extrabold text-white">{formatFeetFromMeters(totalElevM)}</span>
           </div>
           <p className="text-[11px] text-slate-400">Total Elevation Gain across {activities.length} sessions</p>
         </div>
@@ -317,7 +318,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 </span>
                 <h4 className="text-sm font-bold text-white">{act.title}</h4>
                 <p className="text-xs text-slate-400">
-                  {(act.distance_meters / 1000).toFixed(1)} km | {act.total_elevation_gain_m}m gain | TSS: {act.training_stress_score || 'N/A'}
+                  {formatMilesFromMeters(act.distance_meters)} | {formatFeetFromMeters(act.total_elevation_gain_m)} gain | TSS: {act.training_stress_score || 'N/A'}
                 </p>
               </div>
               <ArrowUpRight className="w-4 h-4 text-slate-500" />

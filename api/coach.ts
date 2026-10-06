@@ -18,12 +18,15 @@ Cover, in this order, using short markdown sections:
 **What stands out** — call out specific numbers from this activity (duration, TSS, IF, NP, HR, time in zones, VAM, elevation, pack weight, perceived exertion, discomfort ratings) and, for each, why it matters for fitness: what adaptation it drives (aerobic base, threshold, VO2, muscular endurance, climbing specific) and what it costs in fatigue. Use the CTL/ATL/TSB before and after to explain the load impact.
 **Next steps** — 1 to 3 concrete suggestions for the next days given the load and the plan. Respect any injury notes in the profile.
 
-Rules: be specific and quantitative, never generic; only reference data that is present, and state when something needed for a judgment is missing (for example no power data, no thresholds set). Keep it under 250 words. Do not output JSON or proposal blocks.`;
+Rules: be specific and quantitative, never generic; only reference data that is present, and state when something needed for a judgment is missing (for example no power data, no thresholds set). Keep it under 250 words. Do not output JSON or proposal blocks.
+
+Units: the athlete uses imperial units. All distances, elevations, weights and speeds in the context are already imperial (distance_mi, elevation_gain_ft, weight_lb, pack_weight_lb, avg_vam_ft_per_hour). Write miles, feet, pounds and mph; never convert to metric.`;
 
 const SYSTEM_PROMPT = `You are Summit Intelligence, an elite AI endurance coach specializing in multi-sport mountain athletes. You have deep expertise in:
 - Road Cycling, Zwift indoor training, Skimo (ski mountaineering), Backcountry Skiing, Peak Scrambling, Weighted Hiking
 - Training load management: CTL (fitness), ATL (fatigue), TSB (form), TSS, FTP-based power metrics
 - Injury management — work only from the injuries and health notes the athlete has listed in their profile
+- Units: the athlete uses imperial units. All data you receive is already imperial (distance_mi, elevation_gain_ft, weight_lb, pack_weight_lb, avg_vam_ft_per_hour) — respond in miles, feet, pounds and mph, never metric. (W/kg stays as the standard power-to-weight ratio.)
 - Preparing for the specific goals and events the athlete has added; never assume a goal, injury, threshold or fitness level that is not in the provided data
 
 The user will provide their current training data as JSON context, including their profile, current PMC metrics, recent activities, milestone readiness, and current scheduledTrainingSessions.
@@ -41,8 +44,8 @@ When the user asks you to:
     "target_date": "YYYY-MM-DD",
     "timeframe_text": "12-Week Progressive Build (Spring 2027)",
     "objective_summary": "Comprehensive description of the target objective",
-    "target_distance_km": 24,
-    "target_elevation_m": 2800,
+    "target_distance_mi": 15,
+    "target_elevation_ft": 9000,
     "target_power_watts": 285,
     "priority": "A_RACE",
     "status": "ACTIVE",
@@ -79,7 +82,7 @@ When the user asks you to:
     ],
     "milestones": [
       { "title": "Mid-block 20m power test >275W", "target_date": "YYYY-MM-DD", "target_metric": "275W" },
-      { "title": "2,000m vertical ascent simulation day", "target_date": "YYYY-MM-DD", "target_metric": "2000m vert" }
+      { "title": "6,500 ft vertical ascent simulation day", "target_date": "YYYY-MM-DD", "target_metric": "6500 ft vert" }
     ]
   }
 }
@@ -133,7 +136,7 @@ interface FilterSpec {
     keywords?: string[]; // matched against title / gear notes
     min_tss?: number;
     min_knee_discomfort?: number;
-    sort_by?: 'date' | 'tss' | 'distance_km' | 'elevation' | 'duration';
+    sort_by?: 'date' | 'tss' | 'distance_mi' | 'elevation' | 'duration';
     limit?: number;
   };
   sessions: {
@@ -166,7 +169,7 @@ const FILTER_PROMPT = `You are a data-retrieval planner for an endurance coachin
     "keywords": string[] | null,      // match activity title / gear notes
     "min_tss": number | null,
     "min_knee_discomfort": number | null, // 0-10
-    "sort_by": "date" | "tss" | "distance_km" | "elevation" | "duration",
+    "sort_by": "date" | "tss" | "distance_mi" | "elevation" | "duration",
     "limit": number                   // max activities, keep as small as the question allows (max 50)
   },
   "sessions": { "include": boolean, "start_date": "YYYY-MM-DD" | null, "end_date": "YYYY-MM-DD" | null }
@@ -187,7 +190,7 @@ function sanitizeSpec(raw: any): FilterSpec {
   const strList = (v: unknown) =>
     Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.length > 0).map(x => x.toLowerCase()) : undefined;
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
-  const sortBy = ['date', 'tss', 'distance_km', 'elevation', 'duration'].includes(a.sort_by) ? a.sort_by : 'date';
+  const sortBy = ['date', 'tss', 'distance_mi', 'elevation', 'duration'].includes(a.sort_by) ? a.sort_by : 'date';
   return {
     include_profile: raw?.include_profile !== false,
     include_pmc: raw?.include_pmc !== false,
@@ -251,8 +254,8 @@ function applyFilter(spec: FilterSpec, data: any) {
     const key = (a: any): number => {
       switch (f.sort_by) {
         case 'tss': return a.tss ?? 0;
-        case 'distance_km': return a.distance_km ?? 0;
-        case 'elevation': return a.total_elevation_gain_m ?? 0;
+        case 'distance_mi': return a.distance_mi ?? 0;
+        case 'elevation': return a.elevation_gain_ft ?? 0;
         case 'duration': return a.duration_minutes ?? 0;
         default: return new Date(a.start_date).getTime() || 0;
       }

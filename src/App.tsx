@@ -26,6 +26,7 @@ import { DataSyncModal } from './components/StravaConnectModal';
 import { GoalsManager } from './components/GoalsManager';
 import { GoogleSignInScreen } from './components/GoogleSignInScreen';
 import { coachEngine } from './lib/ai/coachEngine';
+import { formatLbFromKg } from './lib/units';
 
 import { Mountain, Zap } from 'lucide-react';
 
@@ -448,7 +449,7 @@ export function App() {
           <div className="space-y-6">
             <div className="border-b border-white/10 pb-4">
               <h1 className="text-2xl font-extrabold text-white tracking-tight">Power Duration Curve & Peak Analytics</h1>
-              <p className="text-xs text-slate-400">Peak power outputs from recorded activity data, scaled for {profile.weight_kg}kg bodyweight</p>
+              <p className="text-xs text-slate-400">Peak power outputs from recorded activity data, scaled for {formatLbFromKg(profile.weight_kg)} bodyweight</p>
             </div>
 
             <div className="glass-panel p-6 rounded-2xl border-white/10 space-y-4">

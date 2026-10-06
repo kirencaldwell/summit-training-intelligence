@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { Activity, SportType } from '../types';
+import { formatFeetFromMeters, formatMilesFromMeters } from '../lib/units';
 import { Mountain, Bike, Compass, Footprints, ShieldAlert, Zap, Calendar, Search, Trash2 } from 'lucide-react';
 
 interface ActivityListProps {
@@ -157,8 +158,6 @@ export const ActivityList: React.FC<ActivityListProps> = ({ activities, onSelect
       {filteredActivities.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredActivities.map((act) => {
-          const distanceKm = (act.distance_meters / 1000).toFixed(1);
-
           return (
             <div
               key={act.id}
@@ -204,12 +203,12 @@ export const ActivityList: React.FC<ActivityListProps> = ({ activities, onSelect
               <div className="grid grid-cols-3 gap-2 pt-3 border-t border-white/5 text-center">
                 <div>
                   <span className="text-[10px] text-slate-500 uppercase font-medium">Dist</span>
-                  <p className="text-xs font-extrabold text-slate-200">{distanceKm} km</p>
+                  <p className="text-xs font-extrabold text-slate-200">{formatMilesFromMeters(act.distance_meters)}</p>
                 </div>
 
                 <div>
                   <span className="text-[10px] text-slate-500 uppercase font-medium">Elev</span>
-                  <p className="text-xs font-extrabold text-slate-200">{act.total_elevation_gain_m} m</p>
+                  <p className="text-xs font-extrabold text-slate-200">{formatFeetFromMeters(act.total_elevation_gain_m)}</p>
                 </div>
 
                 <div>

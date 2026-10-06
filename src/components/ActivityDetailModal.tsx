@@ -2,6 +2,7 @@ import React from 'react';
 import { X, Calendar, Clock, Navigation, Mountain, Zap, Heart, ShieldAlert, Bot, RefreshCw } from 'lucide-react';
 import type { Activity } from '../types';
 import { RouteMapViewer } from './RouteMapViewer';
+import { formatFeetFromMeters, formatFtPerHourFromMph, formatMilesFromMeters } from '../lib/units';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
 interface ActivityDetailModalProps {
@@ -48,7 +49,6 @@ export const ActivityDetailModal: React.FC<ActivityDetailModalProps> = ({
 
   const streamData = activity.streams_data || [];
   const durationMin = Math.round(activity.duration_seconds / 60);
-  const distanceKm = (activity.distance_meters / 1000).toFixed(1);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
@@ -89,14 +89,14 @@ export const ActivityDetailModal: React.FC<ActivityDetailModalProps> = ({
             <span className="text-xs text-slate-400 flex items-center mb-1">
               <Navigation className="w-3.5 h-3.5 mr-1 text-emerald-400" /> Distance
             </span>
-            <span className="text-lg font-extrabold text-white">{distanceKm} km</span>
+            <span className="text-lg font-extrabold text-white">{formatMilesFromMeters(activity.distance_meters)}</span>
           </div>
 
           <div className="p-3 rounded-xl bg-slate-900/60 border border-white/5">
             <span className="text-xs text-slate-400 flex items-center mb-1">
               <Mountain className="w-3.5 h-3.5 mr-1 text-sky-400" /> Elevation Gain
             </span>
-            <span className="text-lg font-extrabold text-white">{activity.total_elevation_gain_m} m</span>
+            <span className="text-lg font-extrabold text-white">{formatFeetFromMeters(activity.total_elevation_gain_m)}</span>
           </div>
 
           <div className="p-3 rounded-xl bg-slate-900/60 border border-white/5">
@@ -135,7 +135,7 @@ export const ActivityDetailModal: React.FC<ActivityDetailModalProps> = ({
           {activity.avg_vam_mh && (
             <div className="p-3 rounded-xl bg-sky-500/5 border border-sky-500/20">
               <span className="text-[11px] text-sky-400 font-medium">Ascent Rate (VAM)</span>
-              <p className="text-base font-bold text-slate-100">{activity.avg_vam_mh} m/h</p>
+              <p className="text-base font-bold text-slate-100">{formatFtPerHourFromMph(activity.avg_vam_mh)}</p>
             </div>
           )}
         </div>
