@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import type { Activity, SportType } from '../types';
 import { formatFeetFromMeters, formatMilesFromMeters } from '../lib/units';
-import { Mountain, Bike, Compass, Footprints, ShieldAlert, Zap, Calendar, Search, Trash2 } from 'lucide-react';
+import { collectTags } from '../lib/tags';
+import { Mountain, Bike, Compass, Footprints, ShieldAlert, Zap, Calendar, Search, Trash2, Tag, X } from 'lucide-react';
 
 interface ActivityListProps {
   activities: Activity[];
@@ -14,6 +15,7 @@ export const ActivityList: React.FC<ActivityListProps> = ({ activities, onSelect
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
   const [deletingActivityId, setDeletingActivityId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState('');
@@ -33,6 +35,12 @@ export const ActivityList: React.FC<ActivityListProps> = ({ activities, onSelect
     }
   };
 
+  const allTags = collectTags(activities);
+  const toggleTag = (tag: string) =>
+    setSelectedTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
+  // Ignore selections for tags that no longer exist (e.g. after editing or deleting activities)
+  const activeTags = selectedTags.filter((tag) => allTags.includes(tag));
+
   const sportsOptions = [
     { key: 'all', label: 'All Disciplines', icon: Compass },
     { key: 'cycling', label: 'Road / Zwift', icon: Bike },
@@ -44,13 +52,17 @@ export const ActivityList: React.FC<ActivityListProps> = ({ activities, onSelect
 
   const filteredActivities = activities.filter((act) => {
     const matchesSport = selectedSport === 'all' || act.sport_type === selectedSport || (selectedSport === 'cycling' && act.sport_type === 'zwift');
-    const matchesSearch = act.title.toLowerCase().includes(searchQuery.toLowerCase());
+    const query = searchQuery.toLowerCase();
+    const matchesSearch = act.title.toLowerCase().includes(query) || (act.tags ?? []).some((t) => t.toLowerCase().includes(query));
+    // Selected tags match any (case-insensitive)
+    const matchesTags = activeTags.length === 0
+      || (act.tags ?? []).some((t) => activeTags.some((sel) => sel.toLowerCase() === t.toLowerCase()));
     const activityDate = new Date(act.start_date);
     if (!Number.isFinite(activityDate.getTime())) return false;
     const activityDay = `${activityDate.getFullYear()}-${String(activityDate.getMonth() + 1).padStart(2, '0')}-${String(activityDate.getDate()).padStart(2, '0')}`;
     const matchesFrom = !dateFrom || activityDay >= dateFrom;
     const matchesTo = !dateTo || activityDay <= dateTo;
-    return matchesSport && matchesSearch && matchesFrom && matchesTo;
+    return matchesSport && matchesSearch && matchesTags && matchesFrom && matchesTo;
   }).sort((first, second) => {
     const difference = new Date(first.start_date).getTime() - new Date(second.start_date).getTime();
     return sortOrder === 'newest' ? -difference : difference;
@@ -105,6 +117,36 @@ export const ActivityList: React.FC<ActivityListProps> = ({ activities, onSelect
           />
         </div>
       </div>
+
+      {/* Tag Filters */}
+      {allTags.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-slate-400 flex items-center"><Tag className="w-3.5 h-3.5 mr-1" /> Tags</span>
+          {allTags.map((tag) => {
+            const isSelected = activeTags.includes(tag);
+            return (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => toggleTag(tag)}
+                aria-pressed={isSelected}
+                className={`rounded-full border px-3 py-1 text-xs font-semibold transition-all ${
+                  isSelected
+                    ? 'bg-cyan-500 text-slate-950 border-cyan-400'
+                    : 'bg-slate-900/60 text-slate-300 border-white/10 hover:bg-white/5'
+                }`}
+              >
+                {tag}
+              </button>
+            );
+          })}
+          {activeTags.length > 0 && (
+            <button type="button" onClick={() => setSelectedTags([])} className="flex items-center gap-1 px-2 text-xs font-semibold text-cyan-300 hover:text-cyan-200">
+              <X className="w-3 h-3" /> Clear tags
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-[1fr_1fr_auto_auto] items-end gap-3 border-b border-white/10 pb-4">
         <label className="min-w-0 text-xs font-medium text-slate-400">
@@ -191,6 +233,16 @@ export const ActivityList: React.FC<ActivityListProps> = ({ activities, onSelect
                 <h3 className="text-base font-bold text-white group-hover:text-cyan-400 transition-colors line-clamp-1">
                   {act.title}
                 </h3>
+
+                {(act.tags?.length ?? 0) > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {act.tags!.map((tag) => (
+                      <span key={tag} className="rounded-full bg-cyan-500/10 border border-cyan-500/25 px-2 py-0.5 text-[10px] text-cyan-200">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
 
                 {act.gear_notes && (
                   <p className="text-xs text-slate-400 mt-1 line-clamp-1">

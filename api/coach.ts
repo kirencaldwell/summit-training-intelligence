@@ -133,7 +133,7 @@ interface FilterSpec {
     start_date?: string; // YYYY-MM-DD
     end_date?: string;
     sport_types?: string[];
-    keywords?: string[]; // matched against title / gear notes
+    keywords?: string[]; // matched against title / gear notes / tags
     min_tss?: number;
     min_knee_discomfort?: number;
     sort_by?: 'date' | 'tss' | 'distance_mi' | 'elevation' | 'duration';
@@ -166,7 +166,7 @@ const FILTER_PROMPT = `You are a data-retrieval planner for an endurance coachin
     "start_date": "YYYY-MM-DD" | null,
     "end_date": "YYYY-MM-DD" | null,
     "sport_types": string[] | null,   // from: cycling, zwift, skimo, backcountry_skiing, scrambling, weighted_hiking
-    "keywords": string[] | null,      // match activity title / gear notes
+    "keywords": string[] | null,      // match activity title / gear notes / athlete tags
     "min_tss": number | null,
     "min_knee_discomfort": number | null, // 0-10
     "sort_by": "date" | "tss" | "distance_mi" | "elevation" | "duration",
@@ -263,7 +263,7 @@ function applyFilter(spec: FilterSpec, data: any) {
     const matched = ((data.activities as any[]) ?? [])
       .filter(a => inRange(a.start_date, f.start_date, f.end_date))
       .filter(a => !f.sport_types?.length || f.sport_types.includes(String(a.sport_type).toLowerCase()))
-      .filter(a => !f.keywords?.length || f.keywords.some(k => `${a.title ?? ''} ${a.gear_notes ?? ''}`.toLowerCase().includes(k)))
+      .filter(a => !f.keywords?.length || f.keywords.some(k => `${a.title ?? ''} ${a.gear_notes ?? ''} ${(a.tags ?? []).join(' ')}`.toLowerCase().includes(k)))
       .filter(a => f.min_tss === undefined || (a.tss ?? 0) >= f.min_tss)
       .filter(a => f.min_knee_discomfort === undefined || (a.knee_discomfort_level ?? 0) >= f.min_knee_discomfort)
       .sort((a, b) => key(b) - key(a));

@@ -1,6 +1,7 @@
-import React from 'react';
-import { X, Calendar, Clock, Navigation, Mountain, Zap, Heart, ShieldAlert, Bot, RefreshCw } from 'lucide-react';
-import type { Activity } from '../types';
+import React, { useState } from 'react';
+import { X, Calendar, Clock, Navigation, Mountain, Zap, Heart, ShieldAlert, Bot, RefreshCw, Pencil, Check, Tag } from 'lucide-react';
+import type { Activity, SportType } from '../types';
+import { MAX_TAG_LENGTH, MAX_TAGS_PER_ACTIVITY, normalizeTags } from '../lib/tags';
 import { RouteMapViewer } from './RouteMapViewer';
 import { formatFeetFromMeters, formatFtPerHourFromMph, formatMilesFromMeters } from '../lib/units';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
@@ -11,7 +12,145 @@ interface ActivityDetailModalProps {
   onAssess?: (activity: Activity) => void;
   isAssessing?: boolean;
   assessmentError?: string;
+  onUpdate?: (id: string, updates: Pick<Partial<Activity>, 'title' | 'sport_type' | 'tags'>) => Promise<void>;
+  /** Every tag already used on any activity, offered as quick picks */
+  allTags?: string[];
 }
+
+const SPORT_OPTIONS: { value: SportType; label: string }[] = [
+  { value: 'cycling', label: 'Road Cycling' },
+  { value: 'zwift', label: 'Zwift / Indoor' },
+  { value: 'skimo', label: 'Skimo' },
+  { value: 'backcountry_skiing', label: 'Backcountry Skiing' },
+  { value: 'scrambling', label: 'Peak Scramble' },
+  { value: 'weighted_hiking', label: 'Weighted Hike' },
+];
+
+/** Inline editor for the activity name, sport and custom tags. */
+const ActivityEditor: React.FC<{
+  activity: Activity;
+  allTags: string[];
+  onSave: (updates: Pick<Partial<Activity>, 'title' | 'sport_type' | 'tags'>) => Promise<void>;
+  onCancel: () => void;
+}> = ({ activity, allTags, onSave, onCancel }) => {
+  const [title, setTitle] = useState(activity.title);
+  const [sport, setSport] = useState<SportType>(activity.sport_type);
+  const [tags, setTags] = useState<string[]>(activity.tags ?? []);
+  const [tagInput, setTagInput] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const addTags = (raw: string) => {
+    // Commas also separate tags so "race, indoor" works when pasted
+    setTags((prev) => normalizeTags([...prev, ...raw.split(',')]));
+    setTagInput('');
+  };
+  const removeTag = (tag: string) => setTags((prev) => prev.filter((t) => t !== tag));
+  const suggestions = allTags.filter((t) => !tags.some((x) => x.toLowerCase() === t.toLowerCase())).slice(0, 12);
+
+  const handleSave = async () => {
+    const trimmed = title.trim();
+    if (!trimmed) {
+      setError('Name cannot be empty.');
+      return;
+    }
+    setIsSaving(true);
+    setError('');
+    try {
+      // Include a tag still typed in the box so it isn't silently dropped
+      const finalTags = normalizeTags([...tags, ...tagInput.split(',')]);
+      await onSave({ title: trimmed, sport_type: sport, tags: finalTags });
+    } catch (err: any) {
+      setError(err?.message || 'Could not save changes.');
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3 rounded-xl border border-cyan-500/25 bg-slate-900/60 p-4">
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_12rem] gap-3">
+        <label className="text-xs font-medium text-slate-400">
+          Name
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            maxLength={120}
+            className="mt-1 w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none"
+          />
+        </label>
+        <label className="text-xs font-medium text-slate-400">
+          Sport
+          <select
+            value={sport}
+            onChange={(e) => setSport(e.target.value as SportType)}
+            className="mt-1 w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none"
+          >
+            {SPORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </label>
+      </div>
+
+      <div>
+        <span className="text-xs font-medium text-slate-400 flex items-center"><Tag className="w-3.5 h-3.5 mr-1" /> Tags</span>
+        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          {tags.map((tag) => (
+            <span key={tag} className="inline-flex items-center gap-1 rounded-full bg-cyan-500/15 border border-cyan-500/30 pl-2.5 pr-1 py-0.5 text-xs text-cyan-200">
+              {tag}
+              <button type="button" onClick={() => removeTag(tag)} aria-label={`Remove tag ${tag}`} className="rounded-full p-0.5 hover:bg-white/10">
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          ))}
+          {tags.length < MAX_TAGS_PER_ACTIVITY && (
+            <input
+              type="text"
+              value={tagInput}
+              maxLength={MAX_TAG_LENGTH}
+              placeholder="Add a tag, press Enter"
+              onChange={(e) => setTagInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ',') {
+                  e.preventDefault();
+                  if (tagInput.trim()) addTags(tagInput);
+                } else if (e.key === 'Backspace' && !tagInput && tags.length > 0) {
+                  setTags((prev) => prev.slice(0, -1));
+                }
+              }}
+              className="min-w-40 flex-1 bg-transparent px-1 py-1 text-xs text-white placeholder-slate-500 focus:outline-none"
+            />
+          )}
+        </div>
+        {suggestions.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] text-slate-500">Existing:</span>
+            {suggestions.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => addTags(tag)}
+                className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] text-slate-300 hover:bg-white/10"
+              >
+                + {tag}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {error && <p role="alert" className="text-xs text-rose-400">{error}</p>}
+
+      <div className="flex items-center justify-end gap-2">
+        <button type="button" onClick={onCancel} disabled={isSaving} className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-300 disabled:opacity-50">
+          Cancel
+        </button>
+        <button type="button" onClick={() => void handleSave()} disabled={isSaving} className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold disabled:opacity-50">
+          <Check className="w-3.5 h-3.5" /> {isSaving ? 'Saving…' : 'Save changes'}
+        </button>
+      </div>
+    </div>
+  );
+};
 
 /** Minimal markdown for the coach text: **bold** inline, "- " bullets, blank-line paragraphs. */
 const AssessmentText: React.FC<{ text: string }> = ({ text }) => {
@@ -38,14 +177,22 @@ const AssessmentText: React.FC<{ text: string }> = ({ text }) => {
   );
 };
 
-export const ActivityDetailModal: React.FC<ActivityDetailModalProps> = ({
+export const ActivityDetailModal: React.FC<ActivityDetailModalProps> = ({ activity, ...rest }) => {
+  if (!activity) return null;
+  // Keyed so edit state resets when a different activity is opened
+  return <ActivityDetailContent key={activity.id} activity={activity} {...rest} />;
+};
+
+const ActivityDetailContent: React.FC<Omit<ActivityDetailModalProps, 'activity'> & { activity: Activity }> = ({
   activity,
   onClose,
   onAssess,
   isAssessing = false,
   assessmentError,
+  onUpdate,
+  allTags = [],
 }) => {
-  if (!activity) return null;
+  const [isEditing, setIsEditing] = useState(false);
 
   const streamData = activity.streams_data || [];
   const durationMin = Math.round(activity.duration_seconds / 60);
@@ -67,14 +214,47 @@ export const ActivityDetailModal: React.FC<ActivityDetailModalProps> = ({
               </span>
             </div>
             <h2 className="text-xl font-bold text-white mt-1">{activity.title}</h2>
+            {(activity.tags?.length ?? 0) > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {activity.tags!.map((tag) => (
+                  <span key={tag} className="rounded-full bg-cyan-500/10 border border-cyan-500/25 px-2.5 py-0.5 text-[11px] text-cyan-200">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
-          <button 
-            onClick={onClose}
-            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {onUpdate && !isEditing && (
+              <button
+                onClick={() => setIsEditing(true)}
+                aria-label="Edit activity"
+                title="Edit name, sport and tags"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-300 hover:text-white transition-all"
+              >
+                <Pencil className="w-3.5 h-3.5" /> Edit
+              </button>
+            )}
+            <button 
+              onClick={onClose}
+              className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
+
+        {isEditing && onUpdate && (
+          <ActivityEditor
+            activity={activity}
+            allTags={allTags}
+            onCancel={() => setIsEditing(false)}
+            onSave={async (updates) => {
+              await onUpdate(activity.id, updates);
+              setIsEditing(false);
+            }}
+          />
+        )}
 
         {/* Primary Metrics Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

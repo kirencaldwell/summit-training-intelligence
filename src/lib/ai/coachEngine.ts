@@ -197,6 +197,7 @@ async function gatherAthleteContext() {
     perceived_exertion: a.perceived_exertion,
     knee_discomfort_level: a.knee_discomfort_level,
     gear_notes: a.gear_notes,
+    tags: a.tags,
   }));
 
   return { statusData, recentActivities, milestoneData, trainingSessions, allActivities, goals: goals.map(goalForAI) };
@@ -341,6 +342,7 @@ class GeminiCoachEngine {
         perceived_exertion: activity.perceived_exertion,
         knee_discomfort_level: activity.knee_discomfort_level,
         gear_notes: activity.gear_notes,
+        tags: activity.tags,
       },
       training_load: {
         before_activity: pmcBefore ? { ctl: pmcBefore.ctl, atl: pmcBefore.atl, tsb: pmcBefore.tsb } : null,

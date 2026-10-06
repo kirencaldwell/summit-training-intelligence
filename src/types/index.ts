@@ -71,6 +71,9 @@ export interface Activity {
   // AI coach assessment of how this activity fits the plan and goals (saved with the activity)
   coach_assessment?: string;
   coach_assessment_at?: string;
+
+  // Athlete-defined labels, filterable in the activities tab
+  tags?: string[];
 }
 
 export interface AthleteProfile {

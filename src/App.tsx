@@ -27,6 +27,7 @@ import { GoalsManager } from './components/GoalsManager';
 import { GoogleSignInScreen } from './components/GoogleSignInScreen';
 import { coachEngine } from './lib/ai/coachEngine';
 import { formatLbFromKg } from './lib/units';
+import { collectTags } from './lib/tags';
 
 import { Mountain, Zap } from 'lucide-react';
 
@@ -111,6 +112,17 @@ export function App() {
       setGoals((prev) => [savedGoal, ...prev.filter(g => g.id !== savedGoal.id)]);
     }
     setIsOnboardingOpen(false);
+  };
+
+  // Edit an activity's name, sport and tags; merge only the changed fields so loaded streams are kept
+  const handleUpdateActivity = async (
+    id: string,
+    updates: Pick<Partial<Activity>, 'title' | 'sport_type' | 'tags'>
+  ) => {
+    const saved = await dataService.updateActivity(id, updates);
+    const patch = { title: saved.title, sport_type: saved.sport_type, tags: saved.tags ?? [] };
+    setActivities((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
+    setSelectedActivity((prev) => (prev?.id === id ? { ...prev, ...patch } : prev));
   };
 
   // The list query leaves out the heavy streams_data (map + time-series), so fetch it when an activity is opened
@@ -516,6 +528,8 @@ export function App() {
         activity={selectedActivity}
         onClose={() => setSelectedActivity(null)}
         onAssess={handleAssessActivity}
+        onUpdate={handleUpdateActivity}
+        allTags={collectTags(activities)}
         isAssessing={selectedActivity ? assessingIds.includes(selectedActivity.id) : false}
         assessmentError={selectedActivity ? assessmentErrors[selectedActivity.id] : undefined}
       />

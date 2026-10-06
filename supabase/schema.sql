@@ -115,6 +115,9 @@ CREATE TABLE IF NOT EXISTS public.activities (
   -- AI coach assessment of how the activity fits the plan and goals
   coach_assessment TEXT,
   coach_assessment_at TIMESTAMPTZ,
+
+  -- Athlete-defined tags
+  tags TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
   
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -122,7 +125,8 @@ CREATE TABLE IF NOT EXISTS public.activities (
 ALTER TABLE public.activities
   ADD COLUMN IF NOT EXISTS power_curve_best_efforts JSONB,
   ADD COLUMN IF NOT EXISTS coach_assessment TEXT,
-  ADD COLUMN IF NOT EXISTS coach_assessment_at TIMESTAMPTZ;
+  ADD COLUMN IF NOT EXISTS coach_assessment_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
 
 CREATE TABLE IF NOT EXISTS public.training_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
