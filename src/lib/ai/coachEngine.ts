@@ -234,6 +234,133 @@ class GeminiCoachEngine {
     };
   }
 
+  /**
+   * Assess how a newly added activity fits the athlete's accepted training plan and goals.
+   * Returns markdown; the caller persists it with the activity.
+   */
+  public async assessActivity(activity: Activity): Promise<string> {
+    const [profile, activities, goals, sessions] = await Promise.all([
+      dataService.getProfile(),
+      dataService.getActivities(),
+      dataService.getGoals(),
+      dataService.getTrainingSessions(),
+    ]);
+
+    const dateOf = (iso: string) => iso.slice(0, 10);
+    const activityDate = dateOf(activity.start_date);
+    const dayMs = 24 * 3600 * 1000;
+    const startMs = new Date(activity.start_date).getTime();
+
+    // Make sure the activity itself is part of the load calculation even if the list is stale
+    const withActivity = activities.some((a) => a.id === activity.id) ? activities : [activity, ...activities];
+    const pmc = calculatePMC(withActivity, 120);
+    const dayBefore = new Date(startMs - dayMs).toISOString().slice(0, 10);
+    const pmcAfter = pmc.find((p) => p.date === activityDate);
+    const pmcBefore = pmc.find((p) => p.date === dayBefore);
+
+    const tssWithin = (days: number) =>
+      Math.round(
+        withActivity
+          .filter((a) => {
+            const t = new Date(a.start_date).getTime();
+            return t <= startMs && t > startMs - days * dayMs;
+          })
+          .reduce((sum, a) => sum + (a.training_stress_score || 0), 0)
+      );
+
+    const compact = (a: Activity) => ({
+      date: dateOf(a.start_date),
+      title: a.title,
+      sport_type: a.sport_type,
+      duration_minutes: Math.round(a.duration_seconds / 60),
+      distance_km: Number((a.distance_meters / 1000).toFixed(1)),
+      total_elevation_gain_m: a.total_elevation_gain_m,
+      tss: a.training_stress_score,
+    });
+
+    const context = {
+      today: new Date().toISOString().slice(0, 10),
+      profile: {
+        ftp: profile.ftp || null,
+        lthr: profile.lthr || null,
+        max_hr: profile.max_hr || null,
+        weight_kg: profile.weight_kg || null,
+        injury_notes: profile.injury_notes,
+      },
+      activity: {
+        ...compact(activity),
+        moving_time_minutes: Math.round(activity.moving_time_seconds / 60),
+        avg_power: activity.avg_power,
+        max_power: activity.max_power,
+        normalized_power: activity.normalized_power,
+        intensity_factor: activity.intensity_factor,
+        avg_hr: activity.avg_hr,
+        max_hr: activity.max_hr,
+        avg_cadence: activity.avg_cadence,
+        avg_vam_mh: activity.avg_vam_mh,
+        time_in_hr_zones_seconds: activity.time_in_hr_zones,
+        time_in_power_zones_seconds: activity.time_in_power_zones,
+        pack_weight_kg: activity.pack_weight_kg,
+        perceived_exertion: activity.perceived_exertion,
+        knee_discomfort_level: activity.knee_discomfort_level,
+        gear_notes: activity.gear_notes,
+      },
+      training_load: {
+        before_activity: pmcBefore ? { ctl: pmcBefore.ctl, atl: pmcBefore.atl, tsb: pmcBefore.tsb } : null,
+        after_activity: pmcAfter ? { ctl: pmcAfter.ctl, atl: pmcAfter.atl, tsb: pmcAfter.tsb, day_tss: pmcAfter.tss } : null,
+        tss_last_7_days_including_this: tssWithin(7),
+        tss_last_28_days_including_this: tssWithin(28),
+      },
+      active_goals: goals
+        .filter((g) => g.status === 'ACTIVE')
+        .map((g) => ({
+          name: g.name,
+          sport_type: g.sport_type,
+          target_date: g.target_date,
+          objective_summary: g.objective_summary,
+          target_distance_km: g.target_distance_km,
+          target_elevation_m: g.target_elevation_m,
+          target_power_watts: g.target_power_watts,
+          periodization_phases: g.periodization_phases,
+        })),
+      // Only plans the athlete accepted count; proposed/declined sessions are not the plan
+      accepted_training_sessions: sessions
+        .filter((s) => (s.status === 'ACCEPTED' || s.status === 'COMPLETED')
+          && Math.abs(new Date(`${s.session_date}T12:00:00Z`).getTime() - startMs) <= 7 * dayMs)
+        .map((s) => ({
+          date: s.session_date,
+          title: s.title,
+          sport_type: s.sport_type,
+          duration_minutes: s.duration_minutes,
+          focus: s.focus,
+          details: s.details,
+          target_tss: s.target_tss,
+          status: s.status,
+        })),
+      previous_activities_28_days: withActivity
+        .filter((a) => a.id !== activity.id && new Date(a.start_date).getTime() < startMs && new Date(a.start_date).getTime() >= startMs - 28 * dayMs)
+        .slice(0, 20)
+        .map(compact),
+    };
+
+    const res = await fetch('/api/coach', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mode: 'activity_assessment',
+        message: 'Write the coach assessment for this new activity.',
+        context,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Unknown server error' }));
+      throw new Error(err.error || `Server returned ${res.status}`);
+    }
+    const { text } = await res.json();
+    if (!text) throw new Error('The coach returned an empty assessment.');
+    return String(text).trim();
+  }
+
   /** Generate or replan a proposed weekly training plan via Gemini */
   public async generateWeeklyPlan(
     _occupiedDates: string[] = [],

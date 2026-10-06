@@ -61,6 +61,8 @@ export function App() {
   const [authReady, setAuthReady] = useState(!isSupabaseConfigured);
   const [appError, setAppError] = useState('');
 
+  const [assessingIds, setAssessingIds] = useState<string[]>([]);
+  const [assessmentErrors, setAssessmentErrors] = useState<Record<string, string>>({});
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
@@ -110,10 +112,45 @@ export function App() {
     setIsOnboardingOpen(false);
   };
 
+  // Ask the coach how an activity fits the accepted plan and goals, and save it with the activity
+  const handleAssessActivity = async (activity: Activity) => {
+    setAssessingIds((prev) => [...prev, activity.id]);
+    setAssessmentErrors((prev) => ({ ...prev, [activity.id]: '' }));
+    try {
+      const text = await coachEngine.assessActivity(activity);
+      const saved = await dataService.updateActivity(activity.id, {
+        coach_assessment: text,
+        coach_assessment_at: new Date().toISOString(),
+      });
+      const patch = { coach_assessment: saved.coach_assessment, coach_assessment_at: saved.coach_assessment_at };
+      setActivities((prev) => prev.map((a) => (a.id === activity.id ? { ...a, ...patch } : a)));
+      setSelectedActivity((prev) => (prev?.id === activity.id ? { ...prev, ...patch } : prev));
+    } catch (err: any) {
+      console.error('Activity assessment failed:', err);
+      setAssessmentErrors((prev) => ({ ...prev, [activity.id]: err?.message || 'Could not generate the assessment.' }));
+    } finally {
+      setAssessingIds((prev) => prev.filter((id) => id !== activity.id));
+    }
+  };
+
+  // Bulk history imports must not fire hundreds of model calls: auto-assess only the few
+  // most recent activities; older ones get a "Generate assessment" button in the detail view.
+  const autoAssessImported = async (imported: Activity[]) => {
+    const cutoff = Date.now() - 14 * 24 * 3600 * 1000;
+    const recent = imported
+      .filter((a) => new Date(a.start_date).getTime() >= cutoff)
+      .sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime())
+      .slice(0, 5);
+    for (const activity of recent) {
+      await handleAssessActivity(activity);
+    }
+  };
+
   const handleFitImport = (importedActivities: Activity[]) => {
     if (importedActivities.length > 0) {
       setActivities((prev) => [...importedActivities, ...prev]);
       setSelectedActivity(importedActivities[0]);
+      void autoAssessImported(importedActivities);
     }
   };
 
@@ -272,6 +309,7 @@ export function App() {
           })
           .then((newActivities) => {
             setActivities((prev) => [...newActivities, ...prev]);
+            void autoAssessImported(newActivities);
           })
           .catch((err) => setAppError(`COROS sync failed: ${err.message}`));
       }
@@ -464,6 +502,9 @@ export function App() {
       <ActivityDetailModal
         activity={selectedActivity}
         onClose={() => setSelectedActivity(null)}
+        onAssess={handleAssessActivity}
+        isAssessing={selectedActivity ? assessingIds.includes(selectedActivity.id) : false}
+        assessmentError={selectedActivity ? assessmentErrors[selectedActivity.id] : undefined}
       />
 
       {/* Athlete Profile & Settings Modal */}

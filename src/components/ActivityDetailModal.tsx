@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Calendar, Clock, Navigation, Mountain, Zap, Heart, ShieldAlert } from 'lucide-react';
+import { X, Calendar, Clock, Navigation, Mountain, Zap, Heart, ShieldAlert, Bot, RefreshCw } from 'lucide-react';
 import type { Activity } from '../types';
 import { RouteMapViewer } from './RouteMapViewer';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
@@ -7,9 +7,43 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 interface ActivityDetailModalProps {
   activity: Activity | null;
   onClose: () => void;
+  onAssess?: (activity: Activity) => void;
+  isAssessing?: boolean;
+  assessmentError?: string;
 }
 
-export const ActivityDetailModal: React.FC<ActivityDetailModalProps> = ({ activity, onClose }) => {
+/** Minimal markdown for the coach text: **bold** inline, "- " bullets, blank-line paragraphs. */
+const AssessmentText: React.FC<{ text: string }> = ({ text }) => {
+  const inline = (line: string) =>
+    line.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+      part.startsWith('**') && part.endsWith('**') && part.length > 4
+        ? <strong key={i} className="text-white">{part.slice(2, -2)}</strong>
+        : <React.Fragment key={i}>{part}</React.Fragment>
+    );
+  return (
+    <div className="space-y-2 text-sm text-slate-300 leading-relaxed">
+      {text.split(/\n{2,}/).map((block, i) => {
+        const lines = block.split('\n').filter((l) => l.trim());
+        if (lines.length > 0 && lines.every((l) => /^\s*[-*] /.test(l))) {
+          return (
+            <ul key={i} className="list-disc pl-5 space-y-1">
+              {lines.map((l, j) => <li key={j}>{inline(l.replace(/^\s*[-*] /, ''))}</li>)}
+            </ul>
+          );
+        }
+        return <p key={i} className="whitespace-pre-line">{inline(block)}</p>;
+      })}
+    </div>
+  );
+};
+
+export const ActivityDetailModal: React.FC<ActivityDetailModalProps> = ({
+  activity,
+  onClose,
+  onAssess,
+  isAssessing = false,
+  assessmentError,
+}) => {
   if (!activity) return null;
 
   const streamData = activity.streams_data || [];
@@ -111,10 +145,45 @@ export const ActivityDetailModal: React.FC<ActivityDetailModalProps> = ({ activi
           <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center space-x-3 text-amber-300 text-xs">
             <ShieldAlert className="w-5 h-5 flex-shrink-0 text-amber-400" />
             <span>
-              <strong>Knee Discomfort Rating: {activity.knee_discomfort_level}/10.</strong> Athlete noted mild anterior patellar sensation. Follow post-workout isometric decompression protocol.
+              <strong>Knee Discomfort Rating: {activity.knee_discomfort_level}/10.</strong> Logged for this activity.
             </span>
           </div>
         )}
+
+        {/* AI Coach Assessment (saved with the activity) */}
+        <div className="rounded-xl border border-cyan-500/25 bg-cyan-500/5 p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-cyan-300 flex items-center">
+              <Bot className="w-4 h-4 mr-1.5" /> Coach Assessment
+            </h3>
+            {onAssess && (
+              <button
+                onClick={() => onAssess(activity)}
+                disabled={isAssessing}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-semibold disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isAssessing ? 'animate-spin' : ''}`} />
+                {isAssessing ? 'Assessing…' : activity.coach_assessment ? 'Regenerate' : 'Generate assessment'}
+              </button>
+            )}
+          </div>
+
+          {activity.coach_assessment ? (
+            <>
+              <AssessmentText text={activity.coach_assessment} />
+              {activity.coach_assessment_at && (
+                <p className="text-[10px] text-slate-500">
+                  Generated {new Date(activity.coach_assessment_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+                </p>
+              )}
+            </>
+          ) : isAssessing ? (
+            <p className="text-xs text-slate-400">Your coach is reviewing this activity against your plan and goals…</p>
+          ) : (
+            <p className="text-xs text-slate-400">No assessment yet. Generate one to see how this fits your accepted plan and goals.</p>
+          )}
+          {assessmentError && <p className="text-xs text-rose-400">{assessmentError}</p>}
+        </div>
 
         {/* Interactive Leaflet GPS Map */}
         <div>

@@ -36,6 +36,10 @@ function isDuplicateActivity(candidate: Activity, existing: Activity): boolean {
   return true;
 }
 
+// Everything except the heavy streams_data, which is only loaded for the detail view
+const ACTIVITY_LIST_COLUMNS =
+  'id, user_id, strava_activity_id, title, sport_type, start_date, duration_seconds, moving_time_seconds, distance_meters, total_elevation_gain_m, avg_power, max_power, normalized_power, intensity_factor, training_stress_score, avg_hr, max_hr, avg_cadence, max_speed_kmh, avg_vam_mh, time_in_hr_zones, time_in_power_zones, power_curve_best_efforts, map_summary_polyline, gear_notes, pack_weight_kg, perceived_exertion, knee_discomfort_level, coach_assessment, coach_assessment_at, created_at';
+
 const STORAGE_KEYS = {
   PROFILE: 'summit_athlete_profile',
   ACTIVITIES: 'summit_activities_list',
@@ -177,9 +181,7 @@ class DataService {
         const profile = await this.getAuthenticatedProfile();
         let query = supabase
           .from('activities')
-          .select(
-            'id, user_id, strava_activity_id, title, sport_type, start_date, duration_seconds, moving_time_seconds, distance_meters, total_elevation_gain_m, avg_power, max_power, normalized_power, intensity_factor, training_stress_score, avg_hr, max_hr, avg_cadence, max_speed_kmh, avg_vam_mh, time_in_hr_zones, time_in_power_zones, power_curve_best_efforts, map_summary_polyline, gear_notes, pack_weight_kg, perceived_exertion, knee_discomfort_level, created_at'
-          )
+          .select(ACTIVITY_LIST_COLUMNS)
           .eq('user_id', profile.id)
           .order('start_date', { ascending: false });
         if (sportFilter && sportFilter !== 'all') query = query.eq('sport_type', sportFilter);
@@ -262,6 +264,29 @@ class DataService {
     this.localActivities.unshift(newActivity);
     this.saveLocalState();
     return newActivity;
+  }
+
+  public async updateActivity(id: string, updates: Partial<Activity>): Promise<Activity> {
+    const { id: _id, ...changes } = updates;
+    if (this.mode === 'supabase' && supabase) {
+      const profile = await this.getAuthenticatedProfile();
+      const { data, error } = await supabase
+        .from('activities')
+        .update(changes)
+        .eq('id', id)
+        .eq('user_id', profile.id)
+        .select(ACTIVITY_LIST_COLUMNS)
+        .maybeSingle();
+      if (error) throw new Error(`Activity update failed: ${error.message}`);
+      if (!data) throw new Error('Activity not found or not owned by this account.');
+      return data as unknown as Activity;
+    }
+
+    const idx = this.localActivities.findIndex((a) => a.id === id);
+    if (idx === -1) throw new Error('Activity not found.');
+    this.localActivities[idx] = { ...this.localActivities[idx], ...changes };
+    this.saveLocalState();
+    return this.localActivities[idx];
   }
 
   public async deleteActivity(id: string): Promise<void> {
