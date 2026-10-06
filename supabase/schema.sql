@@ -48,8 +48,17 @@ CREATE TABLE IF NOT EXISTS public.goals (
   status TEXT CHECK (status IN ('ACTIVE', 'COMPLETED', 'DEPRIORITIZED')) DEFAULT 'ACTIVE',
   completed_at TIMESTAMPTZ,
   debrief_notes TEXT,
+  creator TEXT CHECK (creator IN ('athlete', 'coach')), -- who proposed the goal
+  periodization_phases JSONB, -- [{ name, focus, weeks, target_ctl, status }]
+  milestones JSONB, -- [{ title, target_date, target_metric, completed }]
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Columns added after the first release (safe to re-run on an existing database)
+ALTER TABLE public.goals
+  ADD COLUMN IF NOT EXISTS creator TEXT CHECK (creator IN ('athlete', 'coach')),
+  ADD COLUMN IF NOT EXISTS periodization_phases JSONB,
+  ADD COLUMN IF NOT EXISTS milestones JSONB;
 
 -- ---------------------------------------------------------
 -- 3. ACTIVITIES TABLE
