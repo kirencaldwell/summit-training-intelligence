@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { User } from '@supabase/supabase-js';
-import type { Activity, AthleteProfile, Goal, PMCDayPoint, PowerCurvePoint, ProposedPlanAction, TrainingSession, TrainingSessionStatus } from './types';
+import type { AICoachMessage, Activity, AthleteProfile, Goal, PMCDayPoint, PowerCurvePoint, ProposedPlanAction, TrainingSession, TrainingSessionStatus } from './types';
 import { dataService, isSupabaseConfigured, supabase } from './lib/supabase';
 import { triggerMockStravaSync, parseStravaAuthCode } from './lib/strava';
 import { calculatePMC, calculatePowerCurve, hasPowerCurveData } from './lib/trainingMath';
@@ -19,7 +19,7 @@ import { DashboardOverview } from './components/DashboardOverview';
 import { ActivityList } from './components/ActivityList';
 import { PowerCurveChart } from './components/PowerCurveChart';
 import { HeartRateDistributionPage } from './components/HeartRateDistributionPage';
-import { AICoachPanel } from './components/AICoachPanel';
+import { AICoachPanel, INITIAL_COACH_MESSAGES } from './components/AICoachPanel';
 import { ActivityDetailModal } from './components/ActivityDetailModal';
 import { AthleteProfileModal } from './components/AthleteProfileModal';
 import { OnboardingWizard } from './components/OnboardingWizard';
@@ -33,6 +33,19 @@ import { Mountain, Zap } from 'lucide-react';
 const CURRENT_YEAR = new Date().getFullYear();
 
 export function App() {
+  // Coach chat lives here so it survives tab switches (the panel unmounts), and is mirrored to localStorage for reloads
+  const [coachMessages, setCoachMessages] = useState<AICoachMessage[]>(() => {
+    try {
+      const saved = localStorage.getItem('summit-coach-messages');
+      const parsed = saved ? JSON.parse(saved) : null;
+      if (Array.isArray(parsed) && parsed.length) return parsed;
+    } catch { /* ignore corrupt/unavailable storage */ }
+    return INITIAL_COACH_MESSAGES;
+  });
+  useEffect(() => {
+    try { localStorage.setItem('summit-coach-messages', JSON.stringify(coachMessages)); } catch { /* ignore */ }
+  }, [coachMessages]);
+
   const [activeTab, setActiveTab] = useState<'dashboard' | 'goals' | 'activities' | 'power' | 'heart-rate' | 'coach'>('dashboard');
   const [powerCurveYear, setPowerCurveYear] = useState<'all' | number>('all');
   const [dataMode, setDataMode] = useState<'demo' | 'supabase'>(dataService.getMode());
@@ -457,6 +470,8 @@ export function App() {
 
         {activeTab === 'coach' && (
           <AICoachPanel
+            messages={coachMessages}
+            setMessages={setCoachMessages}
             trainingSessions={trainingSessions}
             isGeneratingWeeklyPlan={isGeneratingWeeklyPlan}
             onGenerateWeeklyPlan={handleGenerateWeeklyPlan}

@@ -4,7 +4,27 @@ import type { AICoachMessage, Goal, ProposedGoalAction, ProposedPlanAction, Trai
 import { coachEngine } from '../lib/ai/coachEngine';
 import { getNextTrainingWeekStartDate } from '../lib/trainingSessions';
 
+/** Greeting shown on a fresh chat. */
+export const INITIAL_COACH_MESSAGES: AICoachMessage[] = [
+  {
+    id: 'init-msg',
+    sender: 'coach',
+    text: `### 🏔️ Summit AI Coach Ready
+Welcome back! I am monitoring your multi-sport endurance metrics across **Road Cycling, Skimo, Backcountry Skiing, Peak Scrambling, and Weighted Hiking**.
+
+#### ⚡ Current Snapshot:
+- **Mount Baker Hill Climb Goal:** 280W target (98% readiness)
+- **Knee & Posterior Chain Status:** Active awareness on steep gradients >12%.
+- **Decompression Night Protocol:** Mid-week hamstring mobility + isometric knee extensions.
+
+I can build **multi-week periodized macro plans**, set up **Coach's Goals**, and adapt your **weekly workouts** on demand. How can I optimize your training today?`,
+    timestamp: '12:00 PM'
+  }
+];
+
 interface AICoachPanelProps {
+  messages: AICoachMessage[];
+  setMessages: React.Dispatch<React.SetStateAction<AICoachMessage[]>>;
   trainingSessions: TrainingSession[];
   isGeneratingWeeklyPlan: boolean;
   onGenerateWeeklyPlan: () => Promise<void>;
@@ -14,6 +34,8 @@ interface AICoachPanelProps {
 }
 
 export const AICoachPanel: React.FC<AICoachPanelProps> = ({
+  messages,
+  setMessages,
   trainingSessions,
   isGeneratingWeeklyPlan,
   onGenerateWeeklyPlan,
@@ -21,22 +43,6 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
   onAcceptProposedPlan,
   onAcceptProposedGoal,
 }) => {
-  const [messages, setMessages] = useState<AICoachMessage[]>([
-    {
-      id: 'init-msg',
-      sender: 'coach',
-      text: `### 🏔️ Summit AI Coach Ready
-Welcome back! I am monitoring your multi-sport endurance metrics across **Road Cycling, Skimo, Backcountry Skiing, Peak Scrambling, and Weighted Hiking**.
-
-#### ⚡ Current Snapshot:
-- **Mount Baker Hill Climb Goal:** 280W target (98% readiness)
-- **Knee & Posterior Chain Status:** Active awareness on steep gradients >12%.
-- **Decompression Night Protocol:** Mid-week hamstring mobility + isometric knee extensions.
-
-I can build **multi-week periodized macro plans**, set up **Coach's Goals**, and adapt your **weekly workouts** on demand. How can I optimize your training today?`,
-      timestamp: '12:00 PM'
-    }
-  ]);
 
   const [inputQuery, setInputQuery] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -68,7 +74,7 @@ I can build **multi-week periodized macro plans**, set up **Coach's Goals**, and
 
     try {
       // Execute AI Coach tool calling engine
-      const coachResponse = await coachEngine.processUserQuery(query);
+      const coachResponse = await coachEngine.processUserQuery(query, messages);
       setMessages((prev) => [...prev, coachResponse]);
     } catch (err) {
       console.error('AI Coach Error:', err);
