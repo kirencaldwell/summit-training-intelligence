@@ -149,7 +149,29 @@ async function gatherAthleteContext(goalName: string = 'Mount Baker') {
 
   const milestoneData = { goal, daysRemaining, powerCurve20m: point20m, targetPowerWatts: targetW, readinessScorePct, coachingAdvice };
 
-  return { statusData, recentActivities, milestoneData, trainingSessions };
+  // Full (compact) dataset — the server filters this down to what the question needs
+  const allActivities = activities.map(a => ({
+    id: a.id,
+    title: a.title,
+    sport_type: a.sport_type,
+    start_date: a.start_date,
+    duration_minutes: Math.round(a.duration_seconds / 60),
+    distance_km: Number((a.distance_meters / 1000).toFixed(1)),
+    total_elevation_gain_m: a.total_elevation_gain_m,
+    avg_power: a.avg_power,
+    normalized_power: a.normalized_power,
+    intensity_factor: a.intensity_factor,
+    tss: a.training_stress_score,
+    avg_hr: a.avg_hr,
+    max_hr: a.max_hr,
+    avg_vam_mh: a.avg_vam_mh,
+    pack_weight_kg: a.pack_weight_kg,
+    perceived_exertion: a.perceived_exertion,
+    knee_discomfort_level: a.knee_discomfort_level,
+    gear_notes: a.gear_notes,
+  }));
+
+  return { statusData, recentActivities, milestoneData, trainingSessions, allActivities, goals };
 }
 
 /** Returns the next Monday as a YYYY-MM-DD string */
@@ -169,7 +191,8 @@ class GeminiCoachEngine {
     const toolCalls: AICoachToolCall[] = [];
 
     // Gather all local context in a single unified step
-    const { statusData, recentActivities, milestoneData, trainingSessions } = await gatherAthleteContext('Mount Baker');
+    const { statusData, recentActivities, milestoneData, trainingSessions, allActivities, goals } =
+      await gatherAthleteContext('Mount Baker');
 
     toolCalls.push(
       { toolName: 'getAthleteStatus', args: {}, result: statusData },
@@ -183,11 +206,13 @@ class GeminiCoachEngine {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         message: userQuery,
-        context: {
+        // Server-side cheap model filters this down before the main model sees it
+        fullData: {
           athleteStatus: statusData,
-          recentActivities,
+          activities: allActivities,
+          goals,
           milestoneReadiness: milestoneData,
-          scheduledTrainingSessions: trainingSessions.slice(0, 10),
+          sessions: trainingSessions,
         },
       }),
     });

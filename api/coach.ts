@@ -4,7 +4,9 @@
  * The client sends its pre-fetched training context; Gemini synthesizes the response.
  *
  * Usage: POST /api/coach
- * Body: { message: string, context: CoachContext }
+ * Body: { message: string, context?: CoachContext, fullData?: FullAthleteData }
+ * With `fullData`, a cheaper Gemini model first plans a filter over it so only
+ * relevant data reaches the main model.
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -103,6 +105,167 @@ IMPORTANT RULES:
 - If the user asks a general question without creating/modifying/replanning goals or workouts, do NOT include any json proposal block.
 - Keep markdown coaching commentary concise and actionable (under 300 words).`;
 
+// ---------------------------------------------------------------------------
+// Step 1: a cheap model turns the user's request into a structured filter spec.
+// We deliberately use a declarative spec (not model-written code) that the server
+// executes deterministically against the full dataset.
+// ---------------------------------------------------------------------------
+
+interface FilterSpec {
+  include_profile: boolean;
+  include_pmc: boolean;
+  include_goals: boolean;
+  include_milestone: boolean;
+  activities: {
+    include: boolean;
+    start_date?: string; // YYYY-MM-DD
+    end_date?: string;
+    sport_types?: string[];
+    keywords?: string[]; // matched against title / gear notes
+    min_tss?: number;
+    min_knee_discomfort?: number;
+    sort_by?: 'date' | 'tss' | 'distance_km' | 'elevation' | 'duration';
+    limit?: number;
+  };
+  sessions: {
+    include: boolean;
+    start_date?: string;
+    end_date?: string;
+  };
+}
+
+const DEFAULT_SPEC: FilterSpec = {
+  include_profile: true,
+  include_pmc: true,
+  include_goals: true,
+  include_milestone: true,
+  activities: { include: true, sort_by: 'date', limit: 8 },
+  sessions: { include: true },
+};
+
+const FILTER_PROMPT = `You are a data-retrieval planner for an endurance coaching app. Given the athlete's message, decide which slices of their stored data a coach needs to answer well. Output ONLY a JSON object, no prose, with this shape:
+{
+  "include_profile": boolean,   // FTP, weight, HR zones, injuries, recovery routines
+  "include_pmc": boolean,       // current CTL/ATL/TSB fitness-fatigue-form
+  "include_goals": boolean,     // long-term goals and periodization phases
+  "include_milestone": boolean, // readiness vs. the target event (20m power, days remaining)
+  "activities": {
+    "include": boolean,
+    "start_date": "YYYY-MM-DD" | null,
+    "end_date": "YYYY-MM-DD" | null,
+    "sport_types": string[] | null,   // from: cycling, zwift, skimo, backcountry_skiing, scrambling, weighted_hiking
+    "keywords": string[] | null,      // match activity title / gear notes
+    "min_tss": number | null,
+    "min_knee_discomfort": number | null, // 0-10
+    "sort_by": "date" | "tss" | "distance_km" | "elevation" | "duration",
+    "limit": number                   // max activities, keep as small as the question allows (max 50)
+  },
+  "sessions": { "include": boolean, "start_date": "YYYY-MM-DD" | null, "end_date": "YYYY-MM-DD" | null }
+}
+Rules:
+- Be selective: exclude anything irrelevant to the message. Planning or scheduling requests need sessions, goals, pmc and profile plus recent activities (last ~3 weeks).
+- Questions about fatigue/readiness need pmc and recent activities. Injury questions need profile and activities with knee discomfort.
+- Resolve relative dates ("last month", "this week") using today's date.
+- If the message is vague, fall back to the most recent ~8 activities.`;
+
+function asDate(v: unknown): string | undefined {
+  return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined;
+}
+
+function sanitizeSpec(raw: any): FilterSpec {
+  const a = raw?.activities ?? {};
+  const s = raw?.sessions ?? {};
+  const strList = (v: unknown) =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.length > 0).map(x => x.toLowerCase()) : undefined;
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+  const sortBy = ['date', 'tss', 'distance_km', 'elevation', 'duration'].includes(a.sort_by) ? a.sort_by : 'date';
+  return {
+    include_profile: raw?.include_profile !== false,
+    include_pmc: raw?.include_pmc !== false,
+    include_goals: raw?.include_goals !== false,
+    include_milestone: raw?.include_milestone !== false,
+    activities: {
+      include: a.include !== false,
+      start_date: asDate(a.start_date),
+      end_date: asDate(a.end_date),
+      sport_types: strList(a.sport_types),
+      keywords: strList(a.keywords),
+      min_tss: num(a.min_tss),
+      min_knee_discomfort: num(a.min_knee_discomfort),
+      sort_by: sortBy,
+      limit: Math.min(50, Math.max(1, Math.round(num(a.limit) ?? 8))),
+    },
+    sessions: { include: s.include !== false, start_date: asDate(s.start_date), end_date: asDate(s.end_date) },
+  };
+}
+
+async function planFilter(genAI: GoogleGenerativeAI, message: string): Promise<FilterSpec> {
+  try {
+    const model = genAI.getGenerativeModel({
+      model: process.env.GEMINI_FILTER_MODEL || 'gemini-3.5-flash-lite',
+      systemInstruction: FILTER_PROMPT,
+      generationConfig: { responseMimeType: 'application/json', temperature: 0 },
+    });
+    const today = new Date().toISOString().slice(0, 10);
+    const result = await model.generateContent(`Today's date: ${today}\nAthlete message: ${message}`);
+    return sanitizeSpec(JSON.parse(result.response.text()));
+  } catch (err) {
+    // Filtering is an optimization — never fail the chat because of it.
+    console.warn('Filter planning failed, using default spec:', err);
+    return DEFAULT_SPEC;
+  }
+}
+
+const inRange = (date: string | undefined, start?: string, end?: string) => {
+  if (!date) return true;
+  const d = date.slice(0, 10);
+  return (!start || d >= start) && (!end || d <= end);
+};
+
+function applyFilter(spec: FilterSpec, data: any) {
+  const out: Record<string, unknown> = {};
+  const status = data.athleteStatus ?? {};
+
+  if (spec.include_profile) out.profile = status.profile;
+  if (spec.include_pmc) out.pmc = status.pmc;
+  if (spec.include_profile) {
+    out.injuries = status.injuries;
+    out.routines = status.routines;
+  }
+  if (spec.include_goals) {
+    out.goals = data.goals;
+  }
+  if (spec.include_milestone) out.milestoneReadiness = data.milestoneReadiness;
+
+  if (spec.activities.include) {
+    const f = spec.activities;
+    const key = (a: any): number => {
+      switch (f.sort_by) {
+        case 'tss': return a.tss ?? 0;
+        case 'distance_km': return a.distance_km ?? 0;
+        case 'elevation': return a.total_elevation_gain_m ?? 0;
+        case 'duration': return a.duration_minutes ?? 0;
+        default: return new Date(a.start_date).getTime() || 0;
+      }
+    };
+    const matched = ((data.activities as any[]) ?? [])
+      .filter(a => inRange(a.start_date, f.start_date, f.end_date))
+      .filter(a => !f.sport_types?.length || f.sport_types.includes(String(a.sport_type).toLowerCase()))
+      .filter(a => !f.keywords?.length || f.keywords.some(k => `${a.title ?? ''} ${a.gear_notes ?? ''}`.toLowerCase().includes(k)))
+      .filter(a => f.min_tss === undefined || (a.tss ?? 0) >= f.min_tss)
+      .filter(a => f.min_knee_discomfort === undefined || (a.knee_discomfort_level ?? 0) >= f.min_knee_discomfort)
+      .sort((a, b) => key(b) - key(a));
+    out.activities = { totalMatching: matched.length, items: matched.slice(0, f.limit) };
+  }
+
+  if (spec.sessions.include) {
+    out.scheduledTrainingSessions = ((data.sessions as any[]) ?? []).filter(s =>
+      inRange(s.session_date, spec.sessions.start_date, spec.sessions.end_date)
+    );
+  }
+  return out;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -113,7 +276,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ error: 'GEMINI_API_KEY not configured on server.' });
   }
 
-  const { message, context } = req.body;
+  const { message, context, fullData } = req.body;
   if (!message) {
     return res.status(400).json({ error: 'Missing required field: message' });
   }
@@ -126,8 +289,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       systemInstruction: SYSTEM_PROMPT,
     });
 
-    const contextBlock = context
-      ? `\n\n<athlete_context>\n${JSON.stringify(context, null, 2)}\n</athlete_context>\n\n`
+    // Step 1+2 (chat only): cheap model plans a filter, server applies it to the full dataset.
+    // Callers that already send a curated `context` (e.g. weekly plan generation) skip this.
+    const filtered = fullData ? applyFilter(await planFilter(genAI, message), fullData) : context;
+    const contextBlock = filtered
+      ? `\n\n<athlete_context>\n${JSON.stringify(filtered, null, 2)}\n</athlete_context>\n\n`
       : '';
 
     const result = await model.generateContent(`${contextBlock}User question: ${message}`);
