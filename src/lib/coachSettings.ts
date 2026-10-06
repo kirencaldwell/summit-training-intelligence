@@ -5,8 +5,8 @@
 export type CoachProvider = 'gemini' | 'claude';
 
 export const CLAUDE_MODEL_OPTIONS = [
-  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', note: 'Most capable (default)' },
-  { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', note: 'Faster and about half the cost' },
+  { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', note: 'Fast and cost-effective (default)' },
+  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', note: 'Most capable, about twice the cost' },
 ] as const;
 
 const KEYS = {

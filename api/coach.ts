@@ -21,8 +21,8 @@ export const config = { maxDuration: 60 };
 // or logged), so nobody else can spend the account owner's Claude tokens.
 // ---------------------------------------------------------------------------
 
-const CLAUDE_MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5'];
-const DEFAULT_CLAUDE_MODEL = 'claude-opus-5-5';
+const CLAUDE_MODELS = ['claude-sonnet-5-5', 'claude-opus-5-5'];
+const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-5-5';
 // Small, cheap model for the data-filter planning step
 const CLAUDE_FILTER_MODEL = 'claude-haiku-4-5';
 
