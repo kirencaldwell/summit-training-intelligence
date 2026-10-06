@@ -97,12 +97,18 @@ CREATE TABLE IF NOT EXISTS public.activities (
   pack_weight_kg NUMERIC(4,2), -- For weighted hiking/scrambling/skimo
   perceived_exertion INTEGER CHECK (perceived_exertion BETWEEN 1 AND 10),
   knee_discomfort_level INTEGER CHECK (knee_discomfort_level BETWEEN 0 AND 10) DEFAULT 0,
+
+  -- AI coach assessment of how the activity fits the plan and goals
+  coach_assessment TEXT,
+  coach_assessment_at TIMESTAMPTZ,
   
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 ALTER TABLE public.activities
-  ADD COLUMN IF NOT EXISTS power_curve_best_efforts JSONB;
+  ADD COLUMN IF NOT EXISTS power_curve_best_efforts JSONB,
+  ADD COLUMN IF NOT EXISTS coach_assessment TEXT,
+  ADD COLUMN IF NOT EXISTS coach_assessment_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS public.training_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

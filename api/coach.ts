@@ -4,12 +4,21 @@
  * The client sends its pre-fetched training context; Gemini synthesizes the response.
  *
  * Usage: POST /api/coach
- * Body: { message: string, context?: CoachContext, fullData?: FullAthleteData }
+ * Body: { message: string, context?: CoachContext, fullData?: FullAthleteData, history?: Turn[], mode?: 'activity_assessment' }
  * With `fullData`, a cheaper Gemini model first plans a filter over it so only
  * relevant data reaches the main model.
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+
+const ASSESSMENT_PROMPT = `You are Summit Intelligence, an elite endurance coach. The athlete just added a new activity. Write the coach's assessment of it, grounded ONLY in the JSON context provided (athlete profile, the activity, training load, active goals, and accepted/completed training sessions).
+
+Cover, in this order, using short markdown sections:
+**How it fits the plan** — compare against the accepted/completed sessions around that date and against the active goals and their phases. Say plainly whether it matched a planned session (and how closely: sport, duration, TSS, intensity), replaced one, or was unplanned. If there are no accepted sessions or no goals, say so; do not invent a plan or a goal.
+**What stands out** — call out specific numbers from this activity (duration, TSS, IF, NP, HR, time in zones, VAM, elevation, pack weight, perceived exertion, discomfort ratings) and, for each, why it matters for fitness: what adaptation it drives (aerobic base, threshold, VO2, muscular endurance, climbing specific) and what it costs in fatigue. Use the CTL/ATL/TSB before and after to explain the load impact.
+**Next steps** — 1 to 3 concrete suggestions for the next days given the load and the plan. Respect any injury notes in the profile.
+
+Rules: be specific and quantitative, never generic; only reference data that is present, and state when something needed for a judgment is missing (for example no power data, no thresholds set). Keep it under 250 words. Do not output JSON or proposal blocks.`;
 
 const SYSTEM_PROMPT = `You are Summit Intelligence, an elite AI endurance coach specializing in multi-sport mountain athletes. You have deep expertise in:
 - Road Cycling, Zwift indoor training, Skimo (ski mountaineering), Backcountry Skiing, Peak Scrambling, Weighted Hiking
@@ -276,7 +285,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ error: 'GEMINI_API_KEY not configured on server.' });
   }
 
-  const { message, context, fullData, history } = req.body;
+  const { message, context, fullData, history, mode } = req.body;
   if (!message) {
     return res.status(400).json({ error: 'Missing required field: message' });
   }
@@ -284,6 +293,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
     const modelName = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
+
+    // Single-shot activity assessment: the client sends a curated context, no chat history or filtering
+    if (mode === 'activity_assessment') {
+      if (!context) return res.status(400).json({ error: 'Missing required field: context' });
+      const assessor = genAI.getGenerativeModel({ model: modelName, systemInstruction: ASSESSMENT_PROMPT });
+      const out = await assessor.generateContent(
+        `<activity_context>\n${JSON.stringify(context, null, 2)}\n</activity_context>\n\n${message}`
+      );
+      return res.status(200).json({ text: out.response.text() });
+    }
+
     const model = genAI.getGenerativeModel({
       model: modelName,
       systemInstruction: SYSTEM_PROMPT,

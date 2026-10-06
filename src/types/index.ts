@@ -67,6 +67,10 @@ export interface Activity {
   pack_weight_kg?: number;
   perceived_exertion?: number; // 1-10
   knee_discomfort_level?: number; // 0-10
+
+  // AI coach assessment of how this activity fits the plan and goals (saved with the activity)
+  coach_assessment?: string;
+  coach_assessment_at?: string;
 }
 
 export interface AthleteProfile {
