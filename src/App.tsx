@@ -26,6 +26,8 @@ import { DataSyncModal } from './components/StravaConnectModal';
 import { GoalsManager } from './components/GoalsManager';
 import { GoogleSignInScreen } from './components/GoogleSignInScreen';
 import { coachEngine } from './lib/ai/coachEngine';
+import { formatLbFromKg } from './lib/units';
+import { collectTags } from './lib/tags';
 
 import { Mountain, Zap } from 'lucide-react';
 
@@ -110,6 +112,29 @@ export function App() {
       setGoals((prev) => [savedGoal, ...prev.filter(g => g.id !== savedGoal.id)]);
     }
     setIsOnboardingOpen(false);
+  };
+
+  // Edit an activity's name, sport and tags; merge only the changed fields so loaded streams are kept
+  const handleUpdateActivity = async (
+    id: string,
+    updates: Pick<Partial<Activity>, 'title' | 'sport_type' | 'tags'>
+  ) => {
+    const saved = await dataService.updateActivity(id, updates);
+    const patch = { title: saved.title, sport_type: saved.sport_type, tags: saved.tags ?? [] };
+    setActivities((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
+    setSelectedActivity((prev) => (prev?.id === id ? { ...prev, ...patch } : prev));
+  };
+
+  // The list query leaves out the heavy streams_data (map + time-series), so fetch it when an activity is opened
+  const handleOpenActivity = (activity: Activity | null) => {
+    setSelectedActivity(activity);
+    if (!activity || (activity.streams_data && activity.streams_data.length > 0)) return;
+    void dataService.getActivityById(activity.id)
+      .then((full) => {
+        if (!full?.streams_data?.length) return;
+        setSelectedActivity((prev) => (prev?.id === full.id ? { ...prev, streams_data: full.streams_data } : prev));
+      })
+      .catch((err) => console.warn('Could not load activity streams:', err));
   };
 
   // Ask the coach how an activity fits the accepted plan and goals, and save it with the activity
@@ -397,7 +422,7 @@ export function App() {
             pmcData={pmcData}
             powerCurve={powerCurveData}
             trainingSessions={upcomingSessions}
-            onOpenActivity={setSelectedActivity}
+            onOpenActivity={handleOpenActivity}
             onNavigateTab={setActiveTab}
           />
         )}
@@ -426,7 +451,7 @@ export function App() {
 
             <ActivityList
               activities={activities}
-              onSelectActivity={setSelectedActivity}
+              onSelectActivity={handleOpenActivity}
               onDeleteActivity={handleDeleteActivity}
             />
           </div>
@@ -436,7 +461,7 @@ export function App() {
           <div className="space-y-6">
             <div className="border-b border-white/10 pb-4">
               <h1 className="text-2xl font-extrabold text-white tracking-tight">Power Duration Curve & Peak Analytics</h1>
-              <p className="text-xs text-slate-400">Peak power outputs from recorded activity data, scaled for {profile.weight_kg}kg bodyweight</p>
+              <p className="text-xs text-slate-400">Peak power outputs from recorded activity data, scaled for {formatLbFromKg(profile.weight_kg)} bodyweight</p>
             </div>
 
             <div className="glass-panel p-6 rounded-2xl border-white/10 space-y-4">
@@ -503,6 +528,8 @@ export function App() {
         activity={selectedActivity}
         onClose={() => setSelectedActivity(null)}
         onAssess={handleAssessActivity}
+        onUpdate={handleUpdateActivity}
+        allTags={collectTags(activities)}
         isAssessing={selectedActivity ? assessingIds.includes(selectedActivity.id) : false}
         assessmentError={selectedActivity ? assessmentErrors[selectedActivity.id] : undefined}
       />

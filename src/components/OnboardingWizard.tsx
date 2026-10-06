@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Mountain, ShieldAlert, Upload, ChevronRight, CheckCircle2, HeartHandshake } from 'lucide-react';
 import type { AthleteProfile, Goal } from '../types';
+import { ftToM, lbToKg, miToKm, roundTo } from '../lib/units';
 
 interface OnboardingWizardProps {
   onCompleteOnboarding: (profileData: AthleteProfile, goalData: Goal | null) => void;
@@ -16,7 +17,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   const [ftp, setFtp] = useState('');
   const [maxHr, setMaxHr] = useState('');
   const [lthr, setLthr] = useState('');
-  const [weightKg, setWeightKg] = useState('');
+  const [weightLb, setWeightLb] = useState('');
 
   const [injuryNotes, setInjuryNotes] = useState('');
   const [wedRoutine, setWedRoutine] = useState('');
@@ -33,8 +34,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
   const isPositive = (v: string) => Number(v) > 0;
   const isProfileValid =
-    fullName.trim() !== '' && isPositive(ftp) && isPositive(lthr) && isPositive(maxHr) && isPositive(weightKg);
-  const optionalNumber = (v: string) => (isPositive(v) ? Number(v) : undefined);
+    fullName.trim() !== '' && isPositive(ftp) && isPositive(lthr) && isPositive(maxHr) && isPositive(weightLb);
+  const optionalNumber = (v: string, convert: (n: number) => number = (n) => n) =>
+    (isPositive(v) ? roundTo(convert(Number(v)), 2) : undefined);
 
   const handleFinish = () => {
     const profile: AthleteProfile = {
@@ -43,7 +45,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
       ftp: Number(ftp),
       max_hr: Number(maxHr),
       lthr: Number(lthr),
-      weight_kg: Number(weightKg),
+      weight_kg: roundTo(lbToKg(Number(weightLb)), 2),
       injury_notes: injuryNotes.split('\n').map((n) => n.trim()).filter(Boolean),
       recovery_routines: {
         wednesday: wedRoutine,
@@ -60,8 +62,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
           target_date: targetDate || undefined,
           timeframe_text: targetDate ? `Target Date: ${targetDate}` : undefined,
           objective_summary: goalNotes || goalName.trim(),
-          target_distance_km: optionalNumber(targetDist),
-          target_elevation_m: optionalNumber(targetElev),
+          target_distance_km: optionalNumber(targetDist, miToKm),
+          target_elevation_m: optionalNumber(targetElev, ftToM),
           target_power_watts: optionalNumber(targetPower),
           notes: goalNotes,
           priority: 'A_RACE',
@@ -148,13 +150,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 </div>
 
                 <div>
-                  <label className="text-xs font-medium text-slate-300">Weight (kg)</label>
+                  <label className="text-xs font-medium text-slate-300">Weight (lb)</label>
                   <input
                     type="number"
                     step="0.1"
-                    value={weightKg}
-                    onChange={(e) => setWeightKg(e.target.value)}
-                    placeholder="e.g. 70"
+                    value={weightLb}
+                    onChange={(e) => setWeightLb(e.target.value)}
+                    placeholder="e.g. 155"
                     className="w-full mt-1 bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-sm font-bold text-cyan-400 focus:border-cyan-500"
                   />
                 </div>
@@ -274,7 +276,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 </div>
 
                 <div>
-                  <label className="text-xs font-medium text-slate-300">Target Distance (km)</label>
+                  <label className="text-xs font-medium text-slate-300">Target Distance (mi)</label>
                   <input
                     type="number"
                     value={targetDist}
@@ -284,7 +286,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 </div>
 
                 <div>
-                  <label className="text-xs font-medium text-slate-300">Target Elevation Gain (m)</label>
+                  <label className="text-xs font-medium text-slate-300">Target Elevation Gain (ft)</label>
                   <input
                     type="number"
                     value={targetElev}

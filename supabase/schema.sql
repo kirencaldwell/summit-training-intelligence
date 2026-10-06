@@ -40,16 +40,30 @@ CREATE TABLE IF NOT EXISTS public.goals (
   target_date DATE, -- Optional target date
   timeframe_text TEXT, -- e.g. "Spring 2027", "Next Season", "Flexible"
   objective_summary TEXT NOT NULL, -- High-level text objective (e.g. "Car-to-car single day push on Mt Baker")
-  target_distance_km NUMERIC(6,2),
-  target_elevation_m NUMERIC(6,2),
+  target_distance_km NUMERIC(10,2),
+  target_elevation_m NUMERIC(10,2),
   target_power_watts INTEGER,
   notes TEXT,
   priority TEXT CHECK (priority IN ('A_RACE', 'B_RACE', 'TRAINING_MILESTONE')) DEFAULT 'A_RACE',
   status TEXT CHECK (status IN ('ACTIVE', 'COMPLETED', 'DEPRIORITIZED')) DEFAULT 'ACTIVE',
   completed_at TIMESTAMPTZ,
   debrief_notes TEXT,
+  creator TEXT CHECK (creator IN ('athlete', 'coach')), -- who proposed the goal
+  periodization_phases JSONB, -- [{ name, focus, weeks, target_ctl, status }]
+  milestones JSONB, -- [{ title, target_date, target_metric, completed }]
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Columns added after the first release (safe to re-run on an existing database)
+ALTER TABLE public.goals
+  ADD COLUMN IF NOT EXISTS creator TEXT CHECK (creator IN ('athlete', 'coach')),
+  ADD COLUMN IF NOT EXISTS periodization_phases JSONB,
+  ADD COLUMN IF NOT EXISTS milestones JSONB;
+
+-- Multi-week goals can total more than 9,999 km / m, which overflowed NUMERIC(6,2)
+ALTER TABLE public.goals
+  ALTER COLUMN target_distance_km TYPE NUMERIC(10,2),
+  ALTER COLUMN target_elevation_m TYPE NUMERIC(10,2);
 
 -- ---------------------------------------------------------
 -- 3. ACTIVITIES TABLE
@@ -101,6 +115,9 @@ CREATE TABLE IF NOT EXISTS public.activities (
   -- AI coach assessment of how the activity fits the plan and goals
   coach_assessment TEXT,
   coach_assessment_at TIMESTAMPTZ,
+
+  -- Athlete-defined tags
+  tags TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
   
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -108,7 +125,8 @@ CREATE TABLE IF NOT EXISTS public.activities (
 ALTER TABLE public.activities
   ADD COLUMN IF NOT EXISTS power_curve_best_efforts JSONB,
   ADD COLUMN IF NOT EXISTS coach_assessment TEXT,
-  ADD COLUMN IF NOT EXISTS coach_assessment_at TIMESTAMPTZ;
+  ADD COLUMN IF NOT EXISTS coach_assessment_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
 
 CREATE TABLE IF NOT EXISTS public.training_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

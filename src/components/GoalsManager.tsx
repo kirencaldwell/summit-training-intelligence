@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { Goal, SportType } from '../types';
+import { formatFeetFromMeters, formatMilesFromKm, ftToM, miToKm, roundTo } from '../lib/units';
 import { Mountain, Bike, Footprints, Compass, Plus, CheckCircle2, Trash2, Calendar, Sparkles, Award, X, Layers, Flag, Bot } from 'lucide-react';
 
 interface GoalsManagerProps {
@@ -32,8 +33,8 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
   const [timeframeText, setTimeframeText] = useState('Flexible / Next Season');
   const [objectiveSummary, setObjectiveSummary] = useState('');
   const [priority, setPriority] = useState<Goal['priority']>('A_RACE');
-  const [targetDistanceKm, setTargetDistanceKm] = useState<string>('');
-  const [targetElevationM, setTargetElevationM] = useState<string>('');
+  const [targetDistanceMi, setTargetDistanceMi] = useState<string>('');
+  const [targetElevationFt, setTargetElevationFt] = useState<string>('');
   const [targetPowerWatts, setTargetPowerWatts] = useState<string>('');
   const [notes, setNotes] = useState('');
 
@@ -57,8 +58,8 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
       target_date: targetDate || undefined,
       timeframe_text: timeframeText.trim() || (targetDate ? `Target Date: ${targetDate}` : 'Flexible'),
       objective_summary: objectiveSummary.trim(),
-      target_distance_km: targetDistanceKm ? Number(targetDistanceKm) : undefined,
-      target_elevation_m: targetElevationM ? Number(targetElevationM) : undefined,
+      target_distance_km: targetDistanceMi ? roundTo(miToKm(Number(targetDistanceMi)), 2) : undefined,
+      target_elevation_m: targetElevationFt ? roundTo(ftToM(Number(targetElevationFt)), 2) : undefined,
       target_power_watts: targetPowerWatts ? Number(targetPowerWatts) : undefined,
       notes: notes.trim() || undefined,
       priority,
@@ -83,8 +84,8 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
     setObjectiveSummary('');
     setTargetDate('');
     setTimeframeText('Flexible / Next Season');
-    setTargetDistanceKm('');
-    setTargetElevationM('');
+    setTargetDistanceMi('');
+    setTargetElevationFt('');
     setTargetPowerWatts('');
     setNotes('');
   };
@@ -238,12 +239,12 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
                   <div className="flex flex-wrap items-center gap-2 pt-1">
                     {goal.target_distance_km && (
                       <span className="px-2.5 py-1 rounded-lg bg-slate-900 border border-white/5 text-xs text-slate-300">
-                        Dist: <strong className="text-white">{goal.target_distance_km} km</strong>
+                        Dist: <strong className="text-white">{formatMilesFromKm(goal.target_distance_km)}</strong>
                       </span>
                     )}
                     {goal.target_elevation_m && (
                       <span className="px-2.5 py-1 rounded-lg bg-slate-900 border border-white/5 text-xs text-slate-300">
-                        Elev: <strong className="text-white">{goal.target_elevation_m} m</strong>
+                        Elev: <strong className="text-white">{formatFeetFromMeters(goal.target_elevation_m)}</strong>
                       </span>
                     )}
                     {goal.target_power_watts && (
@@ -387,7 +388,7 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
                 <textarea
                   rows={2}
                   required
-                  placeholder="e.g. Sub-8 hour car-to-car single day push with 11kg pack, maintaining 550 m/h VAM"
+                  placeholder="e.g. Sub-8 hour car-to-car single day push with a 25 lb pack, maintaining 1,800 ft/h VAM"
                   value={objectiveSummary}
                   onChange={(e) => setObjectiveSummary(e.target.value)}
                   className="w-full mt-1 bg-slate-900 border border-white/10 rounded-xl p-3 text-xs text-slate-200 focus:border-cyan-500"
@@ -451,21 +452,21 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
               {/* Optional Numbers */}
               <div className="grid grid-cols-3 gap-2 pt-1">
                 <div>
-                  <label className="text-[11px] text-slate-400">Distance (km)</label>
+                  <label className="text-[11px] text-slate-400">Distance (mi)</label>
                   <input
                     type="number"
-                    value={targetDistanceKm}
-                    onChange={(e) => setTargetDistanceKm(e.target.value)}
+                    value={targetDistanceMi}
+                    onChange={(e) => setTargetDistanceMi(e.target.value)}
                     className="w-full mt-1 bg-slate-900 border border-white/10 rounded-xl px-2 py-1.5 text-xs text-white"
                   />
                 </div>
 
                 <div>
-                  <label className="text-[11px] text-slate-400">Elevation Gain (m)</label>
+                  <label className="text-[11px] text-slate-400">Elevation Gain (ft)</label>
                   <input
                     type="number"
-                    value={targetElevationM}
-                    onChange={(e) => setTargetElevationM(e.target.value)}
+                    value={targetElevationFt}
+                    onChange={(e) => setTargetElevationFt(e.target.value)}
                     className="w-full mt-1 bg-slate-900 border border-white/10 rounded-xl px-2 py-1.5 text-xs text-white"
                   />
                 </div>

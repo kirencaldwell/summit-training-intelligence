@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Zap, ShieldAlert, HeartHandshake, Save } from 'lucide-react';
 import type { AthleteProfile } from '../types';
+import { kgToLb, lbToKg, roundTo } from '../lib/units';
 
 interface AthleteProfileModalProps {
   profile: AthleteProfile;
@@ -20,7 +21,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   const [ftp, setFtp] = useState(profile.ftp);
   const [lthr, setLthr] = useState(profile.lthr);
   const [maxHr, setMaxHr] = useState(profile.max_hr);
-  const [weightKg, setWeightKg] = useState(profile.weight_kg);
+  const [weightLb, setWeightLb] = useState(roundTo(kgToLb(profile.weight_kg), 1));
   const [injuries, setInjuries] = useState(profile.injury_notes.join('\n'));
   const [wedRoutine, setWedRoutine] = useState(profile.recovery_routines.wednesday);
   const [sunRoutine, setSunRoutine] = useState(profile.recovery_routines.sunday);
@@ -31,7 +32,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
       ftp: Number(ftp),
       lthr: Number(lthr),
       max_hr: Number(maxHr),
-      weight_kg: Number(weightKg),
+      weight_kg: roundTo(lbToKg(Number(weightLb)), 2),
       injury_notes: injuries.split('\n').filter(Boolean),
       recovery_routines: {
         wednesday: wedRoutine,
@@ -103,12 +104,12 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               </div>
 
               <div>
-                <label className="text-xs text-slate-400 font-medium">Weight (kg)</label>
+                <label className="text-xs text-slate-400 font-medium">Weight (lb)</label>
                 <input
                   type="number"
                   step="0.1"
-                  value={weightKg}
-                  onChange={(e) => setWeightKg(Number(e.target.value))}
+                  value={weightLb}
+                  onChange={(e) => setWeightLb(Number(e.target.value))}
                   className="w-full mt-1 bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:border-cyan-500 font-bold"
                 />
               </div>
