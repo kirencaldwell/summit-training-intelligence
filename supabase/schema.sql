@@ -40,8 +40,8 @@ CREATE TABLE IF NOT EXISTS public.goals (
   target_date DATE, -- Optional target date
   timeframe_text TEXT, -- e.g. "Spring 2027", "Next Season", "Flexible"
   objective_summary TEXT NOT NULL, -- High-level text objective (e.g. "Car-to-car single day push on Mt Baker")
-  target_distance_km NUMERIC(6,2),
-  target_elevation_m NUMERIC(6,2),
+  target_distance_km NUMERIC(10,2),
+  target_elevation_m NUMERIC(10,2),
   target_power_watts INTEGER,
   notes TEXT,
   priority TEXT CHECK (priority IN ('A_RACE', 'B_RACE', 'TRAINING_MILESTONE')) DEFAULT 'A_RACE',
@@ -59,6 +59,11 @@ ALTER TABLE public.goals
   ADD COLUMN IF NOT EXISTS creator TEXT CHECK (creator IN ('athlete', 'coach')),
   ADD COLUMN IF NOT EXISTS periodization_phases JSONB,
   ADD COLUMN IF NOT EXISTS milestones JSONB;
+
+-- Multi-week goals can total more than 9,999 km / m, which overflowed NUMERIC(6,2)
+ALTER TABLE public.goals
+  ALTER COLUMN target_distance_km TYPE NUMERIC(10,2),
+  ALTER COLUMN target_elevation_m TYPE NUMERIC(10,2);
 
 -- ---------------------------------------------------------
 -- 3. ACTIVITIES TABLE
