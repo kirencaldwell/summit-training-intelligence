@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import type { Activity, Goal, AthleteProfile, PMCDayPoint, TrainingSession } from '../types';
 import { Zap, Calendar, ArrowUpRight, TrendingUp, Sparkles, ChevronRight, Activity as ActivityIcon, CalendarDays, Clock3, Trash2 } from 'lucide-react';
 import { PerformanceManagementChart } from './PerformanceManagementChart';
 import { formatFeetFromMeters, formatMilesFromKm, formatMilesFromMeters } from '../lib/units';
-import { resolveTss } from '../lib/trainingMath';
+import { calculatePMC, resolveTss } from '../lib/trainingMath';
+import { DEFAULT_PMC_PRESET, PMC_PRESETS, describePmcRange, selectPmcRange, type PmcPreset } from '../lib/pmcRange';
 import { GoalReadinessPanel } from './GoalReadinessPanel';
 import type { GoalReadinessAssessment } from '../lib/goalReadiness';
 
@@ -36,6 +37,17 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   const [confirmDelete, setConfirmDelete] = useState<string | 'all' | null>(null);
   const [deletingIds, setDeletingIds] = useState<string[]>([]);
   const [deleteError, setDeleteError] = useState('');
+  // The fitness chart has its own date range (default 90 days); the tiles above always use the recent 90 days
+  const [chartPreset, setChartPreset] = useState<PmcPreset>(DEFAULT_PMC_PRESET);
+  const [chartFrom, setChartFrom] = useState('');
+  const [chartTo, setChartTo] = useState('');
+  const fullPmc = useMemo(() => calculatePMC(activities, 3650, profile), [activities, profile]);
+  const chartRange = { preset: chartPreset, from: chartFrom || undefined, to: chartTo || undefined };
+  const chartData = useMemo(
+    () => selectPmcRange(fullPmc, { preset: chartPreset, from: chartFrom || undefined, to: chartTo || undefined }),
+    [fullPmc, chartPreset, chartFrom, chartTo],
+  );
+  const isCustomRange = Boolean(chartFrom || chartTo);
   const pendingSessions = trainingSessions.filter((session) => session.status !== 'COMPLETED');
 
   const deleteSessions = async (ids: string[]) => {
@@ -322,16 +334,72 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
       {/* Main Charts Section */}
       <div className="glass-panel p-6 rounded-2xl border-white/10 space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-bold text-white">Performance Management Chart (PMC)</h2>
-            <p className="text-xs text-slate-400">90-Day Exponential Load Profile & Form Balance</p>
+            <h2 className="text-lg font-bold text-white">Fitness, Fatigue & Form</h2>
+            <p className="text-xs text-slate-400">{describePmcRange(chartRange)} · exponential load profile (CTL / ATL / TSB)</p>
           </div>
-          <span className="text-xs font-mono text-cyan-400 bg-cyan-500/10 px-3 py-1 rounded-full border border-cyan-500/20">
-            CTL / ATL / TSB Engine
-          </span>
+          <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+            <div role="group" aria-label="Chart date range" className="flex flex-wrap gap-1.5">
+              {PMC_PRESETS.map((preset) => {
+                const selected = !isCustomRange && chartPreset === preset.id;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => { setChartPreset(preset.id); setChartFrom(''); setChartTo(''); }}
+                    className={`min-h-9 px-3 rounded-lg border text-xs font-semibold transition-all ${
+                      selected
+                        ? 'bg-cyan-500/20 border-cyan-500/40 text-cyan-200'
+                        : 'border-white/10 text-slate-400 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex items-end gap-2">
+              <label className="text-[11px] font-medium text-slate-400">
+                From
+                <input
+                  type="date"
+                  value={chartFrom}
+                  max={chartTo || undefined}
+                  onChange={(event) => setChartFrom(event.target.value)}
+                  className="mt-0.5 block min-h-9 rounded-lg border border-white/10 bg-slate-900 px-2 text-xs text-white focus:border-cyan-500 focus:outline-none"
+                />
+              </label>
+              <label className="text-[11px] font-medium text-slate-400">
+                To
+                <input
+                  type="date"
+                  value={chartTo}
+                  min={chartFrom || undefined}
+                  onChange={(event) => setChartTo(event.target.value)}
+                  className="mt-0.5 block min-h-9 rounded-lg border border-white/10 bg-slate-900 px-2 text-xs text-white focus:border-cyan-500 focus:outline-none"
+                />
+              </label>
+              {isCustomRange && (
+                <button
+                  type="button"
+                  onClick={() => { setChartFrom(''); setChartTo(''); }}
+                  className="min-h-9 px-2 text-xs font-semibold text-slate-400 hover:text-white"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+          </div>
         </div>
-        <PerformanceManagementChart data={pmcData} />
+        {chartData.length > 0 ? (
+          <PerformanceManagementChart data={chartData} />
+        ) : (
+          <div className="flex h-72 items-center justify-center rounded-lg border border-dashed border-white/10 px-4 text-center text-sm text-slate-400">
+            No training load in this date range.
+          </div>
+        )}
       </div>
 
       {/* Recent Activity Feed */}

@@ -6,7 +6,20 @@ interface PerformanceManagementChartProps {
   data: PMCDayPoint[];
 }
 
-export const PerformanceManagementChart: React.FC<PerformanceManagementChartProps> = ({ data }) => {
+const MAX_POINTS = 400;
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const parseDay = (iso: string) => new Date(`${iso}T12:00:00`);
+
+export const PerformanceManagementChart: React.FC<PerformanceManagementChartProps> = ({ data: allData }) => {
+  // Years of daily points are far more than the chart can show: thin them evenly, always keeping the latest day
+  const stride = Math.max(1, Math.ceil(allData.length / MAX_POINTS));
+  const data = stride === 1
+    ? allData
+    : allData.filter((_, index) => (allData.length - 1 - index) % stride === 0);
+  // Long ranges label months and years; short ones label days
+  const longRange = allData.length > 180;
+
   return (
     <div className="w-full h-72">
       <ResponsiveContainer width="100%" height="100%">
@@ -31,13 +44,17 @@ export const PerformanceManagementChart: React.FC<PerformanceManagementChartProp
             dataKey="date" 
             stroke="#64748B" 
             tick={{ fontSize: 11 }}
+            minTickGap={32}
             tickFormatter={(str) => {
-              const d = new Date(str);
-              return `${d.getMonth() + 1}/${d.getDate()}`;
+              const d = parseDay(String(str));
+              return longRange
+                ? `${SHORT_MONTHS[d.getMonth()]} '${String(d.getFullYear()).slice(2)}`
+                : `${d.getMonth() + 1}/${d.getDate()}`;
             }}
           />
           <YAxis stroke="#64748B" tick={{ fontSize: 11 }} />
           <Tooltip 
+            labelFormatter={(label) => parseDay(String(label)).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
             contentStyle={{ 
               backgroundColor: 'rgba(15, 23, 42, 0.95)', 
               borderColor: 'rgba(255, 255, 255, 0.15)',
