@@ -3,7 +3,7 @@ import type { User } from '@supabase/supabase-js';
 import type { AICoachMessage, Activity, AthleteProfile, Goal, PMCDayPoint, PowerCurvePoint, ProposedPlanAction, TrainingSession, TrainingSessionStatus } from './types';
 import { dataService, isSupabaseConfigured, supabase } from './lib/supabase';
 import { calculatePMC, calculatePowerCurve, canImproveWithAi, hasPowerCurveData } from './lib/trainingMath';
-import { addDaysToDateOnly, getNextTrainingWeekStartDate } from './lib/trainingSessions';
+import { addDaysToDateOnly, getCurrentTrainingWeekStartDate, getNextTrainingWeekStartDate } from './lib/trainingSessions';
 import {
   parseCorosAuthCode,
   exchangeCorosCode,
@@ -346,27 +346,32 @@ export function App() {
   };
 
   const handleAcceptProposedPlan = async (proposal: ProposedPlanAction) => {
-    if (proposal.type === 'REPLACE_WEEK' && proposal.weekStartDate) {
-      const drafts = proposal.sessions.map((s) => ({
-        week_start_date: s.week_start_date,
-        session_date: s.session_date,
-        title: s.title,
-        sport_type: s.sport_type,
-        duration_minutes: s.duration_minutes,
-        focus: s.focus,
-        details: s.details,
-        target_tss: s.target_tss,
-      }));
-      const proposed = await dataService.replaceProposedTrainingSessions(proposal.weekStartDate, drafts);
-      const acceptedSessions: TrainingSession[] = [];
-      for (const p of proposed) {
-        const acc = await dataService.updateTrainingSessionStatus(p.id, 'ACCEPTED');
-        acceptedSessions.push(acc);
+    if (proposal.type === 'REPLACE_WEEK') {
+      // Each week in the proposal is swapped wholesale (the database and the screen end up identical)
+      const weeks = [...new Set(proposal.sessions.map((s) => s.week_start_date))];
+      for (const week of weeks) {
+        const weekEnd = addDaysToDateOnly(week, 6);
+        const drafts = proposal.sessions
+          .filter((s) => s.week_start_date === week)
+          .map((s) => ({
+            week_start_date: s.week_start_date,
+            session_date: s.session_date,
+            title: s.title,
+            sport_type: s.sport_type,
+            duration_minutes: s.duration_minutes,
+            focus: s.focus,
+            details: s.details,
+            target_tss: s.target_tss,
+          }));
+        const accepted = await dataService.replaceWeekWithAcceptedSessions(week, drafts);
+        setTrainingSessions((previous) => [
+          ...previous.filter((session) =>
+            session.status === 'COMPLETED'
+            || (session.week_start_date !== week && (session.session_date < week || session.session_date > weekEnd))
+          ),
+          ...accepted,
+        ]);
       }
-      setTrainingSessions((previous) => [
-        ...previous.filter((session) => session.week_start_date !== proposal.weekStartDate),
-        ...acceptedSessions,
-      ]);
     } else if (proposal.type === 'DELETE') {
       for (const session of proposal.sessions) {
         await dataService.deleteTrainingSession(session.id);
@@ -522,13 +527,15 @@ export function App() {
     : activities.filter((activity) => new Date(activity.start_date).getFullYear() === powerCurveYear);
   const powerCurveData: PowerCurvePoint[] = calculatePowerCurve(powerCurveActivities, profile.weight_kg);
   const powerCurveActivityCount = powerCurveActivities.filter(hasPowerCurveData).length;
-  const upcomingWeekStartDate = getNextTrainingWeekStartDate();
-  const upcomingWeekEndDate = addDaysToDateOnly(upcomingWeekStartDate, 6);
-  const upcomingSessions = trainingSessions.filter((session) =>
-    (session.status === 'ACCEPTED' || session.status === 'COMPLETED')
-    && session.session_date >= upcomingWeekStartDate
-    && session.session_date <= upcomingWeekEndDate
-  );
+  // The dashboard lists every accepted session from this week onward, in date order, so it matches
+  // whatever week the coach planned (not only the next one)
+  const currentWeekStartDate = getCurrentTrainingWeekStartDate();
+  const upcomingSessions = trainingSessions
+    .filter((session) =>
+      (session.status === 'ACCEPTED' || session.status === 'COMPLETED')
+      && session.session_date >= currentWeekStartDate
+    )
+    .sort((a, b) => a.session_date.localeCompare(b.session_date));
 
   return (
     <div className="min-h-screen bg-summit-dark text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-slate-950">

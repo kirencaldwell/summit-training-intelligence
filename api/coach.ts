@@ -495,7 +495,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const engine = buildEngine(req, res);
     if (!engine) return;
 
-    const { message, context, fullData, history, mode, focusGoal } = req.body ?? {};
+    const { message, context, fullData, history, mode, focusGoal, calendar } = req.body ?? {};
 
     // Key check from the settings screen: a tiny, cheap call that proves the key works
     if (mode === 'ping') {
@@ -555,11 +555,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ? `<focus_goal>\n${JSON.stringify(focusGoal, null, 2)}\n</focus_goal>\n\n`
       : '';
 
+    // Models have no clock; the client sends today's date and the week boundaries so plan dates are real
+    const calendarBlock = typeof calendar === 'string' && calendar.trim()
+      ? `<calendar>\n${calendar.trim().slice(0, 600)}\n</calendar>\n\n`
+      : '';
+
     const text = await complete(engine, {
       tier: 'main',
       system: SYSTEM_PROMPT,
       turns: sanitizeTurns(history),
-      user: `${contextBlock}${focusBlock}User question: ${message}`,
+      user: `${contextBlock}${calendarBlock}${focusBlock}User question: ${message}`,
     });
 
     return res.status(200).json({ text });
