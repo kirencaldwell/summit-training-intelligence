@@ -300,24 +300,10 @@ export function App() {
     }
   };
 
-  // Bulk history imports must not fire hundreds of model calls: auto-assess only the few
-  // most recent activities; older ones get a "Generate assessment" button in the detail view.
-  const autoAssessImported = async (imported: Activity[]) => {
-    const cutoff = Date.now() - 14 * 24 * 3600 * 1000;
-    const recent = imported
-      .filter((a) => new Date(a.start_date).getTime() >= cutoff)
-      .sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime())
-      .slice(0, 5);
-    for (const activity of recent) {
-      await handleAssessActivity(activity);
-    }
-  };
-
   const handleFitImport = (importedActivities: Activity[]) => {
     if (importedActivities.length > 0) {
       setActivities((prev) => [...importedActivities, ...prev]);
       setSelectedActivity(importedActivities[0]);
-      void autoAssessImported(importedActivities);
     }
   };
 
@@ -476,7 +462,6 @@ export function App() {
           })
           .then((newActivities) => {
             setActivities((prev) => [...newActivities, ...prev]);
-            void autoAssessImported(newActivities);
           })
           .catch((err) => setAppError(`COROS sync failed: ${err.message}`));
       }
