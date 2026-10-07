@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { Activity, Goal, AthleteProfile, PMCDayPoint, PowerCurvePoint, TrainingSession } from '../types';
-import { Zap, Calendar, ArrowUpRight, TrendingUp, Sparkles, ChevronRight, Activity as ActivityIcon, CalendarDays, Clock3 } from 'lucide-react';
+import { Zap, Calendar, ArrowUpRight, TrendingUp, Sparkles, ChevronRight, Activity as ActivityIcon, CalendarDays, Clock3, Trash2 } from 'lucide-react';
 import { PerformanceManagementChart } from './PerformanceManagementChart';
 import { formatFeetFromMeters, formatMilesFromKm, formatMilesFromMeters } from '../lib/units';
 import { resolveTss } from '../lib/trainingMath';
@@ -15,6 +15,7 @@ interface DashboardOverviewProps {
   onOpenActivity: (activity: Activity) => void;
   onNavigateTab: (tab: 'dashboard' | 'goals' | 'activities' | 'power' | 'heart-rate' | 'coach') => void;
   onOpenProfile?: () => void;
+  onDeleteTrainingSessions?: (ids: string[]) => Promise<void>;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
@@ -27,7 +28,28 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onOpenActivity,
   onNavigateTab,
   onOpenProfile,
+  onDeleteTrainingSessions,
 }) => {
+  // Deleting asks for a second click: either one session (by id) or everything not yet completed
+  const [confirmDelete, setConfirmDelete] = useState<string | 'all' | null>(null);
+  const [deletingIds, setDeletingIds] = useState<string[]>([]);
+  const [deleteError, setDeleteError] = useState('');
+  const pendingSessions = trainingSessions.filter((session) => session.status !== 'COMPLETED');
+
+  const deleteSessions = async (ids: string[]) => {
+    if (!onDeleteTrainingSessions || ids.length === 0) return;
+    setDeleteError('');
+    setDeletingIds(ids);
+    try {
+      await onDeleteTrainingSessions(ids);
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'The sessions could not be deleted.');
+    } finally {
+      setDeletingIds([]);
+      setConfirmDelete(null);
+    }
+  };
+
   const latestPmc = pmcData[pmcData.length - 1] || { ctl: 0, atl: 0, tsb: 0, tss: 0, date: '' };
   const previousWeekPmc = pmcData[Math.max(0, pmcData.length - 8)] || latestPmc;
   const hasTrainingLoad = activities.some((activity) => resolveTss(activity, profile).tss > 0);
@@ -200,7 +222,33 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             </h2>
             <p className="text-xs text-slate-400 mt-1">Scheduled & accepted workouts from your AI Coach</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {onDeleteTrainingSessions && pendingSessions.length > 0 && (
+              confirmDelete === 'all' ? (
+                <span className="inline-flex items-center gap-2 text-xs">
+                  <span className="text-rose-300">Delete {pendingSessions.length} upcoming {pendingSessions.length === 1 ? 'session' : 'sessions'}?</span>
+                  <button
+                    type="button"
+                    disabled={deletingIds.length > 0}
+                    onClick={() => void deleteSessions(pendingSessions.map((s) => s.id))}
+                    className="min-h-9 px-3 rounded-lg bg-rose-500/20 border border-rose-500/40 font-semibold text-rose-200 hover:bg-rose-500/30 disabled:opacity-50"
+                  >
+                    {deletingIds.length > 0 ? 'Deleting…' : 'Delete'}
+                  </button>
+                  <button type="button" onClick={() => setConfirmDelete(null)} className="min-h-9 px-2 font-semibold text-slate-400 hover:text-white">
+                    Cancel
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete('all')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-xs font-semibold text-slate-300 hover:text-rose-300 hover:border-rose-500/30 transition-all"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Delete all
+                </button>
+              )
+            )}
             <button
               type="button"
               onClick={() => onNavigateTab('coach')}
@@ -217,6 +265,10 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             </button>
           </div>
         </div>
+
+        {deleteError && (
+          <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{deleteError}</p>
+        )}
 
         {trainingSessions.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -240,6 +292,36 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                   {session.target_tss != null && <span className="ml-2 text-amber-300">{session.target_tss} TSS</span>}
                 </p>
                 <p className="mt-2 text-xs leading-relaxed text-slate-400">{session.details}</p>
+                {onDeleteTrainingSessions && (
+                  <div className="mt-3 flex justify-end">
+                    {confirmDelete === session.id ? (
+                      <span className="inline-flex items-center gap-2 text-xs">
+                        <span className="text-rose-300">Delete this session?</span>
+                        <button
+                          type="button"
+                          disabled={deletingIds.includes(session.id)}
+                          onClick={() => void deleteSessions([session.id])}
+                          className="min-h-9 px-3 rounded-lg bg-rose-500/20 border border-rose-500/40 font-semibold text-rose-200 hover:bg-rose-500/30 disabled:opacity-50"
+                        >
+                          {deletingIds.includes(session.id) ? 'Deleting…' : 'Delete'}
+                        </button>
+                        <button type="button" onClick={() => setConfirmDelete(null)} className="min-h-9 px-2 font-semibold text-slate-400 hover:text-white">
+                          Cancel
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDelete(session.id)}
+                        aria-label={`Delete ${session.title}`}
+                        title="Delete this session"
+                        className="min-h-9 min-w-9 inline-flex items-center justify-center rounded-lg text-slate-500 hover:text-rose-300 hover:bg-white/5"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                )}
               </article>
             ))}
           </div>

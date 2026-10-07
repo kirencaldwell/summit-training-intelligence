@@ -345,6 +345,20 @@ export function App() {
     setTrainingSessions((previous) => previous.map((session) => session.id === id ? updated : session));
   };
 
+  // Delete sessions from the dashboard. Each is removed from the screen only once the database has dropped it.
+  const handleDeleteTrainingSessions = async (ids: string[]) => {
+    const deleted: string[] = [];
+    try {
+      for (const id of ids) {
+        await dataService.deleteTrainingSession(id);
+        deleted.push(id);
+      }
+    } finally {
+      const gone = new Set(deleted);
+      setTrainingSessions((previous) => previous.filter((session) => !gone.has(session.id)));
+    }
+  };
+
   const handleAcceptProposedPlan = async (proposal: ProposedPlanAction) => {
     if (proposal.type === 'REPLACE_WEEK') {
       // Each week in the proposal is swapped wholesale (the database and the screen end up identical)
@@ -562,6 +576,7 @@ export function App() {
             pmcData={pmcData}
             powerCurve={powerCurveData}
             trainingSessions={upcomingSessions}
+            onDeleteTrainingSessions={handleDeleteTrainingSessions}
             onOpenActivity={handleOpenActivity}
             onNavigateTab={setActiveTab}
             onOpenProfile={() => setIsProfileModalOpen(true)}
