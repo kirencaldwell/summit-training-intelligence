@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Activity, Mountain, ShieldCheck, Zap, User, Upload, Sparkles, LogOut, MoreHorizontal, HeartPulse } from 'lucide-react';
 import type { AthleteProfile } from '../types';
 
@@ -26,6 +26,51 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSignOut,
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const desktopMenuRef = useRef<HTMLDivElement>(null);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isProfileMenuOpen) return;
+    const onPointerDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (desktopMenuRef.current?.contains(target) || mobileMenuRef.current?.contains(target)) return;
+      setIsProfileMenuOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsProfileMenuOpen(false); };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [isProfileMenuOpen]);
+
+  const profileMenu = (
+    <div role="menu" className="absolute right-0 top-full mt-2 w-60 z-50 rounded-xl border border-white/10 bg-slate-900 shadow-xl shadow-black/40 p-1.5">
+      {isAuthenticated && authEmail && (
+        <div className="px-3 py-2 text-xs text-slate-400 truncate border-b border-white/5 mb-1" title={authEmail}>{authEmail}</div>
+      )}
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => { setIsProfileMenuOpen(false); onOpenProfile(); }}
+        className="w-full min-h-10 flex items-center gap-2 px-3 rounded-lg text-sm text-slate-200 hover:bg-white/5 text-left"
+      >
+        <User className="w-4 h-4" /> Athlete profile & settings
+      </button>
+      {isAuthenticated && (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => { setIsProfileMenuOpen(false); onSignOut?.(); }}
+          className="w-full min-h-10 flex items-center gap-2 px-3 rounded-lg text-sm text-slate-200 hover:bg-white/5 text-left"
+        >
+          <LogOut className="w-4 h-4" /> Sign out
+        </button>
+      )}
+    </div>
+  );
   const tabs = [
     { id: 'dashboard' as const, label: 'Home', icon: Activity },
     { id: 'goals' as const, label: 'Goals', icon: Sparkles },
@@ -150,19 +195,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>Import Data</span>
             </button>
 
-            {isAuthenticated ? (
-              <div className="flex items-center gap-2">
-                <span className="hidden xl:inline text-xs text-slate-400 max-w-40 truncate">{authEmail}</span>
-                <button
-                  onClick={() => onSignOut?.()}
-                  title="Sign out"
-                  aria-label="Sign out"
-                  className="min-h-10 min-w-10 flex items-center justify-center p-2 rounded-lg border border-white/10 text-slate-300 hover:text-white hover:bg-white/5"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
+            {!isAuthenticated && (
               <span
                 className="min-h-10 flex items-center px-2.5 py-2 rounded-lg text-xs font-semibold border bg-slate-500/10 text-slate-300 border-white/10"
                 title="Data is stored only in this browser. Configure Supabase to sync across devices."
@@ -171,9 +204,14 @@ export const Navbar: React.FC<NavbarProps> = ({
               </span>
             )}
 
-            {/* Profile Avatar */}
+            {/* Profile Avatar + account menu */}
+            <div className="relative" ref={desktopMenuRef}>
             <button
-              onClick={onOpenProfile}
+              type="button"
+              onClick={() => setIsProfileMenuOpen((open) => !open)}
+              aria-haspopup="menu"
+              aria-expanded={isProfileMenuOpen}
+              aria-label="Profile menu"
               className="min-h-10 flex items-center space-x-2 p-1 rounded-xl glass-panel-interactive border-white/10"
             >
               {profile.avatar_url ? (
@@ -194,21 +232,28 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
               <User className="w-4 h-4 text-slate-400 lg:hidden" />
             </button>
+            {isProfileMenuOpen && profileMenu}
+            </div>
           </div>
         </div>
 
         <div className="md:hidden flex items-center justify-end gap-2 pb-2">
-          <button
-            type="button"
-            onClick={onOpenProfile}
-            aria-label="Open athlete profile"
-            title="Athlete profile"
-            className="min-h-11 min-w-11 flex items-center justify-center rounded-lg border border-white/10 bg-white/5"
-          >
-            {profile.avatar_url
-              ? <img src={profile.avatar_url} alt="" className="w-7 h-7 rounded-md object-cover" />
-              : <User className="w-5 h-5 text-slate-400" />}
-          </button>
+          <div className="relative" ref={mobileMenuRef}>
+            <button
+              type="button"
+              onClick={() => setIsProfileMenuOpen((open) => !open)}
+              aria-haspopup="menu"
+              aria-expanded={isProfileMenuOpen}
+              aria-label="Profile menu"
+              title="Profile"
+              className="min-h-11 min-w-11 flex items-center justify-center rounded-lg border border-white/10 bg-white/5"
+            >
+              {profile.avatar_url
+                ? <img src={profile.avatar_url} alt="" className="w-7 h-7 rounded-md object-cover" />
+                : <User className="w-5 h-5 text-slate-400" />}
+            </button>
+            {isProfileMenuOpen && profileMenu}
+          </div>
           <button
             type="button"
             onClick={() => setIsMobileMenuOpen((open) => !open)}
@@ -226,11 +271,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <Upload className="w-4 h-4" />
               Import data
             </button>
-            {isAuthenticated ? (
-              <button type="button" onClick={() => { onSignOut?.(); setIsMobileMenuOpen(false); }} className="min-h-11 col-span-2 flex items-center justify-center gap-2 rounded-lg border border-white/10 px-3 text-xs font-semibold text-slate-300">
-                <LogOut className="w-4 h-4" /> Sign out {authEmail ? `(${authEmail})` : ''}
-              </button>
-            ) : (
+            {!isAuthenticated && (
               <span className="min-h-11 col-span-2 flex items-center justify-center rounded-lg border border-white/10 px-3 text-xs font-semibold text-slate-300">
                 {dataMode === 'supabase' ? 'Supabase DB' : 'Local storage'}
               </span>
