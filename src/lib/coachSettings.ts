@@ -13,6 +13,7 @@ const KEYS = {
   provider: 'summit_coach_provider',
   model: 'summit_coach_claude_model',
   apiKey: 'summit_anthropic_api_key',
+  workspaceId: 'summit_anthropic_workspace_id',
 };
 
 const read = (key: string): string => {
@@ -36,6 +37,8 @@ export interface CoachSettings {
   provider: CoachProvider;
   claudeModel: string;
   anthropicKey: string;
+  /** Only needed when the key isn't scoped to a workspace (wrkspc_...) */
+  workspaceId?: string;
 }
 
 export function getCoachSettings(): CoachSettings {
@@ -44,6 +47,7 @@ export function getCoachSettings(): CoachSettings {
     provider: read(KEYS.provider) === 'claude' ? 'claude' : 'gemini',
     claudeModel: CLAUDE_MODEL_OPTIONS.some((m) => m.id === model) ? model : CLAUDE_MODEL_OPTIONS[0].id,
     anthropicKey: read(KEYS.apiKey),
+    workspaceId: read(KEYS.workspaceId),
   };
 }
 
@@ -51,6 +55,7 @@ export function saveCoachSettings(settings: CoachSettings) {
   write(KEYS.provider, settings.provider);
   write(KEYS.model, settings.claudeModel);
   write(KEYS.apiKey, settings.anthropicKey.trim());
+  write(KEYS.workspaceId, (settings.workspaceId ?? '').trim());
 }
 
 /** Label for the model currently answering, e.g. "Claude Opus 5.5" or "Gemini Flash". */
@@ -59,6 +64,13 @@ export function activeCoachLabel(settings: CoachSettings = getCoachSettings()): 
     return CLAUDE_MODEL_OPTIONS.find((m) => m.id === settings.claudeModel)?.label ?? 'Claude';
   }
   return 'Gemini Flash';
+}
+
+function anthropicHeaders(settings: CoachSettings): Record<string, string> {
+  const headers: Record<string, string> = { 'x-anthropic-key': settings.anthropicKey.trim() };
+  const workspaceId = settings.workspaceId?.trim();
+  if (workspaceId) headers['x-anthropic-workspace-id'] = workspaceId;
+  return headers;
 }
 
 /**
@@ -72,7 +84,7 @@ export function coachRequestExtras(): { headers: Record<string, string>; body: R
     throw new Error('Claude is selected but no Anthropic API key is saved. Add one in Coach Settings.');
   }
   return {
-    headers: { 'x-anthropic-key': settings.anthropicKey },
+    headers: anthropicHeaders(settings),
     body: { provider: 'claude', claudeModel: settings.claudeModel },
   };
 }
@@ -81,7 +93,7 @@ export function coachRequestExtras(): { headers: Record<string, string>; body: R
 export async function testAnthropicKey(settings: CoachSettings): Promise<void> {
   const res = await fetch('/api/coach', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-anthropic-key': settings.anthropicKey.trim() },
+    headers: { 'Content-Type': 'application/json', ...anthropicHeaders(settings) },
     body: JSON.stringify({ mode: 'ping', provider: 'claude', claudeModel: settings.claudeModel }),
   });
   if (!res.ok) {

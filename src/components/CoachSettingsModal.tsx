@@ -20,6 +20,7 @@ export const CoachSettingsModal: React.FC<CoachSettingsModalProps> = ({ onClose,
   const [provider, setProvider] = useState<CoachProvider>(initial.provider);
   const [claudeModel, setClaudeModel] = useState(initial.claudeModel);
   const [apiKey, setApiKey] = useState(initial.anthropicKey);
+  const [workspaceId, setWorkspaceId] = useState(initial.workspaceId ?? '');
   const [showKey, setShowKey] = useState(false);
   const [status, setStatus] = useState<{ kind: 'idle' | 'testing' | 'ok' | 'error'; message?: string }>({ kind: 'idle' });
 
@@ -29,7 +30,7 @@ export const CoachSettingsModal: React.FC<CoachSettingsModalProps> = ({ onClose,
   const handleTest = async () => {
     setStatus({ kind: 'testing' });
     try {
-      await testAnthropicKey({ provider: 'claude', claudeModel, anthropicKey: apiKey });
+      await testAnthropicKey({ provider: 'claude', claudeModel, anthropicKey: apiKey, workspaceId });
       setStatus({ kind: 'ok', message: 'Key works.' });
     } catch (err) {
       setStatus({ kind: 'error', message: err instanceof Error ? err.message : 'Could not verify the key.' });
@@ -37,16 +38,17 @@ export const CoachSettingsModal: React.FC<CoachSettingsModalProps> = ({ onClose,
   };
 
   const handleSave = () => {
-    saveCoachSettings({ provider, claudeModel, anthropicKey: apiKey });
+    saveCoachSettings({ provider, claudeModel, anthropicKey: apiKey, workspaceId });
     onSaved();
     onClose();
   };
 
   const handleRemoveKey = () => {
     setApiKey('');
+    setWorkspaceId('');
     setStatus({ kind: 'idle' });
     // Removing the key must not leave Claude selected with nothing to call it with
-    saveCoachSettings({ provider: 'gemini', claudeModel, anthropicKey: '' });
+    saveCoachSettings({ provider: 'gemini', claudeModel, anthropicKey: '', workspaceId: '' });
     setProvider('gemini');
     onSaved();
   };
@@ -107,6 +109,25 @@ export const CoachSettingsModal: React.FC<CoachSettingsModalProps> = ({ onClose,
               <p className="mt-1 text-[11px] text-slate-500">
                 Create one at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer" className="text-cyan-300 hover:underline">console.anthropic.com</a>.
                 A key made just for this app, with a monthly spend limit, is the safest choice.
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="anthropic-workspace" className="text-xs font-semibold text-slate-300">
+                Workspace ID <span className="font-normal text-slate-500">(only if Anthropic asks for it)</span>
+              </label>
+              <input
+                id="anthropic-workspace"
+                type="text"
+                value={workspaceId}
+                onChange={(e) => { setWorkspaceId(e.target.value); setStatus({ kind: 'idle' }); }}
+                placeholder="wrkspc_..."
+                autoComplete="off"
+                spellCheck={false}
+                className="mt-1 w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-sm text-white font-mono placeholder-slate-500 focus:border-cyan-500 focus:outline-none"
+              />
+              <p className="mt-1 text-[11px] text-slate-500">
+                Needed when you see "This API key is not scoped to a workspace". Find it in the Anthropic console under Settings, Workspaces.
               </p>
             </div>
 
