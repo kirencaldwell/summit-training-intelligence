@@ -22,6 +22,8 @@ I can build **multi-week periodized plans**, set up **Coach's Goals**, and adapt
 
 interface AICoachPanelProps {
   messages: AICoachMessage[];
+  /** True when the account can't store the chat yet (coach_chats table missing), so it stays on this device */
+  syncUnavailable?: boolean;
   setMessages: React.Dispatch<React.SetStateAction<AICoachMessage[]>>;
   trainingSessions: TrainingSession[];
   isGeneratingWeeklyPlan: boolean;
@@ -39,6 +41,7 @@ interface AICoachPanelProps {
 
 export const AICoachPanel: React.FC<AICoachPanelProps> = ({
   messages,
+  syncUnavailable,
   setMessages,
   trainingSessions,
   isGeneratingWeeklyPlan,
@@ -257,6 +260,12 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
           </div>
         </div>
       </div>
+
+      {syncUnavailable && (
+        <p className="px-4 py-2 text-[11px] text-amber-300/90 bg-amber-500/5 border-b border-amber-500/20">
+          This chat is saved on this device only. To keep it across devices, add the coach_chats table to your Supabase project (see supabase/schema.sql).
+        </p>
+      )}
 
       {/* Goal focus banner: the conversation is about one goal */}
       {focusGoal && (

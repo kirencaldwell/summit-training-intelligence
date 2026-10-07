@@ -28,6 +28,7 @@ import { GoogleSignInScreen } from './components/GoogleSignInScreen';
 import { coachEngine } from './lib/ai/coachEngine';
 import { formatLbFromKg } from './lib/units';
 import { collectTags, isEbike } from './lib/tags';
+import { mergeMessages, sameMessages, toSyncable } from './lib/coachChatSync';
 
 import { Mountain, Zap } from 'lucide-react';
 
@@ -61,6 +62,7 @@ export function App() {
   const [trainingSessions, setTrainingSessions] = useState<TrainingSession[]>([]);
   const [isGeneratingWeeklyPlan, setIsGeneratingWeeklyPlan] = useState(false);
   const [authUser, setAuthUser] = useState<User | null>(null);
+  const [chatSyncState, setChatSyncState] = useState<'synced' | 'unavailable'>('synced');
   const [authReady, setAuthReady] = useState(!isSupabaseConfigured);
   const [appError, setAppError] = useState('');
 
@@ -489,6 +491,61 @@ export function App() {
     return () => { active = false; };
   }, [authUser]);
 
+  // Keep the coach chat in step with the account's stored copy: merge both, then write back what's new.
+  const coachMessagesRef = useRef(coachMessages);
+  coachMessagesRef.current = coachMessages;
+  const chatSyncRunningRef = useRef(false);
+  const chatSyncAgainRef = useRef(false);
+  const syncCoachChat = async () => {
+    if (!isSupabaseConfigured || !authUser) return;
+    if (chatSyncRunningRef.current) {
+      chatSyncAgainRef.current = true;
+      return;
+    }
+    chatSyncRunningRef.current = true;
+    try {
+      const remote = await dataService.getCoachChat();
+      const merged = mergeMessages(remote, coachMessagesRef.current);
+      // Messages from another device; merge into whatever is current so nothing typed meanwhile is lost
+      if (!sameMessages(merged, coachMessagesRef.current)) setCoachMessages((previous) => mergeMessages(previous, merged));
+      if (!sameMessages(merged, remote)) await dataService.saveCoachChat(toSyncable(merged));
+      setChatSyncState('synced');
+    } catch (err) {
+      console.warn('Coach chat sync failed:', err);
+      // Only a missing table is a setup problem; anything else (offline, expired session) is transient
+      if (/coach_chats|schema cache|does not exist/i.test(err instanceof Error ? err.message : '')) setChatSyncState('unavailable');
+    } finally {
+      chatSyncRunningRef.current = false;
+      if (chatSyncAgainRef.current) {
+        chatSyncAgainRef.current = false;
+        void syncCoachChat();
+      }
+    }
+  };
+  const syncCoachChatRef = useRef(syncCoachChat);
+  syncCoachChatRef.current = syncCoachChat;
+
+  // On sign-in, and shortly after the chat changes
+  useEffect(() => {
+    if (!isSupabaseConfigured || !authUser) return;
+    const timer = setTimeout(() => void syncCoachChatRef.current(), 1200);
+    return () => clearTimeout(timer);
+  }, [authUser, coachMessages]);
+
+  // Pick up messages written on another device when this one comes back into view, and while the Coach tab is open
+  useEffect(() => {
+    if (!isSupabaseConfigured || !authUser) return;
+    const refresh = () => { if (document.visibilityState === 'visible') void syncCoachChatRef.current(); };
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    const interval = activeTab === 'coach' ? setInterval(refresh, 30000) : undefined;
+    return () => {
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+      if (interval) clearInterval(interval);
+    };
+  }, [authUser, activeTab]);
+
   useEffect(() => {
     if (!authReady || (isSupabaseConfigured && !authUser)) return;
 
@@ -699,6 +756,7 @@ export function App() {
         {activeTab === 'coach' && (
           <AICoachPanel
             messages={coachMessages}
+            syncUnavailable={isSupabaseConfigured && chatSyncState === 'unavailable'}
             setMessages={setCoachMessages}
             trainingSessions={trainingSessions}
             isGeneratingWeeklyPlan={isGeneratingWeeklyPlan}
