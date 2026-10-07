@@ -74,6 +74,17 @@ export interface Activity {
 
   // Athlete-defined labels, filterable in the activities tab
   tags?: string[];
+
+  // Free-text description of the effort (pack weight, RPE, conditions...). Used to estimate
+  // training load for activities that have no power data.
+  effort_notes?: string;
+  // AI estimate of the activity's training load, derived from the notes and recorded data
+  estimated_tss?: number;
+  estimated_if?: number;
+  tss_source?: 'ai';
+  tss_confidence?: 'low' | 'medium' | 'high';
+  tss_rationale?: string;
+  tss_estimated_at?: string;
 }
 
 export interface AthleteProfile {

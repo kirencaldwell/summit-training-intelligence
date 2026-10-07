@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { User } from '@supabase/supabase-js';
 import type { AICoachMessage, Activity, AthleteProfile, Goal, PMCDayPoint, PowerCurvePoint, ProposedPlanAction, TrainingSession, TrainingSessionStatus } from './types';
 import { dataService, isSupabaseConfigured, supabase } from './lib/supabase';
-import { calculatePMC, calculatePowerCurve, hasPowerCurveData } from './lib/trainingMath';
+import { calculatePMC, calculatePowerCurve, canImproveWithAi, hasPowerCurveData } from './lib/trainingMath';
 import { addDaysToDateOnly, getNextTrainingWeekStartDate } from './lib/trainingSessions';
 import {
   parseCorosAuthCode,
@@ -55,6 +55,7 @@ export function App() {
   const [dataMode] = useState<'local' | 'supabase'>(dataService.getMode());
   
   const [profile, setProfile] = useState<AthleteProfile | null>(null);
+  const loadProfile = profile ? { ftp: profile.ftp, lthr: profile.lthr, weight_kg: profile.weight_kg } : undefined;
   const [activities, setActivities] = useState<Activity[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [trainingSessions, setTrainingSessions] = useState<TrainingSession[]>([]);
@@ -65,6 +66,13 @@ export function App() {
 
   // Goal the coach chat is focused on (set from the Goals tab), with an optional prompt to prefill
   const [coachFocus, setCoachFocus] = useState<{ goalId: string; prompt?: string } | null>(null);
+  // AI training-load estimates: per-activity progress/errors, plus the bulk run over many activities
+  const [estimatingIds, setEstimatingIds] = useState<string[]>([]);
+  const [estimateErrors, setEstimateErrors] = useState<Record<string, string>>({});
+  const [bulkEstimate, setBulkEstimate] = useState<{ running: boolean; done: number; total: number; failed: number; message?: string }>(
+    { running: false, done: 0, total: 0, failed: 0 }
+  );
+  const bulkCancelRef = useRef(false);
   const [assessingIds, setAssessingIds] = useState<string[]>([]);
   const [assessmentErrors, setAssessmentErrors] = useState<Record<string, string>>({});
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
@@ -142,12 +150,124 @@ export function App() {
   // Edit an activity's name, sport and tags; merge only the changed fields so loaded streams are kept
   const handleUpdateActivity = async (
     id: string,
-    updates: Pick<Partial<Activity>, 'title' | 'sport_type' | 'tags'>
+    updates: Pick<Partial<Activity>, 'title' | 'sport_type' | 'tags' | 'effort_notes' | 'pack_weight_kg' | 'perceived_exertion'>
   ) => {
-    const saved = await dataService.updateActivity(id, updates);
-    const patch = { title: saved.title, sport_type: saved.sport_type, tags: saved.tags ?? [] };
+    const before = activities.find((a) => a.id === id);
+    const notesChanged = 'effort_notes' in updates && (updates.effort_notes ?? '') !== (before?.effort_notes ?? '');
+    const effortInputsChanged = notesChanged
+      || ('pack_weight_kg' in updates && (updates.pack_weight_kg ?? null) !== (before?.pack_weight_kg ?? null))
+      || ('perceived_exertion' in updates && (updates.perceived_exertion ?? null) !== (before?.perceived_exertion ?? null));
+    const notesCleared = notesChanged && !updates.effort_notes?.trim();
+
+    // Removing the description drops the AI estimate so the activity falls back to heart rate / baseline
+    const toSave = notesCleared && before?.tss_source === 'ai'
+      ? { ...updates, estimated_tss: null, estimated_if: null, tss_source: null, tss_confidence: null, tss_rationale: null, tss_estimated_at: null }
+      : updates;
+    const saved = await dataService.updateActivity(id, toSave as Partial<Activity>);
+    const patch: Partial<Activity> = {
+      title: saved.title,
+      sport_type: saved.sport_type,
+      tags: saved.tags ?? [],
+      effort_notes: saved.effort_notes,
+      pack_weight_kg: saved.pack_weight_kg,
+      perceived_exertion: saved.perceived_exertion,
+      estimated_tss: saved.estimated_tss,
+      estimated_if: saved.estimated_if,
+      tss_source: saved.tss_source,
+      tss_confidence: saved.tss_confidence,
+      tss_rationale: saved.tss_rationale,
+      tss_estimated_at: saved.tss_estimated_at,
+    };
     setActivities((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
     setSelectedActivity((prev) => (prev?.id === id ? { ...prev, ...patch } : prev));
+
+    // Changed description (or pack / RPE alongside one): have the AI re-process it, then the curves update
+    if (effortInputsChanged && saved.effort_notes?.trim() && before) {
+      void handleEstimateActivity({ ...before, ...patch } as Activity);
+    }
+  };
+
+  // Estimate an activity's training load from its notes and recorded data, and save it with the activity
+  const handleEstimateActivity = async (activity: Activity, options: { fast?: boolean } = {}): Promise<{ ok: boolean; error?: string }> => {
+    if (!profile) return { ok: false, error: 'Profile is not loaded yet.' };
+    setEstimatingIds((prev) => [...prev, activity.id]);
+    setEstimateErrors((prev) => ({ ...prev, [activity.id]: '' }));
+    try {
+      const estimate = await coachEngine.estimateActivityLoad(activity, profile, options);
+      const saved = await dataService.updateActivity(activity.id, {
+        estimated_tss: estimate.tss,
+        estimated_if: estimate.intensityFactor,
+        tss_source: 'ai',
+        tss_confidence: estimate.confidence,
+        tss_rationale: estimate.rationale,
+        tss_estimated_at: new Date().toISOString(),
+      });
+      const patch: Partial<Activity> = {
+        estimated_tss: saved.estimated_tss,
+        estimated_if: saved.estimated_if,
+        tss_source: saved.tss_source,
+        tss_confidence: saved.tss_confidence,
+        tss_rationale: saved.tss_rationale,
+        tss_estimated_at: saved.tss_estimated_at,
+      };
+      setActivities((prev) => prev.map((a) => (a.id === activity.id ? { ...a, ...patch } : a)));
+      setSelectedActivity((prev) => (prev?.id === activity.id ? { ...prev, ...patch } : prev));
+      return { ok: true };
+    } catch (err: any) {
+      console.error('Load estimate failed:', err);
+      const error = err?.message || 'Could not estimate training load.';
+      setEstimateErrors((prev) => ({ ...prev, [activity.id]: error }));
+      return { ok: false, error };
+    } finally {
+      setEstimatingIds((prev) => prev.filter((id) => id !== activity.id));
+    }
+  };
+
+  const handleCancelBulkEstimate = () => { bulkCancelRef.current = true; };
+
+  // Estimate every activity the AI can improve (no power, and no heart rate or with notes), a few at a time.
+  // Each result is saved as it arrives, so a cancelled or failed run keeps its progress and can simply be run again.
+  const handleBulkEstimate = async () => {
+    if (!profile || bulkEstimate.running) return;
+    const queue = activities.filter((a) => canImproveWithAi(a, loadProfile));
+    if (queue.length === 0) return;
+
+    bulkCancelRef.current = false;
+    setBulkEstimate({ running: true, done: 0, total: queue.length, failed: 0 });
+    let done = 0;
+    let failed = 0;
+    let fatal: string | undefined;
+    let next = 0;
+
+    const worker = async () => {
+      while (!bulkCancelRef.current && !fatal) {
+        const activity = queue[next++];
+        if (!activity) return;
+        let result: { ok: boolean; error?: string } = { ok: false };
+        for (let attempt = 0; attempt < 3 && !bulkCancelRef.current && !fatal; attempt++) {
+          result = await handleEstimateActivity(activity, { fast: true });
+          if (result.ok) break;
+          // A missing/rejected key or unconfigured server fails every call: stop instead of burning through the list
+          if (/api key|coach settings|not configured|rejected/i.test(result.error ?? '')) {
+            fatal = result.error;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 3000 * (attempt + 1)));
+        }
+        if (result.ok) done++;
+        else failed++;
+        setBulkEstimate({ running: true, done, total: queue.length, failed });
+      }
+    };
+
+    await Promise.all([worker(), worker(), worker()]);
+    setBulkEstimate({
+      running: false,
+      done,
+      total: queue.length,
+      failed,
+      message: fatal ?? (bulkCancelRef.current ? 'Stopped. Progress is saved; run it again to continue.' : undefined),
+    });
   };
 
   // The list query leaves out the heavy streams_data (map + time-series), so fetch it when an activity is opened
@@ -401,7 +521,7 @@ export function App() {
   }
 
   // Calculated engine series
-  const pmcData: PMCDayPoint[] = calculatePMC(activities, 90);
+  const pmcData: PMCDayPoint[] = calculatePMC(activities, 90, loadProfile);
   const powerCurveYears = Array.from(new Set([
     CURRENT_YEAR,
     ...activities
@@ -480,8 +600,12 @@ export function App() {
 
             <ActivityList
               activities={activities}
+              profile={profile}
               onSelectActivity={handleOpenActivity}
               onDeleteActivity={handleDeleteActivity}
+              bulkEstimate={bulkEstimate}
+              onBulkEstimate={() => void handleBulkEstimate()}
+              onCancelBulkEstimate={handleCancelBulkEstimate}
             />
           </div>
         )}
@@ -565,6 +689,10 @@ export function App() {
         allTags={collectTags(activities)}
         isAssessing={selectedActivity ? assessingIds.includes(selectedActivity.id) : false}
         assessmentError={selectedActivity ? assessmentErrors[selectedActivity.id] : undefined}
+        profile={profile}
+        onEstimate={(activity) => void handleEstimateActivity(activity)}
+        isEstimating={selectedActivity ? estimatingIds.includes(selectedActivity.id) : false}
+        estimateError={selectedActivity ? estimateErrors[selectedActivity.id] : undefined}
       />
 
       {/* Athlete Profile & Settings Modal */}

@@ -3,6 +3,7 @@ import type { Activity, Goal, AthleteProfile, PMCDayPoint, PowerCurvePoint, Trai
 import { Mountain, Zap, ShieldAlert, Calendar, ArrowUpRight, TrendingUp, Sparkles, ChevronRight, Activity as ActivityIcon, CalendarDays, Clock3 } from 'lucide-react';
 import { PerformanceManagementChart } from './PerformanceManagementChart';
 import { formatFeetFromMeters, formatMilesFromKm, formatMilesFromMeters } from '../lib/units';
+import { resolveTss } from '../lib/trainingMath';
 
 interface DashboardOverviewProps {
   profile: AthleteProfile;
@@ -27,7 +28,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 }) => {
   const latestPmc = pmcData[pmcData.length - 1] || { ctl: 0, atl: 0, tsb: 0, tss: 0, date: '' };
   const previousWeekPmc = pmcData[Math.max(0, pmcData.length - 8)] || latestPmc;
-  const hasTrainingLoad = activities.some((activity) => (activity.training_stress_score || 0) > 0);
+  const hasTrainingLoad = activities.some((activity) => resolveTss(activity, profile).tss > 0);
   const weeklyDelta = (current: number, previous: number) => {
     const delta = Math.round((current - previous) * 10) / 10;
     return `${delta > 0 ? '+' : ''}${delta} vs last week`;
@@ -318,7 +319,10 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 </span>
                 <h4 className="text-sm font-bold text-white">{act.title}</h4>
                 <p className="text-xs text-slate-400">
-                  {formatMilesFromMeters(act.distance_meters)} | {formatFeetFromMeters(act.total_elevation_gain_m)} gain | TSS: {act.training_stress_score || 'N/A'}
+                  {formatMilesFromMeters(act.distance_meters)} | {formatFeetFromMeters(act.total_elevation_gain_m)} gain | TSS: {(() => {
+                    const load = resolveTss(act, profile);
+                    return load.tss > 0 ? `${load.source === 'power' ? '' : '~'}${Math.round(load.tss)}` : 'N/A';
+                  })()}
                 </p>
               </div>
               <ArrowUpRight className="w-4 h-4 text-slate-500" />
