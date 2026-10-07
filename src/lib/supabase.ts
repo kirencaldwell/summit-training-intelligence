@@ -57,9 +57,22 @@ const EMPTY_PROFILE: AthleteProfile = {
   max_hr: 0,
   lthr: 0,
   weight_kg: 0,
-  injury_notes: [],
-  recovery_routines: { wednesday: '', sunday: '' },
+  notes: '',
 };
+
+/** Older saved profiles had separate injury and recovery-routine fields: fold them into the single notes field. */
+function migrateProfile(raw: any): AthleteProfile {
+  const { injury_notes, recovery_routines, ...profile } = raw ?? {};
+  if (!profile.notes) {
+    const parts = [
+      Array.isArray(injury_notes) && injury_notes.length > 0 ? `Injuries / health: ${injury_notes.join('; ')}` : '',
+      recovery_routines?.wednesday ?? '',
+      recovery_routines?.sunday ?? '',
+    ].filter(Boolean);
+    profile.notes = parts.join('\n');
+  }
+  return profile as AthleteProfile;
+}
 
 class DataService {
   private localActivities: Activity[];
@@ -75,7 +88,7 @@ class DataService {
 
     // Load from localStorage; a new user starts empty and supplies everything themselves
     const savedProfile = localStorage.getItem(STORAGE_KEYS.PROFILE);
-    this.localProfile = savedProfile ? JSON.parse(savedProfile) : { ...EMPTY_PROFILE };
+    this.localProfile = savedProfile ? migrateProfile(JSON.parse(savedProfile)) : { ...EMPTY_PROFILE };
 
     const savedActivities = localStorage.getItem(STORAGE_KEYS.ACTIVITIES);
     this.localActivities = savedActivities ? JSON.parse(savedActivities) : [];
@@ -135,8 +148,6 @@ class DataService {
         max_hr: 0,
         lthr: 0,
         weight_kg: 0,
-        injury_notes: [],
-        recovery_routines: { wednesday: '', sunday: '' },
       })
       .select('*')
       .single();

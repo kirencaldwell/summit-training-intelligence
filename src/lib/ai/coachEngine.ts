@@ -155,8 +155,6 @@ async function gatherAthleteContext(focusGoalId?: string) {
   const statusData = {
     profile: profileForAI(profile),
     pmc: { ...latestPmc, formCategory },
-    injuries: profile?.injury_notes ?? [],
-    routines: profile?.recovery_routines,
     nextGoal: goalForAI(goals[0]),
   };
 
@@ -345,7 +343,7 @@ class GeminiCoachEngine {
         lthr: profile.lthr || null,
         max_hr: profile.max_hr || null,
         weight_lb: profile.weight_kg ? roundTo(kgToLb(profile.weight_kg), 1) : null,
-        injury_notes: profile.injury_notes,
+        notes: profile.notes || undefined,
       },
       activity: {
         ...compact(activity),
@@ -467,6 +465,7 @@ class GeminiCoachEngine {
         gear_notes: activity.gear_notes,
       },
       data_available: { heart_rate: hasHr, power: hasPower, gps_and_time_only: !hasHr && !hasPower },
+      athlete_profile_notes: profile.notes?.trim() || null,
       athlete_notes: activity.effort_notes?.trim() || null,
     };
 

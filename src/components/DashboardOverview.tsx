@@ -1,6 +1,6 @@
 import React from 'react';
 import type { Activity, Goal, AthleteProfile, PMCDayPoint, PowerCurvePoint, TrainingSession } from '../types';
-import { Mountain, Zap, ShieldAlert, Calendar, ArrowUpRight, TrendingUp, Sparkles, ChevronRight, Activity as ActivityIcon, CalendarDays, Clock3 } from 'lucide-react';
+import { Mountain, Zap, Calendar, ArrowUpRight, TrendingUp, Sparkles, ChevronRight, Activity as ActivityIcon, CalendarDays, Clock3 } from 'lucide-react';
 import { PerformanceManagementChart } from './PerformanceManagementChart';
 import { formatFeetFromMeters, formatMilesFromKm, formatMilesFromMeters } from '../lib/units';
 import { resolveTss } from '../lib/trainingMath';
@@ -262,38 +262,6 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </div>
         )}
       </section>
-
-      {/* Injury Guardian & Decompression Notice Banner */}
-      {profile.injury_notes.length > 0 && (
-      <div className="glass-panel p-5 rounded-2xl border-amber-500/30 bg-amber-500/5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div className="flex items-start space-x-3">
-          <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center flex-shrink-0 mt-0.5">
-            <ShieldAlert className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="text-sm font-bold text-white flex items-center space-x-2">
-              <span>Injury Awareness & Recovery Guardian</span>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300">
-                {profile.injury_notes.join(' · ')}
-              </span>
-            </h3>
-            {profile.recovery_routines.wednesday && (
-              <p className="text-xs text-slate-300 mt-1">
-                <strong>Recovery Routine:</strong> {profile.recovery_routines.wednesday}
-              </p>
-            )}
-          </div>
-        </div>
-
-        <button
-          onClick={() => onNavigateTab('coach')}
-          className="flex items-center space-x-1 px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all whitespace-nowrap"
-        >
-          <span>Ask AI Coach</span>
-          <ArrowUpRight className="w-3.5 h-3.5" />
-        </button>
-      </div>
-      )}
 
       {/* Main Charts Section */}
       <div className="glass-panel p-6 rounded-2xl border-white/10 space-y-4">

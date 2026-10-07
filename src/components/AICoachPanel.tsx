@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Settings, Send, Bot, User, Sparkles, Terminal, Activity, ShieldAlert, ChevronDown, ChevronUp, CalendarDays, Check, X, Zap, Award, Flag, Layers } from 'lucide-react';
+import { Settings, Send, Bot, User, Sparkles, Terminal, Activity, ChevronDown, ChevronUp, CalendarDays, Check, X, Zap, Award, Flag, Layers } from 'lucide-react';
 import type { AICoachMessage, Goal, ProposedGoalAction, ProposedPlanAction, TrainingSession, TrainingSessionStatus } from '../types';
 import { coachEngine } from '../lib/ai/coachEngine';
 import { activeCoachLabel } from '../lib/coachSettings';
@@ -235,7 +235,7 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
                 {activeCoachLabel()}
               </span>
             </h2>
-            <p className="text-[11px] text-slate-400">Contextual multi-sport database integration & injury guardian</p>
+            <p className="text-[11px] text-slate-400">Contextual multi-sport coaching from your activities, goals and notes</p>
           </div>
         </div>
 
@@ -254,10 +254,6 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
           <div className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
             <Activity className="w-3.5 h-3.5" />
             <span>Multi-Sport Context</span>
-          </div>
-          <div className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400">
-            <ShieldAlert className="w-3.5 h-3.5" />
-            <span>Injury Awareness</span>
           </div>
         </div>
       </div>

@@ -19,15 +19,34 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   lthr INTEGER NOT NULL DEFAULT 0, -- Lactate Threshold HR (BPM)
   weight_kg NUMERIC(5,2) NOT NULL DEFAULT 0,
 
-  -- Injury & Health Considerations
-  injury_notes TEXT[] DEFAULT ARRAY[]::TEXT[],
-
-  -- Recovery Routines
-  recovery_routines JSONB DEFAULT '{"wednesday": "", "sunday": ""}'::jsonb,
+  -- The athlete's own notes about themselves, for the coach
+  notes TEXT,
 
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Existing databases: add `notes` and fold the old injury_notes / recovery_routines columns into it once.
+-- (Those two columns are no longer used by the app; they are left in place so nothing is lost.)
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS notes TEXT;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'profiles' AND column_name = 'injury_notes'
+  ) THEN
+    UPDATE public.profiles
+    SET notes = NULLIF(concat_ws(
+      E'\n',
+      CASE WHEN COALESCE(array_length(injury_notes, 1), 0) > 0
+           THEN 'Injuries / health: ' || array_to_string(injury_notes, '; ') END,
+      NULLIF(recovery_routines->>'wednesday', ''),
+      NULLIF(recovery_routines->>'sunday', '')
+    ), '')
+    WHERE notes IS NULL;
+  END IF;
+END $$;
 
 -- ---------------------------------------------------------
 -- 2. TARGET GOALS TABLE

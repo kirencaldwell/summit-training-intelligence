@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Zap, ShieldAlert, HeartHandshake, Save, User, Bot, UserRound } from 'lucide-react';
+import { X, Zap, NotebookPen, Save, User, Bot, UserRound } from 'lucide-react';
 import type { AthleteProfile } from '../types';
 import { kgToLb, lbToKg, roundTo } from '../lib/units';
 import { activeCoachLabel } from '../lib/coachSettings';
@@ -16,7 +16,7 @@ interface AthleteProfileModalProps {
 const numberText = (value: number, convert: (n: number) => number = (n) => n) =>
   value > 0 ? String(roundTo(convert(value), 1)) : '';
 
-/** Everything the athlete sets up lives here: identity, thresholds, injuries, recovery routines, and the coach AI. */
+/** Everything the athlete sets up lives here: identity, thresholds, notes about themselves, and the coach AI. */
 export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   profile,
   needsSetup = false,
@@ -28,9 +28,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   const [lthr, setLthr] = useState(numberText(profile.lthr));
   const [maxHr, setMaxHr] = useState(numberText(profile.max_hr));
   const [weightLb, setWeightLb] = useState(numberText(profile.weight_kg, kgToLb));
-  const [injuries, setInjuries] = useState(profile.injury_notes.join('\n'));
-  const [wedRoutine, setWedRoutine] = useState(profile.recovery_routines.wednesday);
-  const [sunRoutine, setSunRoutine] = useState(profile.recovery_routines.sunday);
+  const [notes, setNotes] = useState(profile.notes ?? '');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [isCoachSettingsOpen, setIsCoachSettingsOpen] = useState(false);
@@ -53,11 +51,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
         lthr: Math.round(positive(lthr)),
         max_hr: Math.round(positive(maxHr)),
         weight_kg: roundTo(lbToKg(positive(weightLb)), 2),
-        injury_notes: injuries.split('\n').map((n) => n.trim()).filter(Boolean),
-        recovery_routines: {
-          wednesday: wedRoutine,
-          sunday: sunRoutine,
-        },
+        notes: notes.trim(),
       });
       onClose();
     } catch (err) {
@@ -143,35 +137,20 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
             </p>
           </div>
 
-          {/* Injury Considerations */}
+          {/* Notes about the athlete */}
           <div>
-            <h3 className="text-sm font-semibold text-amber-300 mb-2 flex items-center">
-              <ShieldAlert className="w-4 h-4 mr-1.5 text-amber-400" /> Injuries & Health Considerations (one per line)
+            <h3 className="text-sm font-semibold text-cyan-300 mb-2 flex items-center">
+              <NotebookPen className="w-4 h-4 mr-1.5" /> Notes About Yourself
             </h3>
             <textarea
-              rows={3}
-              value={injuries}
-              onChange={(e) => setInjuries(e.target.value)}
-              placeholder="Optional. e.g. Knee pain on steep descents"
+              rows={6}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              maxLength={4000}
+              placeholder="Anything your coach should know: injuries or health issues, training history, how much time you have, equipment, how you like to train and recover, goals outside this app…"
               className="w-full bg-slate-900 border border-white/10 rounded-xl p-3 text-xs text-slate-200 placeholder-slate-600 focus:border-cyan-500 focus:outline-none"
             />
-          </div>
-
-          {/* Recovery Routines */}
-          <div>
-            <h3 className="text-sm font-semibold text-emerald-300 mb-2 flex items-center">
-              <HeartHandshake className="w-4 h-4 mr-1.5 text-emerald-400" /> Recovery Routines
-            </h3>
-            <div className="space-y-3">
-              <label className="block text-xs text-slate-400">
-                Mid-week routine
-                <input type="text" value={wedRoutine} onChange={(e) => setWedRoutine(e.target.value)} placeholder="Optional" className={`${inputClass} text-xs`} />
-              </label>
-              <label className="block text-xs text-slate-400">
-                Weekend routine
-                <input type="text" value={sunRoutine} onChange={(e) => setSunRoutine(e.target.value)} placeholder="Optional" className={`${inputClass} text-xs`} />
-              </label>
-            </div>
+            <p className="mt-1 text-[11px] text-slate-500">Shared with your AI coach whenever it answers or estimates training load.</p>
           </div>
 
           {/* Coach AI */}
