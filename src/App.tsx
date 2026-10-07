@@ -28,7 +28,7 @@ import { GoogleSignInScreen } from './components/GoogleSignInScreen';
 import { coachEngine } from './lib/ai/coachEngine';
 import { formatLbFromKg } from './lib/units';
 import { collectTags, isEbike } from './lib/tags';
-import { mergeMessages, sameMessages, toSyncable } from './lib/coachChatSync';
+import { mergeMessages, planChatSync, sameMessages, toSyncable, type ChatSyncStatus } from './lib/coachChatSync';
 
 import { Mountain, Zap } from 'lucide-react';
 
@@ -62,7 +62,7 @@ export function App() {
   const [trainingSessions, setTrainingSessions] = useState<TrainingSession[]>([]);
   const [isGeneratingWeeklyPlan, setIsGeneratingWeeklyPlan] = useState(false);
   const [authUser, setAuthUser] = useState<User | null>(null);
-  const [chatSyncState, setChatSyncState] = useState<'synced' | 'unavailable'>('synced');
+  const [chatSync, setChatSync] = useState<ChatSyncStatus>({ state: 'idle' });
   const [authReady, setAuthReady] = useState(!isSupabaseConfigured);
   const [appError, setAppError] = useState('');
 
@@ -505,15 +505,24 @@ export function App() {
     chatSyncRunningRef.current = true;
     try {
       const remote = await dataService.getCoachChat();
-      const merged = mergeMessages(remote, coachMessagesRef.current);
-      // Messages from another device; merge into whatever is current so nothing typed meanwhile is lost
-      if (!sameMessages(merged, coachMessagesRef.current)) setCoachMessages((previous) => mergeMessages(previous, merged));
-      if (!sameMessages(merged, remote)) await dataService.saveCoachChat(toSyncable(merged));
-      setChatSyncState('synced');
+      const plan = planChatSync(remote, coachMessagesRef.current);
+      // Messages from another device; merge into whatever is current so nothing typed meanwhile is lost,
+      // and keep the same array when nothing changed so this doesn't trigger another sync
+      if (plan.adoptRemote) {
+        setCoachMessages((previous) => {
+          const next = mergeMessages(previous, plan.merged);
+          return sameMessages(next, previous) ? previous : next;
+        });
+      }
+      if (plan.save) await dataService.saveCoachChat(toSyncable(plan.merged));
+      setChatSync({ state: 'synced', at: Date.now() });
     } catch (err) {
       console.warn('Coach chat sync failed:', err);
-      // Only a missing table is a setup problem; anything else (offline, expired session) is transient
-      if (/coach_chats|schema cache|does not exist/i.test(err instanceof Error ? err.message : '')) setChatSyncState('unavailable');
+      const detail = err instanceof Error ? err.message : 'Unknown error';
+      // A missing table is a setup problem; anything else (offline, expired session, permissions) is shown as a sync error
+      setChatSync(/coach_chats|schema cache|does not exist/i.test(detail) && !/permission|policy/i.test(detail)
+        ? { state: 'unavailable', detail }
+        : { state: 'error', detail });
     } finally {
       chatSyncRunningRef.current = false;
       if (chatSyncAgainRef.current) {
@@ -756,7 +765,7 @@ export function App() {
         {activeTab === 'coach' && (
           <AICoachPanel
             messages={coachMessages}
-            syncUnavailable={isSupabaseConfigured && chatSyncState === 'unavailable'}
+            syncStatus={isSupabaseConfigured ? chatSync : undefined}
             setMessages={setCoachMessages}
             trainingSessions={trainingSessions}
             isGeneratingWeeklyPlan={isGeneratingWeeklyPlan}
