@@ -574,7 +574,6 @@ export function App() {
             goals={goals}
             activities={activities}
             pmcData={pmcData}
-            powerCurve={powerCurveData}
             trainingSessions={upcomingSessions}
             onDeleteTrainingSessions={handleDeleteTrainingSessions}
             onAssessGoalReadiness={(goalId) => coachEngine.assessGoalReadiness(goalId)}

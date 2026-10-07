@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { Activity, Goal, AthleteProfile, PMCDayPoint, PowerCurvePoint, TrainingSession } from '../types';
+import type { Activity, Goal, AthleteProfile, PMCDayPoint, TrainingSession } from '../types';
 import { Zap, Calendar, ArrowUpRight, TrendingUp, Sparkles, ChevronRight, Activity as ActivityIcon, CalendarDays, Clock3, Trash2 } from 'lucide-react';
 import { PerformanceManagementChart } from './PerformanceManagementChart';
 import { formatFeetFromMeters, formatMilesFromKm, formatMilesFromMeters } from '../lib/units';
@@ -12,7 +12,6 @@ interface DashboardOverviewProps {
   goals: Goal[];
   activities: Activity[];
   pmcData: PMCDayPoint[];
-  powerCurve: PowerCurvePoint[];
   trainingSessions: TrainingSession[];
   onOpenActivity: (activity: Activity) => void;
   onNavigateTab: (tab: 'dashboard' | 'goals' | 'activities' | 'power' | 'heart-rate' | 'coach') => void;
@@ -26,7 +25,6 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   goals,
   activities,
   pmcData,
-  powerCurve,
   trainingSessions,
   onOpenActivity,
   onNavigateTab,
