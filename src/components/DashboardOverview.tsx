@@ -1,21 +1,23 @@
 import React, { useState } from 'react';
-import type { Activity, Goal, AthleteProfile, PMCDayPoint, PowerCurvePoint, TrainingSession } from '../types';
+import type { Activity, Goal, AthleteProfile, PMCDayPoint, TrainingSession } from '../types';
 import { Zap, Calendar, ArrowUpRight, TrendingUp, Sparkles, ChevronRight, Activity as ActivityIcon, CalendarDays, Clock3, Trash2 } from 'lucide-react';
 import { PerformanceManagementChart } from './PerformanceManagementChart';
 import { formatFeetFromMeters, formatMilesFromKm, formatMilesFromMeters } from '../lib/units';
 import { resolveTss } from '../lib/trainingMath';
+import { GoalReadinessPanel } from './GoalReadinessPanel';
+import type { GoalReadinessAssessment } from '../lib/goalReadiness';
 
 interface DashboardOverviewProps {
   profile: AthleteProfile;
   goals: Goal[];
   activities: Activity[];
   pmcData: PMCDayPoint[];
-  powerCurve: PowerCurvePoint[];
   trainingSessions: TrainingSession[];
   onOpenActivity: (activity: Activity) => void;
   onNavigateTab: (tab: 'dashboard' | 'goals' | 'activities' | 'power' | 'heart-rate' | 'coach') => void;
   onOpenProfile?: () => void;
   onDeleteTrainingSessions?: (ids: string[]) => Promise<void>;
+  onAssessGoalReadiness?: (goalId: string) => Promise<GoalReadinessAssessment>;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
@@ -23,12 +25,12 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   goals,
   activities,
   pmcData,
-  powerCurve,
   trainingSessions,
   onOpenActivity,
   onNavigateTab,
   onOpenProfile,
   onDeleteTrainingSessions,
+  onAssessGoalReadiness,
 }) => {
   // Deleting asks for a second click: either one session (by id) or everything not yet completed
   const [confirmDelete, setConfirmDelete] = useState<string | 'all' | null>(null);
@@ -67,12 +69,6 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   // Days remaining calculation (only when the goal has a target date)
   const daysRemaining = priorityGoal?.target_date
     ? Math.max(0, Math.ceil((new Date(priorityGoal.target_date).getTime() - new Date().getTime()) / (1000 * 3600 * 24)))
-    : null;
-
-  // Readiness: best 20m power vs the goal's target power, when both are known
-  const best20m = powerCurve.find((p) => p.label === '20m')?.watts || 0;
-  const readinessPct = priorityGoal?.target_power_watts && best20m > 0
-    ? Math.min(100, Math.round((best20m / priorityGoal.target_power_watts) * 100))
     : null;
 
   // Recent 4 activities
@@ -149,28 +145,20 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               </div>
             </div>
 
-            {/* Countdown Badge & Readiness */}
+            {/* Countdown Badge */}
             <div className="flex flex-col items-center justify-center p-6 rounded-2xl bg-slate-900/80 border border-white/10 text-center w-full lg:w-72 shadow-lg">
               <span className="text-xs text-slate-400 uppercase font-semibold tracking-wider">Countdown</span>
               <div className="text-4xl font-black text-cyan-400 font-mono my-1">
                 {daysRemaining ?? '—'} {daysRemaining !== null && <span className="text-sm font-normal text-slate-400">days</span>}
               </div>
-
-              {/* Progress bar: best 20m power vs goal target power */}
-              {readinessPct !== null && (
-                <div className="w-full mt-3 space-y-1">
-                  <div className="flex justify-between text-[11px] font-semibold text-slate-300">
-                    <span>Power Readiness</span>
-                    <span className="text-cyan-400 font-bold">{readinessPct}%</span>
-                  </div>
-                  <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
-                    <div className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-emerald-400" style={{ width: `${readinessPct}%` }} />
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </div>
+      )}
+
+      {/* On-request holistic readiness for the priority goal */}
+      {priorityGoal && onAssessGoalReadiness && (
+        <GoalReadinessPanel goal={priorityGoal} onAssess={onAssessGoalReadiness} />
       )}
 
       {/* PMC Key Performance Metrics */}
