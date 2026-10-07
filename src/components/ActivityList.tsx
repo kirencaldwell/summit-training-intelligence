@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import type { Activity, AthleteProfile, SportType } from '../types';
 import { formatFeetFromMeters, formatMilesFromMeters } from '../lib/units';
 import { collectTags } from '../lib/tags';
+import { ActivityTotals } from './ActivityTotals';
 import { canImproveWithAi, resolveTss } from '../lib/trainingMath';
 import { Mountain, Bike, Compass, Footprints, ShieldAlert, Zap, Calendar, Search, Trash2, Tag, X } from 'lucide-react';
 
@@ -80,19 +81,35 @@ export const ActivityList: React.FC<ActivityListProps> = ({
     { key: 'weighted_hiking', label: 'Weighted Hike', icon: Footprints },
   ];
 
-  const filteredActivities = activities.filter((act) => {
+  // Date range first: the totals panel follows only the dates, the list also follows sport, tags and search
+  const localDay = (iso: string) => {
+    const date = new Date(iso);
+    if (!Number.isFinite(date.getTime())) return undefined;
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  };
+  const activitiesInDateRange = activities.filter((act) => {
+    const day = localDay(act.start_date);
+    if (!day) return false;
+    return (!dateFrom || day >= dateFrom) && (!dateTo || day <= dateTo);
+  });
+  const formatDay = (day: string) =>
+    new Date(`${day}T12:00:00`).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  const rangeLabel = dateFrom && dateTo
+    ? `${formatDay(dateFrom)} to ${formatDay(dateTo)}`
+    : dateFrom
+    ? `Since ${formatDay(dateFrom)}`
+    : dateTo
+    ? `Through ${formatDay(dateTo)}`
+    : 'All time';
+
+  const filteredActivities = activitiesInDateRange.filter((act) => {
     const matchesSport = selectedSport === 'all' || act.sport_type === selectedSport || (selectedSport === 'cycling' && act.sport_type === 'zwift');
     const query = searchQuery.toLowerCase();
     const matchesSearch = act.title.toLowerCase().includes(query) || (act.tags ?? []).some((t) => t.toLowerCase().includes(query));
     // Selected tags match any (case-insensitive)
     const matchesTags = activeTags.length === 0
       || (act.tags ?? []).some((t) => activeTags.some((sel) => sel.toLowerCase() === t.toLowerCase()));
-    const activityDate = new Date(act.start_date);
-    if (!Number.isFinite(activityDate.getTime())) return false;
-    const activityDay = `${activityDate.getFullYear()}-${String(activityDate.getMonth() + 1).padStart(2, '0')}-${String(activityDate.getDate()).padStart(2, '0')}`;
-    const matchesFrom = !dateFrom || activityDay >= dateFrom;
-    const matchesTo = !dateTo || activityDay <= dateTo;
-    return matchesSport && matchesSearch && matchesTags && matchesFrom && matchesTo;
+    return matchesSport && matchesSearch && matchesTags;
   }).sort((first, second) => {
     const difference = new Date(first.start_date).getTime() - new Date(second.start_date).getTime();
     return sortOrder === 'newest' ? -difference : difference;
@@ -275,6 +292,8 @@ export const ActivityList: React.FC<ActivityListProps> = ({
           )}
         </div>
       </div>
+
+      {activities.length > 0 && <ActivityTotals activities={activitiesInDateRange} rangeLabel={rangeLabel} />}
 
       {deleteError && <p role="alert" className="text-sm text-rose-300">{deleteError}</p>}
 
