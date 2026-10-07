@@ -282,7 +282,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       </header>
 
-      <nav aria-label="Primary navigation" className="md:hidden fixed bottom-0 inset-x-0 z-50 grid grid-cols-5 border-t border-white/10 bg-slate-950/95 px-1 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl">
+      <nav aria-label="Primary navigation" className="md:hidden fixed bottom-0 inset-x-0 z-50 grid grid-cols-6 border-t border-white/10 bg-slate-950/95 px-1 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl">
         {tabs.map(({ id, label, icon: Icon }) => {
           const selected = activeTab === id;
           return (
@@ -291,7 +291,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               type="button"
               onClick={() => { setActiveTab(id); setIsMobileMenuOpen(false); }}
               aria-current={selected ? 'page' : undefined}
-              className={`min-h-[60px] flex flex-col items-center justify-center gap-1 px-1 text-[10px] font-semibold ${selected ? id === 'coach' ? 'text-amber-300' : 'text-cyan-300' : 'text-slate-400'}`}
+              className={`min-h-[60px] min-w-0 flex flex-col items-center justify-center gap-1 px-0.5 text-[10px] leading-tight font-semibold ${selected ? id === 'coach' ? 'text-amber-300' : 'text-cyan-300' : 'text-slate-400'}`}
             >
               <Icon className="w-5 h-5" />
               <span>{label}</span>
