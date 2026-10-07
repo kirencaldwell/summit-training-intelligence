@@ -4,6 +4,14 @@ import { calculatePMC, calculatePowerCurve, resolveTss, tssFromIntensity } from 
 import { CoachApiError, coachRequestExtras, readCoachError } from '../coachSettings';
 import { isEbike } from '../tags';
 import { ftToM, kgToLb, kmToMi, mToFt, miToKm, roundTo } from '../units';
+import {
+  addDaysToDateOnly,
+  getCurrentTrainingWeekStartDate,
+  getLocalDateString,
+  getNextTrainingWeekStartDate,
+  getWeekStartDate,
+  isIsoDate,
+} from '../trainingSessions';
 
 // The athlete works in imperial units. Data is stored metric, so everything sent to the model
 // is converted here and named with its unit; the model's proposals are converted back below.
@@ -103,18 +111,24 @@ function extractProposals(rawText: string, focusGoalId?: string): {
     try {
       const parsed = JSON.parse(planMatch[1]) as ProposedPlanAction;
       if (Array.isArray(parsed.sessions) && parsed.sessions.length > 0) {
-        parsed.sessions = parsed.sessions.map((s, idx) => ({
-          id: s.id || `draft-${Date.now()}-${idx}`,
-          week_start_date: s.week_start_date || getNextMonday(),
-          session_date: s.session_date || getNextMonday(),
-          title: s.title || 'Training Session',
-          sport_type: s.sport_type || 'cycling',
-          duration_minutes: Number(s.duration_minutes) || 60,
-          focus: s.focus || 'Endurance Training',
-          details: s.details || '',
-          target_tss: s.target_tss ? Number(s.target_tss) : undefined,
-          status: 'PROPOSED',
-        }));
+        // Dates decide where a session shows up on the dashboard, so never trust the model's week label:
+        // derive each session's week (Monday start) from its own date.
+        parsed.sessions = parsed.sessions.map((s, idx) => {
+          const sessionDate = isIsoDate(s.session_date) ? s.session_date : isIsoDate(s.week_start_date) ? s.week_start_date : getNextMonday();
+          return {
+            id: s.id || `draft-${Date.now()}-${idx}`,
+            week_start_date: getWeekStartDate(sessionDate),
+            session_date: sessionDate,
+            title: s.title || 'Training Session',
+            sport_type: s.sport_type || 'cycling',
+            duration_minutes: Number(s.duration_minutes) || 60,
+            focus: s.focus || 'Endurance Training',
+            details: s.details || '',
+            target_tss: s.target_tss ? Number(s.target_tss) : undefined,
+            status: 'PROPOSED',
+          };
+        });
+        parsed.weekStartDate = parsed.sessions.map((s) => s.week_start_date).sort()[0];
         proposedPlan = parsed;
         cleanText = cleanText.replace(planMatch[0], '').trim();
       }
@@ -225,11 +239,17 @@ async function gatherAthleteContext(focusGoalId?: string) {
   return { statusData, recentActivities, milestoneData, trainingSessions, allActivities, goals: goals.map(goalForAI), focusGoal };
 }
 
-/** Returns the next Monday as a YYYY-MM-DD string */
+/** Returns the next Monday as a YYYY-MM-DD string (the dashboard's "upcoming week") */
 function getNextMonday(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + ((1 + 7 - d.getDay()) % 7 || 7));
-  return d.toISOString().slice(0, 10);
+  return getNextTrainingWeekStartDate();
+}
+
+/** The model has no clock: tell it today's date and the week boundaries so plans land on real dates. */
+function calendarNote(now = new Date()): string {
+  const weekday = now.toLocaleDateString('en-US', { weekday: 'long' });
+  const thisWeek = getCurrentTrainingWeekStartDate(now);
+  const nextWeek = getNextTrainingWeekStartDate(now);
+  return `Today is ${weekday}, ${getLocalDateString(now)}. Training weeks run Monday to Sunday: this week starts ${thisWeek} (ends ${addDaysToDateOnly(thisWeek, 6)}), next week starts ${nextWeek} (ends ${addDaysToDateOnly(nextWeek, 6)}). Every session_date must be a real date in the week you are planning, and week_start_date must be that week's Monday.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -259,6 +279,7 @@ class GeminiCoachEngine {
     // Claude uses the athlete's own key from Coach Settings, sent per request)
     const text = await postCoach({
       message: userQuery,
+      calendar: calendarNote(),
       // The goal being discussed/replanned, with its readiness, so the coach stays on it
       focusGoal: focusGoal ? { ...focusGoal, milestone_readiness: { ...milestoneData, goal: undefined } } : undefined,
       // Prior turns so the model keeps the conversation context (greeting/system/error msgs excluded)

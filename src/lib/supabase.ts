@@ -1,5 +1,6 @@
 import { createClient, type User } from '@supabase/supabase-js';
 import type { Activity, AthleteProfile, Goal, TrainingSession, TrainingSessionStatus } from '../types';
+import { addDaysToDateOnly } from './trainingSessions';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
@@ -451,6 +452,46 @@ class DataService {
     return proposed;
   }
 
+  /**
+   * Replaces a whole week with an accepted plan: removes that week's proposed and accepted sessions
+   * (completed ones are history and stay), then saves the new sessions as ACCEPTED.
+   */
+  public async replaceWeekWithAcceptedSessions(
+    weekStartDate: string,
+    sessions: Omit<TrainingSession, 'id' | 'status'>[]
+  ): Promise<TrainingSession[]> {
+    const weekEndDate = addDaysToDateOnly(weekStartDate, 6);
+
+    if (this.mode === 'supabase' && supabase) {
+      const profile = await this.getAuthenticatedProfile();
+      const { error: deleteError } = await supabase
+        .from('training_sessions')
+        .delete()
+        .eq('user_id', profile.id)
+        .neq('status', 'COMPLETED')
+        .or(`week_start_date.eq.${weekStartDate},and(session_date.gte.${weekStartDate},session_date.lte.${weekEndDate})`);
+      if (deleteError) throw new Error(`The existing week could not be replaced: ${deleteError.message}`);
+
+      if (sessions.length === 0) return [];
+      const rows = sessions.map((session) => {
+        const { id: _modelId, status: _modelStatus, ...fields } = session as Partial<TrainingSession>;
+        return { ...fields, user_id: profile.id, status: 'ACCEPTED' as const };
+      });
+      const { data, error } = await supabase.from('training_sessions').insert(rows).select('*');
+      if (error) throw new Error(`Weekly plan could not be saved: ${error.message}`);
+      return (data || []) as TrainingSession[];
+    }
+
+    this.localTrainingSessions = this.localTrainingSessions.filter(
+      (session) => session.status === 'COMPLETED'
+        || (session.week_start_date !== weekStartDate && (session.session_date < weekStartDate || session.session_date > weekEndDate))
+    );
+    const accepted = sessions.map((session) => ({ ...session, id: crypto.randomUUID(), status: 'ACCEPTED' as const }));
+    this.localTrainingSessions.push(...accepted);
+    this.saveLocalState();
+    return accepted;
+  }
+
   public async saveTrainingSessions(
     sessions: TrainingSession[]
   ): Promise<TrainingSession[]> {
@@ -470,7 +511,8 @@ class DataService {
           if (!error && data) {
             results.push(data as TrainingSession);
           } else {
-            console.warn('Failed to upsert session:', error?.message);
+            // Don't report an accepted plan that never reached the database
+            throw new Error(`Session "${session.title}" could not be saved: ${error?.message || 'no row returned'}`);
           }
         } else {
           const { id: _ignoredId, ...rest } = session;
@@ -482,7 +524,7 @@ class DataService {
           if (!error && data) {
             results.push(data as TrainingSession);
           } else {
-            console.warn('Failed to insert session:', error?.message);
+            throw new Error(`Session "${session.title}" could not be saved: ${error?.message || 'no row returned'}`);
           }
         }
       }
