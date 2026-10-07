@@ -759,7 +759,7 @@ export function App() {
         )}
 
         {activeTab === 'heart-rate' && (
-          <HeartRateDistributionPage activities={activities} profile={profile} />
+          <HeartRateDistributionPage activities={activities} profile={profile} onOpenProfile={() => setIsProfileModalOpen(true)} />
         )}
 
         {activeTab === 'coach' && (

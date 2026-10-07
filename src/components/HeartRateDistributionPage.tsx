@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { HeartPulse } from 'lucide-react';
 import type { Activity, AthleteProfile, ZoneDistribution } from '../types';
-import { calculateActivityHRZoneDuration } from '../lib/trainingMath';
+import { calculateActivityHRZoneDuration, getHrZoneRanges, type HrZoneRange } from '../lib/trainingMath';
 
 interface HeartRateDistributionPageProps {
   activities: Activity[];
   profile: AthleteProfile;
+  onOpenProfile?: () => void;
 }
 
 const ZONE_META = [
@@ -24,7 +25,14 @@ const formatDuration = (seconds: number): string => {
   return hours > 0 ? `${hours}h ${remainingMinutes}m` : `${minutes}m`;
 };
 
-export const HeartRateDistributionPage: React.FC<HeartRateDistributionPageProps> = ({ activities, profile }) => {
+function formatBpmRange(range: HrZoneRange): string {
+  if (range.minBpm === null) return `Under ${range.maxBpm! + 1} bpm`;
+  if (range.maxBpm === null) return `${range.minBpm}+ bpm`;
+  return `${range.minBpm}–${range.maxBpm} bpm`;
+}
+
+export const HeartRateDistributionPage: React.FC<HeartRateDistributionPageProps> = ({ activities, profile, onOpenProfile }) => {
+  const zoneRanges = getHrZoneRanges(profile.lthr);
   const [selectedYear, setSelectedYear] = useState('all');
   const years = Array.from(new Set(
     activities
@@ -92,6 +100,46 @@ export const HeartRateDistributionPage: React.FC<HeartRateDistributionPageProps>
         </div>
       </div>
 
+      {/* The athlete's own zone limits, from their lactate threshold HR */}
+      <section className="space-y-3 border-b border-white/10 pb-6" aria-label="Your heart rate zones">
+        <div>
+          <h2 className="text-base font-bold text-white">Your heart rate zones</h2>
+          <p className="text-xs text-slate-400">
+            {zoneRanges
+              ? `Based on your lactate threshold heart rate of ${profile.lthr} bpm (Friel model).`
+              : 'Add your lactate threshold heart rate to see your zone ranges.'}
+          </p>
+        </div>
+        {zoneRanges ? (
+          <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+            {ZONE_META.map((zone) => {
+              const range = zoneRanges.find((r) => r.key === zone.key)!;
+              return (
+                <div key={zone.key} className="rounded-lg border border-white/10 bg-slate-900/50 p-3">
+                  <div className="flex items-center gap-2">
+                    <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${zone.background}`} />
+                    <p className="text-xs font-semibold text-white">{zone.label}</p>
+                  </div>
+                  <p className="mt-0.5 text-[11px] text-slate-400">{zone.name}</p>
+                  <p className="mt-2 text-sm font-bold text-white">{formatBpmRange(range)}</p>
+                  <p className="text-[11px] text-slate-500">{zone.range}</p>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          onOpenProfile && (
+            <button
+              type="button"
+              onClick={onOpenProfile}
+              className="min-h-10 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 text-xs font-semibold text-rose-200 hover:bg-rose-500/20"
+            >
+              Set threshold heart rate in your profile
+            </button>
+          )
+        )}
+      </section>
+
       {totalSeconds > 0 ? (
         <>
           <section className="space-y-4">
@@ -124,7 +172,9 @@ export const HeartRateDistributionPage: React.FC<HeartRateDistributionPageProps>
                       <span className={`h-3 w-3 shrink-0 rounded-full ${zone.background}`} />
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-white">{zone.label} <span className="font-normal text-slate-400">{zone.name}</span></p>
-                        <p className="text-xs text-slate-500">{zone.range}</p>
+                        <p className="text-xs text-slate-500">
+                          {zoneRanges ? `${formatBpmRange(zoneRanges.find((r) => r.key === zone.key)!)} · ` : ''}{zone.range}
+                        </p>
                       </div>
                     </div>
                     <div className="hidden h-2 overflow-hidden rounded-full bg-slate-800 sm:block">
