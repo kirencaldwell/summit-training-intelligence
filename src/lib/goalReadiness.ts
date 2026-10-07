@@ -36,18 +36,7 @@ const text = (value: unknown, max: number) => (typeof value === 'string' ? value
 const textList = (value: unknown, count: number, max: number) =>
   (Array.isArray(value) ? value : []).map((v) => text(v, max)).filter(Boolean).slice(0, count);
 
-/** Reads the model's JSON reply, tolerating stray prose or fences, and clamps it to the expected shape. */
-export function parseReadinessReply(raw: string, goalId: string): GoalReadinessAssessment {
-  const start = raw.indexOf('{');
-  const end = raw.lastIndexOf('}');
-  if (start < 0 || end <= start) throw new Error('The coach did not return a readable assessment. Try again.');
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = JSON.parse(raw.slice(start, end + 1));
-  } catch {
-    throw new Error('The coach returned an assessment that could not be read. Try again.');
-  }
-
+function normalizeAssessment(parsed: Record<string, unknown>, goalId: string, assessedAt: string): GoalReadinessAssessment {
   const status = STATUSES.includes(parsed.status as ReadinessStatus) ? (parsed.status as ReadinessStatus) : 'insufficient_data';
   const dimensions = (Array.isArray(parsed.dimensions) ? parsed.dimensions : [])
     .map((d): ReadinessDimension => {
@@ -71,13 +60,41 @@ export function parseReadinessReply(raw: string, goalId: string): GoalReadinessA
     headline,
     summary,
     dimensions,
-    nextFocus: textList(parsed.next_focus, 3, 300),
-    dataGaps: textList(parsed.data_gaps, 5, 200),
-    assessedAt: new Date().toISOString(),
+    nextFocus: textList(parsed.nextFocus ?? parsed.next_focus, 3, 300),
+    dataGaps: textList(parsed.dataGaps ?? parsed.data_gaps, 5, 200),
+    assessedAt,
   };
 }
 
-// Kept in this browser only; an assessment is cheap to re-run and goes stale as training changes.
+/** Reads the model's JSON reply, tolerating stray prose or fences, and clamps it to the expected shape. */
+export function parseReadinessReply(raw: string, goalId: string): GoalReadinessAssessment {
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start < 0 || end <= start) throw new Error('The coach did not return a readable assessment. Try again.');
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(raw.slice(start, end + 1));
+  } catch {
+    throw new Error('The coach returned an assessment that could not be read. Try again.');
+  }
+  return normalizeAssessment(parsed, goalId, new Date().toISOString());
+}
+
+/** An assessment stored on the goal (a JSON column), or undefined when absent or unreadable. */
+export function coerceReadiness(value: unknown, goalId: string): GoalReadinessAssessment | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const stored = value as Record<string, unknown>;
+  const assessedAt = typeof stored.assessedAt === 'string' && !Number.isNaN(Date.parse(stored.assessedAt))
+    ? stored.assessedAt
+    : new Date().toISOString();
+  try {
+    return normalizeAssessment(stored, goalId, assessedAt);
+  } catch {
+    return undefined;
+  }
+}
+
+// Fallback copy kept in this browser, used when the goal can't store it (database column not added yet).
 const storageKey = (goalId: string) => `summit_goal_readiness_${goalId}`;
 
 export function loadReadiness(goalId: string): GoalReadinessAssessment | null {

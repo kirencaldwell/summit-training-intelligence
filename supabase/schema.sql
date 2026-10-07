@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS public.goals (
   creator TEXT CHECK (creator IN ('athlete', 'coach')), -- who proposed the goal
   periodization_phases JSONB, -- [{ name, focus, weeks, target_ctl, status }]
   milestones JSONB, -- [{ title, target_date, target_metric, completed }]
+  readiness_assessment JSONB, -- latest on-request coach assessment of readiness for this goal
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -77,7 +78,8 @@ CREATE TABLE IF NOT EXISTS public.goals (
 ALTER TABLE public.goals
   ADD COLUMN IF NOT EXISTS creator TEXT CHECK (creator IN ('athlete', 'coach')),
   ADD COLUMN IF NOT EXISTS periodization_phases JSONB,
-  ADD COLUMN IF NOT EXISTS milestones JSONB;
+  ADD COLUMN IF NOT EXISTS milestones JSONB,
+  ADD COLUMN IF NOT EXISTS readiness_assessment JSONB;
 
 -- Multi-week goals can total more than 9,999 km / m, which overflowed NUMERIC(6,2)
 ALTER TABLE public.goals

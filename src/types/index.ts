@@ -1,3 +1,5 @@
+import type { GoalReadinessAssessment } from '../lib/goalReadiness';
+
 export type SportType = 
   | 'cycling' 
   | 'zwift' 
@@ -132,6 +134,8 @@ export interface Goal {
   creator?: 'athlete' | 'coach';
   periodization_phases?: PeriodizationPhase[];
   milestones?: GoalMilestone[];
+  /** Latest on-request coach assessment of readiness for this goal (stored with the goal) */
+  readiness_assessment?: GoalReadinessAssessment | null;
 }
 
 export type TrainingSessionStatus = 'PROPOSED' | 'ACCEPTED' | 'COMPLETED' | 'DECLINED';
