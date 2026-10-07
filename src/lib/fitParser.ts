@@ -396,11 +396,25 @@ export async function parseFitFiles(files: File[]): Promise<FitImportResult[]> {
   return parseActivityFiles(files);
 }
 
-export async function parseActivityFiles(files: File[], stravaMeta?: StravaMetaIndex): Promise<FitImportResult[]> {
+export interface ImportProgress {
+  done: number;
+  total: number;
+  file?: string;
+}
+
+export async function parseActivityFiles(
+  files: File[],
+  stravaMeta?: StravaMetaIndex,
+  onProgress?: (progress: ImportProgress) => void,
+): Promise<FitImportResult[]> {
   const supportedFiles = files.filter((file) => /\.(fit|fit\.gz|gpx)$/i.test(file.name));
   const results: FitImportResult[] = [];
+  onProgress?.({ done: 0, total: supportedFiles.length });
 
   for (const file of supportedFiles) {
+    onProgress?.({ done: results.length, total: supportedFiles.length, file: file.name });
+    // Let the browser paint the progress bar between files
+    await new Promise((resolve) => setTimeout(resolve, 0));
     try {
       const parsedActivity = /\.gpx$/i.test(file.name)
         ? await parseGpxFile(file)
@@ -433,14 +447,20 @@ export async function parseActivityFiles(files: File[], stravaMeta?: StravaMetaI
 }
 
 /** Fills in names, types and descriptions from a Strava CSV on activities that are already imported under their bare file name. */
-export async function applyStravaCsvToExisting(stravaMeta: StravaMetaIndex): Promise<Activity[]> {
+export async function applyStravaCsvToExisting(
+  stravaMeta: StravaMetaIndex,
+  onProgress?: (progress: ImportProgress) => void,
+): Promise<Activity[]> {
   const existing = await dataService.getActivities();
   const updated: Activity[] = [];
-  for (const activity of existing) {
+  for (const [i, activity] of existing.entries()) {
+    onProgress?.({ done: i, total: existing.length });
+    if (i % 10 === 0) await new Promise((resolve) => setTimeout(resolve, 0));
     const meta = lookupStravaMeta(stravaMeta, activity.title);
     // Only activities still carrying their file-name title: anything renamed since is the athlete's own
     if (!meta || activity.title !== stravaFileKey(activity.title)) continue;
     updated.push(await dataService.updateActivity(activity.id, stravaMetaToPatch(meta, activity)));
   }
+  onProgress?.({ done: existing.length, total: existing.length });
   return updated;
 }

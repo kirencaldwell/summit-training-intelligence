@@ -9,7 +9,7 @@ import {
   Key, ExternalLink, Mountain, ChevronRight, FileCode2,
 } from 'lucide-react';
 import type { Activity } from '../types';
-import { parseActivityFiles, applyStravaCsvToExisting, type FitImportResult } from '../lib/fitParser';
+import { parseActivityFiles, applyStravaCsvToExisting, type FitImportResult, type ImportProgress } from '../lib/fitParser';
 import { parseStravaActivitiesCsv, type StravaMetaIndex } from '../lib/stravaCsv';
 import {
   getCorosAuthUrl,
@@ -44,6 +44,7 @@ const FitUploadTab: React.FC<{
   const [isDragOver, setIsDragOver] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [results, setResults] = useState<FitImportResult[]>([]);
+  const [progress, setProgress] = useState<ImportProgress | null>(null);
   const [csvNote, setCsvNote] = useState<{ ok: boolean; text: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -56,6 +57,7 @@ const FitUploadTab: React.FC<{
       setIsProcessing(true);
       setResults([]);
       setCsvNote(null);
+      setProgress(null);
 
       try {
         let stravaMeta: StravaMetaIndex | undefined;
@@ -70,7 +72,7 @@ const FitUploadTab: React.FC<{
 
         // A CSV on its own fills in activities that were imported earlier under their bare file names
         if (stravaMeta && activityFiles.length === 0) {
-          const updated = await applyStravaCsvToExisting(stravaMeta);
+          const updated = await applyStravaCsvToExisting(stravaMeta, setProgress);
           if (updated.length > 0) onActivitiesUpdated?.(updated);
           setCsvNote({
             ok: true,
@@ -81,7 +83,7 @@ const FitUploadTab: React.FC<{
           return;
         }
 
-        const importResults = await parseActivityFiles(activityFiles, stravaMeta);
+        const importResults = await parseActivityFiles(activityFiles, stravaMeta, setProgress);
         setResults(importResults);
         const successful = importResults
           .filter((r) => r.status === 'success' && r.activity)
@@ -99,6 +101,7 @@ const FitUploadTab: React.FC<{
         }
       } finally {
         setIsProcessing(false);
+        setProgress(null);
       }
     },
     [onActivitiesImported, onActivitiesUpdated]
@@ -181,8 +184,31 @@ const FitUploadTab: React.FC<{
         {isProcessing ? (
           <div className="flex flex-col items-center space-y-2">
             <Loader2 className="w-10 h-10 text-cyan-400 animate-spin" />
-            <p className="text-sm font-semibold text-white">Parsing activity files...</p>
-            <p className="text-xs text-slate-400">Reading tracks and calculating training metrics...</p>
+            <p className="text-sm font-semibold text-white">
+              {progress && progress.total > 0 ? `Importing ${Math.min(progress.done + 1, progress.total)} of ${progress.total}` : 'Parsing activity files...'}
+            </p>
+            {progress && progress.total > 0 ? (
+              <div className="w-full max-w-xs space-y-1.5">
+                <div
+                  role="progressbar"
+                  aria-label="Import progress"
+                  aria-valuemin={0}
+                  aria-valuemax={progress.total}
+                  aria-valuenow={progress.done}
+                  className="h-2 w-full rounded-full bg-slate-800 overflow-hidden"
+                >
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 transition-[width] duration-150"
+                    style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}
+                  />
+                </div>
+                <p className="text-xs text-slate-400 truncate">
+                  {Math.round((progress.done / progress.total) * 100)}%{progress.file ? ` · ${progress.file}` : ''}
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400">Reading tracks and calculating training metrics...</p>
+            )}
           </div>
         ) : (
           <div className="flex flex-col items-center space-y-3">
