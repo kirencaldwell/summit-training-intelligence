@@ -403,13 +403,10 @@ export function hasPowerCurveData(activity: Activity): boolean {
  * Calculates Power Curve across durations
  */
 export function calculatePowerCurve(activities: Activity[], weightKg: number = 70.5): PowerCurvePoint[] {
-  const curve: PowerCurvePoint[] = POWER_CURVE_DURATIONS.map((dt) => ({
-    durationSeconds: dt.sec,
-    label: dt.label,
-    watts: 0,
-    wattsPerKg: 0,
-  }));
+  const perKg = (watts: number) => (weightKg > 0 ? Number((watts / weightKg).toFixed(2)) : 0);
 
+  // Each activity's own best effort at every duration (activities too short for a duration are skipped)
+  const effortsByDuration: number[][] = POWER_CURVE_DURATIONS.map(() => []);
   activities.forEach((act) => {
     const sampledEfforts = calculateBestPowerEfforts(act.streams_data || []);
     POWER_CURVE_DURATIONS.forEach((target, index) => {
@@ -417,15 +414,31 @@ export function calculatePowerCurve(activities: Activity[], weightKg: number = 7
       const sampledEffort = sampledEfforts[String(target.sec)] || 0;
       const summaryPeak = target.sec === 1 ? act.max_power || 0 : 0;
       const bestEffort = Math.max(storedEffort, sampledEffort, summaryPeak);
-
-      if (bestEffort > curve[index].watts) {
-        curve[index].watts = Math.round(bestEffort);
-        curve[index].wattsPerKg = weightKg > 0
-          ? Number((bestEffort / weightKg).toFixed(2))
-          : 0;
-      }
+      if (bestEffort > 0) effortsByDuration[index].push(bestEffort);
     });
   });
 
-  return curve;
+  return POWER_CURVE_DURATIONS.map((target, index) => {
+    const efforts = effortsByDuration[index].sort((a, b) => a - b);
+    const count = efforts.length;
+    const max = count > 0 ? efforts[count - 1] : 0;
+    const mean = count > 0 ? efforts.reduce((sum, w) => sum + w, 0) / count : 0;
+    const median = count === 0
+      ? 0
+      : count % 2 === 1
+      ? efforts[(count - 1) / 2]
+      : (efforts[count / 2 - 1] + efforts[count / 2]) / 2;
+
+    return {
+      durationSeconds: target.sec,
+      label: target.label,
+      watts: Math.round(max),
+      wattsPerKg: perKg(max),
+      meanWatts: Math.round(mean),
+      meanWattsPerKg: perKg(mean),
+      medianWatts: Math.round(median),
+      medianWattsPerKg: perKg(median),
+      sampleCount: count,
+    };
+  });
 }

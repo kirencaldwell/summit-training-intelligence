@@ -160,8 +160,16 @@ export interface PMCDayPoint {
 export interface PowerCurvePoint {
   durationSeconds: number;
   label: string;
+  /** Best effort at this duration across all activities (the classic power curve) */
   watts: number;
   wattsPerKg: number;
+  /** Distribution of each activity's own best effort at this duration */
+  meanWatts: number;
+  meanWattsPerKg: number;
+  medianWatts: number;
+  medianWattsPerKg: number;
+  /** Number of activities with power data long enough to have an effort at this duration */
+  sampleCount: number;
 }
 
 export interface AICoachToolCall {
