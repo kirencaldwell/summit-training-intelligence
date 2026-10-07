@@ -27,7 +27,7 @@ import { GoalsManager } from './components/GoalsManager';
 import { GoogleSignInScreen } from './components/GoogleSignInScreen';
 import { coachEngine } from './lib/ai/coachEngine';
 import { formatLbFromKg } from './lib/units';
-import { collectTags } from './lib/tags';
+import { collectTags, isEbike } from './lib/tags';
 
 import { Mountain, Zap } from 'lucide-react';
 
@@ -158,6 +158,7 @@ export function App() {
       || ('pack_weight_kg' in updates && (updates.pack_weight_kg ?? null) !== (before?.pack_weight_kg ?? null))
       || ('perceived_exertion' in updates && (updates.perceived_exertion ?? null) !== (before?.perceived_exertion ?? null));
     const notesCleared = notesChanged && !updates.effort_notes?.trim();
+    const ebikeChanged = Boolean(before) && 'tags' in updates && isEbike({ tags: updates.tags }) !== isEbike(before!);
 
     // Removing the description drops the AI estimate so the activity falls back to heart rate / baseline
     const toSave = notesCleared && before?.tss_source === 'ai'
@@ -181,8 +182,9 @@ export function App() {
     setActivities((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
     setSelectedActivity((prev) => (prev?.id === id ? { ...prev, ...patch } : prev));
 
-    // Changed description (or pack / RPE alongside one): have the AI re-process it, then the curves update
-    if (effortInputsChanged && saved.effort_notes?.trim() && before) {
+    // Changed description (or pack / RPE alongside one): have the AI re-process it, then the curves update.
+    // Switching e-bike on or off also invalidates an existing AI estimate or one based on notes.
+    if (before && ((effortInputsChanged && saved.effort_notes?.trim()) || (ebikeChanged && !notesCleared && (before.tss_source === 'ai' || saved.effort_notes?.trim())))) {
       void handleEstimateActivity({ ...before, ...patch } as Activity);
     }
   };

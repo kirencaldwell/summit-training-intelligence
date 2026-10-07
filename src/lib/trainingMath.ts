@@ -1,4 +1,5 @@
 import type { Activity, MetricStreamPoint, PMCDayPoint, PowerCurvePoint, ZoneDistribution } from '../types';
+import { isEbike } from './tags';
 
 const POWER_CURVE_DURATIONS = [
   { sec: 1, label: '1s' },
@@ -223,7 +224,7 @@ const BASE_INTENSITY: Record<string, number> = {
 /**
  * Rough estimate for activities with neither power nor heart rate (e.g. old hikes with only
  * GPS and timestamps): terrain and pace versus a Naismith-style expectation, pack weight, and
- * the athlete's RPE when logged. Deliberately conservative; AI estimates from notes replace it.
+ * the athlete's RPE when logged, and scaled down for e-bike rides. Deliberately conservative; AI estimates from notes replace it.
  */
 export function baselineTss(activity: Activity, weightKg?: number): ResolvedTss | undefined {
   const hours = movingHours(activity);
@@ -251,7 +252,9 @@ export function baselineTss(activity: Activity, weightKg?: number): ResolvedTss 
         adjustment *= 1 + 1.2 * (activity.pack_weight_kg / weightKg);
       }
     }
-    intensityFactor = clamp(base * adjustment, 0.3, 1.0);
+    // A motor does part of the work, so the same speed and climbing costs the rider much less
+    const motorFactor = isEbike(activity) ? 0.65 : 1;
+    intensityFactor = clamp(base * adjustment * motorFactor, 0.3, 1.0);
   }
   return { tss: tssFromIntensity(hours, intensityFactor), source: 'baseline', intensityFactor: Math.round(intensityFactor * 100) / 100 };
 }

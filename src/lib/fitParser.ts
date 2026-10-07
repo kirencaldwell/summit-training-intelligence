@@ -4,6 +4,7 @@
  * Uses the fit-file-parser npm package to decode, then maps to our Activity type.
  */
 import FitParser from 'fit-file-parser';
+import { EBIKE_TAG } from './tags';
 import type { Activity, MetricStreamPoint, SportType } from '../types';
 import {
   calculateNormalizedPower,
@@ -18,11 +19,18 @@ import { dataService } from './supabase';
 
 // ─── FIT sport type → our SportType ────────────────────────────────────────
 
+/** FIT files mark motor-assisted rides in the sport or sub-sport. */
+function isEbikeFit(sport?: string, subSport?: string): boolean {
+  return (sport || '').toLowerCase().includes('e_bik') || (subSport || '').toLowerCase().includes('e_bike');
+}
+
 function mapFitSport(sport?: string, subSport?: string): SportType {
   const s = (sport || '').toLowerCase();
   const ss = (subSport || '').toLowerCase();
 
-  if (ss.includes('virtual') || ss.includes('indoor_cycling') || s === 'e_biking') return 'zwift';
+  if (ss.includes('virtual') || ss.includes('indoor_cycling')) return 'zwift';
+  // E-bike rides are road/trail cycling with motor assist (they get an "e-bike" tag on import)
+  if (s.includes('e_bik') || ss.includes('e_bike')) return 'cycling';
   if (s === 'cycling' || s === 'biking') return 'cycling';
   if (s === 'skiing' && (ss.includes('skimo') || ss.includes('mountaineering'))) return 'skimo';
   if (s === 'skiing' || ss.includes('backcountry') || ss.includes('cross_country')) return 'backcountry_skiing';
@@ -208,6 +216,7 @@ export async function parseFitFile(file: File): Promise<Activity> {
           max_power: maxWatts,
           normalized_power: np > 0 ? Math.round(np) : undefined,
           intensity_factor: ifScore > 0 ? Math.round(ifScore * 100) / 100 : undefined,
+          tags: isEbikeFit(session.sport, session.sub_sport) ? [EBIKE_TAG] : undefined,
           training_stress_score: tss > 0 ? Math.round(tss) : undefined,
           avg_hr: avgHr,
           max_hr: maxHr,
