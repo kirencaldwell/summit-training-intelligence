@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Settings, Send, Bot, User, Sparkles, Terminal, Activity, ChevronDown, ChevronUp, CalendarDays, Check, X, Zap, Award, Flag, Layers } from 'lucide-react';
+import type { ChatSyncStatus } from '../lib/coachChatSync';
 import type { AICoachMessage, Goal, ProposedGoalAction, ProposedPlanAction, TrainingSession, TrainingSessionStatus } from '../types';
 import { coachEngine } from '../lib/ai/coachEngine';
 import { activeCoachLabel } from '../lib/coachSettings';
@@ -22,8 +23,8 @@ I can build **multi-week periodized plans**, set up **Coach's Goals**, and adapt
 
 interface AICoachPanelProps {
   messages: AICoachMessage[];
-  /** True when the account can't store the chat yet (coach_chats table missing), so it stays on this device */
-  syncUnavailable?: boolean;
+  /** Chat sync state when the account can store it (Supabase); undefined in local mode */
+  syncStatus?: ChatSyncStatus;
   setMessages: React.Dispatch<React.SetStateAction<AICoachMessage[]>>;
   trainingSessions: TrainingSession[];
   isGeneratingWeeklyPlan: boolean;
@@ -41,7 +42,7 @@ interface AICoachPanelProps {
 
 export const AICoachPanel: React.FC<AICoachPanelProps> = ({
   messages,
-  syncUnavailable,
+  syncStatus,
   setMessages,
   trainingSessions,
   isGeneratingWeeklyPlan,
@@ -261,10 +262,19 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
         </div>
       </div>
 
-      {syncUnavailable && (
-        <p className="px-4 py-2 text-[11px] text-amber-300/90 bg-amber-500/5 border-b border-amber-500/20">
-          This chat is saved on this device only. To keep it across devices, add the coach_chats table to your Supabase project (see supabase/schema.sql).
-        </p>
+      {syncStatus && syncStatus.state !== 'idle' && (
+        syncStatus.state === 'synced' ? (
+          <p className="px-4 py-1.5 text-[11px] text-emerald-300/80 border-b border-white/5">Chat synced across your devices</p>
+        ) : syncStatus.state === 'unavailable' ? (
+          <p className="px-4 py-2 text-[11px] text-amber-300/90 bg-amber-500/5 border-b border-amber-500/20">
+            This chat is saved on this device only. To keep it across devices, add the coach_chats table to your Supabase project (see supabase/schema.sql).
+            <span className="block text-amber-300/60 mt-0.5">{syncStatus.detail}</span>
+          </p>
+        ) : (
+          <p role="status" className="px-4 py-2 text-[11px] text-rose-300 bg-rose-500/5 border-b border-rose-500/20">
+            Chat sync problem, will retry: {syncStatus.detail}
+          </p>
+        )
       )}
 
       {/* Goal focus banner: the conversation is about one goal */}
