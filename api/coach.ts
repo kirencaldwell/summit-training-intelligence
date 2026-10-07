@@ -63,7 +63,22 @@ function claudeText(response: { content: Array<{ type: string; text?: string }> 
     .trim();
 }
 
+// Answer with a clear JSON error a little before the platform's 60s function limit kills the request
+const MODEL_TIMEOUT_MS = 50_000;
+
 async function complete(engine: Engine, req: CompleteRequest): Promise<string> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('The AI provider took too long to respond. Try again in a moment.')), MODEL_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([completeUnbounded(engine, req), timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function completeUnbounded(engine: Engine, req: CompleteRequest): Promise<string> {
   const turns = req.turns ?? [];
 
   if (engine.provider === 'gemini') {
@@ -476,12 +491,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const engine = buildEngine(req, res);
-  if (!engine) return;
-
-  const { message, context, fullData, history, mode, focusGoal } = req.body;
-
   try {
+    const engine = buildEngine(req, res);
+    if (!engine) return;
+
+    const { message, context, fullData, history, mode, focusGoal } = req.body ?? {};
+
     // Key check from the settings screen: a tiny, cheap call that proves the key works
     if (mode === 'ping') {
       if (engine.provider !== 'claude') return res.status(200).json({ ok: true });

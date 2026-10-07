@@ -89,6 +89,46 @@ export function coachRequestExtras(): { headers: Record<string, string>; body: R
   };
 }
 
+/** A failed call to /api/coach, with the HTTP status so callers can decide whether a retry makes sense. */
+export class CoachApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'CoachApiError';
+    this.status = status;
+  }
+}
+
+/**
+ * Turn a failed /api/coach response into a readable error. Our own errors are JSON; anything else
+ * (a platform timeout page, a crashed function, a missing route) is described by its status instead
+ * of being swallowed as an "unknown" error.
+ */
+export async function readCoachError(res: Response): Promise<CoachApiError> {
+  const raw = await res.text().catch(() => '');
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.error === 'string' && parsed.error) return new CoachApiError(parsed.error, res.status);
+  } catch {
+    /* not JSON: describe it below */
+  }
+
+  const snippet = raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160);
+  if (res.status === 504 || res.status === 408 || /TIMEOUT|timed out/i.test(raw)) {
+    return new CoachApiError(`The coach server timed out (HTTP ${res.status}). Try again; if it keeps happening, the AI provider is responding slowly.`, res.status);
+  }
+  if (res.status === 413) {
+    return new CoachApiError('The request was too large for the coach server (HTTP 413).', res.status);
+  }
+  if (res.status === 404) {
+    return new CoachApiError('The coach endpoint (/api/coach) was not found. It only exists on the deployed site, not in a plain dev server.', res.status);
+  }
+  return new CoachApiError(
+    `The coach server failed (HTTP ${res.status})${snippet ? `: ${snippet}` : ''}. Check the function logs for /api/coach.`,
+    res.status
+  );
+}
+
 /** Verify a key with a tiny request through the app's own server. */
 export async function testAnthropicKey(settings: CoachSettings): Promise<void> {
   const res = await fetch('/api/coach', {
@@ -96,8 +136,5 @@ export async function testAnthropicKey(settings: CoachSettings): Promise<void> {
     headers: { 'Content-Type': 'application/json', ...anthropicHeaders(settings) },
     body: JSON.stringify({ mode: 'ping', provider: 'claude', claudeModel: settings.claudeModel }),
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: `Server returned ${res.status}` }));
-    throw new Error(err.error || `Server returned ${res.status}`);
-  }
+  if (!res.ok) throw await readCoachError(res);
 }
