@@ -1,7 +1,7 @@
 import type { Activity, AICoachMessage, AICoachToolCall, AthleteProfile, Goal, ProposedGoalAction, ProposedPlanAction, TrainingSession } from '../../types';
 import { dataService } from '../supabase';
 import { calculatePMC, calculatePowerCurve, resolveTss, tssFromIntensity } from '../trainingMath';
-import { coachRequestExtras } from '../coachSettings';
+import { CoachApiError, coachRequestExtras, readCoachError } from '../coachSettings';
 import { isEbike } from '../tags';
 import { ftToM, kgToLb, kmToMi, mToFt, miToKm, roundTo } from '../units';
 
@@ -15,10 +15,7 @@ async function postCoach(body: Record<string, unknown>): Promise<string> {
     headers: { 'Content-Type': 'application/json', ...extras.headers },
     body: JSON.stringify({ ...body, ...extras.body }),
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Unknown server error' }));
-    throw new Error(err.error || `Server returned ${res.status}`);
-  }
+  if (!res.ok) throw await readCoachError(res);
   const { text } = await res.json();
   return text ?? '';
 }
@@ -469,12 +466,21 @@ class GeminiCoachEngine {
       athlete_notes: activity.effort_notes?.trim() || null,
     };
 
-    const text = await postCoach({
-      mode: 'load_estimate',
-      message: 'Estimate the intensity factor for this activity.',
-      context,
-      fast: Boolean(options.fast),
-    });
+    const request = (fast: boolean) =>
+      postCoach({
+        mode: 'load_estimate',
+        message: 'Estimate the intensity factor for this activity.',
+        context,
+        fast,
+      });
+    let text: string;
+    try {
+      text = await request(Boolean(options.fast));
+    } catch (err) {
+      // A server-side failure (often a timeout on the larger model): retry once on the small, fast model
+      if (!options.fast && err instanceof CoachApiError && err.status >= 500) text = await request(true);
+      else throw err;
+    }
 
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');
