@@ -95,12 +95,8 @@ export interface AthleteProfile {
   max_hr: number; // e.g. 192 BPM
   lthr: number; // e.g. 172 BPM
   weight_kg: number; // e.g. 70.5 kg
-  injury_notes: string[];
-  recovery_routines: {
-    wednesday: string;
-    sunday: string;
-    daily_post_workout?: string;
-  };
+  /** The athlete's own notes about themselves (injuries, history, constraints, preferences) for the coach */
+  notes?: string;
 }
 
 export interface PeriodizationPhase {

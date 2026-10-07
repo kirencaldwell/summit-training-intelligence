@@ -21,7 +21,6 @@ import { HeartRateDistributionPage } from './components/HeartRateDistributionPag
 import { AICoachPanel, INITIAL_COACH_MESSAGES } from './components/AICoachPanel';
 import { ActivityDetailModal } from './components/ActivityDetailModal';
 import { AthleteProfileModal } from './components/AthleteProfileModal';
-import { OnboardingWizard } from './components/OnboardingWizard';
 import { DataSyncModal } from './components/StravaConnectModal';
 import { GoalsManager } from './components/GoalsManager';
 import { GoogleSignInScreen } from './components/GoogleSignInScreen';
@@ -77,7 +76,9 @@ export function App() {
   const [assessmentErrors, setAssessmentErrors] = useState<Record<string, string>>({});
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
-  const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
+  // After first sign-in, open the profile once so the athlete can enter their thresholds
+  const hasPromptedProfileRef = useRef(false);
+  const [profileNeedsSetup, setProfileNeedsSetup] = useState(false);
   const [isStravaModalOpen, setIsStravaModalOpen] = useState<boolean>(false);
 
   // Load active data
@@ -87,8 +88,12 @@ export function App() {
     const g = await dataService.getGoals();
     const sessions = await dataService.getTrainingSessions();
     setProfile(p);
-    // A profile with no thresholds means the athlete hasn't supplied their data yet
-    if (!p.ftp) setIsOnboardingOpen(true);
+    // A profile with no thresholds means the athlete hasn't supplied their data yet: prompt once per visit
+    if (!hasPromptedProfileRef.current && !p.ftp && !p.lthr && !p.max_hr && !p.weight_kg) {
+      hasPromptedProfileRef.current = true;
+      setProfileNeedsSetup(true);
+      setIsProfileModalOpen(true);
+    }
     setActivities(a);
     setGoals(g);
     setTrainingSessions(sessions);
@@ -135,16 +140,6 @@ export function App() {
   const handleDeleteGoal = async (goalId: string) => {
     await dataService.deleteGoal(goalId);
     setGoals((prev) => prev.filter(g => g.id !== goalId));
-  };
-
-  const handleCompleteOnboarding = async (newProfile: AthleteProfile, newGoal: Goal | null) => {
-    const savedProfile = await dataService.updateProfile(newProfile);
-    setProfile(savedProfile);
-    if (newGoal) {
-      const savedGoal = await dataService.addGoal(newGoal);
-      setGoals((prev) => [savedGoal, ...prev.filter(g => g.id !== savedGoal.id)]);
-    }
-    setIsOnboardingOpen(false);
   };
 
   // Edit an activity's name, sport and tags; merge only the changed fields so loaded streams are kept
@@ -553,7 +548,6 @@ export function App() {
         dataMode={dataMode}
         onSyncStrava={() => setIsStravaModalOpen(true)}
         onOpenProfile={() => setIsProfileModalOpen(true)}
-        onOpenOnboarding={() => setIsOnboardingOpen(true)}
         isAuthenticated={Boolean(authUser)}
         authEmail={authUser?.email || ''}
         onSignOut={handleSignOut}
@@ -571,6 +565,7 @@ export function App() {
             trainingSessions={upcomingSessions}
             onOpenActivity={handleOpenActivity}
             onNavigateTab={setActiveTab}
+            onOpenProfile={() => setIsProfileModalOpen(true)}
           />
         )}
 
@@ -698,18 +693,13 @@ export function App() {
       />
 
       {/* Athlete Profile & Settings Modal */}
-      <AthleteProfileModal
-        profile={profile}
-        isOpen={isProfileModalOpen}
-        onClose={() => setIsProfileModalOpen(false)}
-        onSaveProfile={handleSaveProfile}
-      />
-
-      {/* Onboarding Wizard Setup Modal */}
-      {isOnboardingOpen && (
-      <OnboardingWizard
-        onCompleteOnboarding={handleCompleteOnboarding}
-      />
+      {isProfileModalOpen && (
+        <AthleteProfileModal
+          profile={profile}
+          needsSetup={profileNeedsSetup}
+          onClose={() => { setIsProfileModalOpen(false); setProfileNeedsSetup(false); }}
+          onSaveProfile={handleSaveProfile}
+        />
       )}
 
       {/* Unified Data Sources Modal */}

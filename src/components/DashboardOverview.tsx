@@ -1,6 +1,6 @@
 import React from 'react';
 import type { Activity, Goal, AthleteProfile, PMCDayPoint, PowerCurvePoint, TrainingSession } from '../types';
-import { Mountain, Zap, ShieldAlert, Calendar, ArrowUpRight, TrendingUp, Sparkles, ChevronRight, Activity as ActivityIcon, CalendarDays, Clock3 } from 'lucide-react';
+import { Mountain, Zap, Calendar, ArrowUpRight, TrendingUp, Sparkles, ChevronRight, Activity as ActivityIcon, CalendarDays, Clock3 } from 'lucide-react';
 import { PerformanceManagementChart } from './PerformanceManagementChart';
 import { formatFeetFromMeters, formatMilesFromKm, formatMilesFromMeters } from '../lib/units';
 import { resolveTss } from '../lib/trainingMath';
@@ -14,6 +14,7 @@ interface DashboardOverviewProps {
   trainingSessions: TrainingSession[];
   onOpenActivity: (activity: Activity) => void;
   onNavigateTab: (tab: 'dashboard' | 'goals' | 'activities' | 'power' | 'heart-rate' | 'coach') => void;
+  onOpenProfile?: () => void;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
@@ -25,6 +26,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   trainingSessions,
   onOpenActivity,
   onNavigateTab,
+  onOpenProfile,
 }) => {
   const latestPmc = pmcData[pmcData.length - 1] || { ctl: 0, atl: 0, tsb: 0, tss: 0, date: '' };
   const previousWeekPmc = pmcData[Math.max(0, pmcData.length - 8)] || latestPmc;
@@ -59,6 +61,23 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Missing thresholds: point the athlete to their profile */}
+      {onOpenProfile && (!profile.lthr || !profile.ftp || !profile.weight_kg) && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-4">
+          <p className="text-xs text-cyan-100 leading-relaxed">
+            <span className="font-semibold text-white">Finish your profile.</span>{' '}
+            Add your {[!profile.lthr && 'LTHR', !profile.ftp && 'FTP', !profile.weight_kg && 'weight'].filter(Boolean).join(', ')} so training load, fitness and fatigue are calculated accurately.
+          </p>
+          <button
+            type="button"
+            onClick={onOpenProfile}
+            className="min-h-10 flex-shrink-0 px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 text-xs font-bold hover:opacity-90"
+          >
+            Open profile
+          </button>
+        </div>
+      )}
+
       {/* Target Goal Milestone Hero Banner */}
       {priorityGoal && (
         <div className="relative overflow-hidden rounded-3xl glass-panel border border-cyan-500/30 p-6 sm:p-8 bg-gradient-to-r from-slate-950 via-slate-900 to-cyan-950/60 shadow-2xl">
@@ -243,38 +262,6 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </div>
         )}
       </section>
-
-      {/* Injury Guardian & Decompression Notice Banner */}
-      {profile.injury_notes.length > 0 && (
-      <div className="glass-panel p-5 rounded-2xl border-amber-500/30 bg-amber-500/5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div className="flex items-start space-x-3">
-          <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center flex-shrink-0 mt-0.5">
-            <ShieldAlert className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="text-sm font-bold text-white flex items-center space-x-2">
-              <span>Injury Awareness & Recovery Guardian</span>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300">
-                {profile.injury_notes.join(' · ')}
-              </span>
-            </h3>
-            {profile.recovery_routines.wednesday && (
-              <p className="text-xs text-slate-300 mt-1">
-                <strong>Recovery Routine:</strong> {profile.recovery_routines.wednesday}
-              </p>
-            )}
-          </div>
-        </div>
-
-        <button
-          onClick={() => onNavigateTab('coach')}
-          className="flex items-center space-x-1 px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all whitespace-nowrap"
-        >
-          <span>Ask AI Coach</span>
-          <ArrowUpRight className="w-3.5 h-3.5" />
-        </button>
-      </div>
-      )}
 
       {/* Main Charts Section */}
       <div className="glass-panel p-6 rounded-2xl border-white/10 space-y-4">
