@@ -14,6 +14,7 @@ interface DashboardOverviewProps {
   trainingSessions: TrainingSession[];
   onOpenActivity: (activity: Activity) => void;
   onNavigateTab: (tab: 'dashboard' | 'goals' | 'activities' | 'power' | 'heart-rate' | 'coach') => void;
+  onOpenProfile?: () => void;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
@@ -25,6 +26,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   trainingSessions,
   onOpenActivity,
   onNavigateTab,
+  onOpenProfile,
 }) => {
   const latestPmc = pmcData[pmcData.length - 1] || { ctl: 0, atl: 0, tsb: 0, tss: 0, date: '' };
   const previousWeekPmc = pmcData[Math.max(0, pmcData.length - 8)] || latestPmc;
@@ -59,6 +61,23 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Missing thresholds: point the athlete to their profile */}
+      {onOpenProfile && (!profile.lthr || !profile.ftp || !profile.weight_kg) && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-4">
+          <p className="text-xs text-cyan-100 leading-relaxed">
+            <span className="font-semibold text-white">Finish your profile.</span>{' '}
+            Add your {[!profile.lthr && 'LTHR', !profile.ftp && 'FTP', !profile.weight_kg && 'weight'].filter(Boolean).join(', ')} so training load, fitness and fatigue are calculated accurately.
+          </p>
+          <button
+            type="button"
+            onClick={onOpenProfile}
+            className="min-h-10 flex-shrink-0 px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 text-xs font-bold hover:opacity-90"
+          >
+            Open profile
+          </button>
+        </div>
+      )}
+
       {/* Target Goal Milestone Hero Banner */}
       {priorityGoal && (
         <div className="relative overflow-hidden rounded-3xl glass-panel border border-cyan-500/30 p-6 sm:p-8 bg-gradient-to-r from-slate-950 via-slate-900 to-cyan-950/60 shadow-2xl">

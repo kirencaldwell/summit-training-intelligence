@@ -130,7 +130,7 @@ class DataService {
         user_id: this.authUser.id,
         full_name: fullName,
         avatar_url: avatarUrl,
-        // Blank until the athlete completes onboarding
+        // Blank until the athlete fills in their profile
         ftp: 0,
         max_hr: 0,
         lthr: 0,
