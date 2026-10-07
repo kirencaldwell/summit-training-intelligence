@@ -184,6 +184,13 @@ CREATE TABLE IF NOT EXISTS public.training_sessions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- One row per athlete holding the AI coach chat, so it follows them across devices
+CREATE TABLE IF NOT EXISTS public.coach_chats (
+  user_id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
+  messages JSONB NOT NULL DEFAULT '[]'::JSONB,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ---------------------------------------------------------
 -- INDEXES FOR PERFORMANCE
 -- ---------------------------------------------------------
@@ -199,6 +206,7 @@ ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.goals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.training_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.coach_chats ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Users can view own profile" ON public.profiles;
 DROP POLICY IF EXISTS "Users can view own goals" ON public.goals;
@@ -217,6 +225,9 @@ DROP POLICY IF EXISTS "Users can view own training sessions" ON public.training_
 DROP POLICY IF EXISTS "Users can insert own training sessions" ON public.training_sessions;
 DROP POLICY IF EXISTS "Users can update own training sessions" ON public.training_sessions;
 DROP POLICY IF EXISTS "Users can delete own training sessions" ON public.training_sessions;
+DROP POLICY IF EXISTS "Users can view own coach chat" ON public.coach_chats;
+DROP POLICY IF EXISTS "Users can insert own coach chat" ON public.coach_chats;
+DROP POLICY IF EXISTS "Users can update own coach chat" ON public.coach_chats;
 
 CREATE OR REPLACE FUNCTION public.current_profile_id()
 RETURNS UUID
@@ -267,6 +278,15 @@ CREATE POLICY "Users can update own training sessions" ON public.training_sessio
   WITH CHECK (user_id = (SELECT public.current_profile_id()));
 CREATE POLICY "Users can delete own training sessions" ON public.training_sessions
   FOR DELETE TO authenticated USING (user_id = (SELECT public.current_profile_id()));
+
+CREATE POLICY "Users can view own coach chat" ON public.coach_chats
+  FOR SELECT TO authenticated USING (user_id = (SELECT public.current_profile_id()));
+CREATE POLICY "Users can insert own coach chat" ON public.coach_chats
+  FOR INSERT TO authenticated WITH CHECK (user_id = (SELECT public.current_profile_id()));
+CREATE POLICY "Users can update own coach chat" ON public.coach_chats
+  FOR UPDATE TO authenticated USING (user_id = (SELECT public.current_profile_id()))
+  WITH CHECK (user_id = (SELECT public.current_profile_id()));
+GRANT SELECT, INSERT, UPDATE ON public.coach_chats TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.handle_new_auth_user()
 RETURNS TRIGGER

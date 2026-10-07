@@ -1,6 +1,7 @@
 import { createClient, type User } from '@supabase/supabase-js';
-import type { Activity, AthleteProfile, Goal, TrainingSession, TrainingSessionStatus } from '../types';
+import type { Activity, AICoachMessage, AthleteProfile, Goal, TrainingSession, TrainingSessionStatus } from '../types';
 import { addDaysToDateOnly } from './trainingSessions';
+import { readStoredMessages } from './coachChatSync';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
@@ -398,6 +399,28 @@ class DataService {
     this.localGoals = this.localGoals.filter(g => g.id !== id);
     this.saveLocalState();
     return true;
+  }
+
+  /** The account's synced coach chat. Only available with Supabase; throws if the coach_chats table is missing. */
+  public async getCoachChat(): Promise<AICoachMessage[]> {
+    if (!(this.mode === 'supabase' && supabase)) return [];
+    const profile = await this.getAuthenticatedProfile();
+    const { data, error } = await supabase
+      .from('coach_chats')
+      .select('messages')
+      .eq('user_id', profile.id)
+      .maybeSingle();
+    if (error) throw new Error(`Coach chat could not be loaded: ${error.message}`);
+    return readStoredMessages(data?.messages);
+  }
+
+  public async saveCoachChat(messages: AICoachMessage[]): Promise<void> {
+    if (!(this.mode === 'supabase' && supabase)) return;
+    const profile = await this.getAuthenticatedProfile();
+    const { error } = await supabase
+      .from('coach_chats')
+      .upsert({ user_id: profile.id, messages, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+    if (error) throw new Error(`Coach chat could not be saved: ${error.message}`);
   }
 
   public async getTrainingSessions(): Promise<TrainingSession[]> {
