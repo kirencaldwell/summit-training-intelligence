@@ -637,7 +637,7 @@ export function App() {
                 </div>
               </div>
               <p className="text-xs text-slate-400">
-                {powerCurveActivityCount} of {powerCurveActivities.length} activities contain power data. Curves combine best efforts across the selected period.
+                {powerCurveActivityCount} of {powerCurveActivities.length} activities contain power data. The amber line is your best effort at each duration. Mean and median show how your typical activity compares: each activity contributes its own best effort for that duration, and longer durations only include activities long enough to have one.
               </p>
               <PowerCurveChart data={powerCurveData} />
             </div>
@@ -649,6 +649,12 @@ export function App() {
                   <span className="text-xs text-slate-400 uppercase font-semibold">{pt.label} Peak Power</span>
                   <p className="text-xl font-extrabold text-white">{pt.watts} W</p>
                   <p className="text-xs text-amber-400 font-bold">{pt.wattsPerKg} W/kg</p>
+                  {pt.sampleCount > 0 && (
+                    <p className="text-[11px] text-slate-400">
+                      Mean {pt.meanWatts} W · Median {pt.medianWatts} W
+                      <span className="text-slate-500"> · {pt.sampleCount} {pt.sampleCount === 1 ? 'activity' : 'activities'}</span>
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
