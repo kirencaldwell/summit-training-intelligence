@@ -69,14 +69,14 @@ export function calculateVAM(elevationGainMeters: number, durationSeconds: numbe
 /**
  * Calculates 5-zone HR breakdown (Friel LTHR model)
  */
+/** Upper edge of zones 1 to 4 as a fraction of lactate threshold HR (Friel). Zone 5 is everything above. */
+export const HR_ZONE_THRESHOLD_FRACTIONS = [0.81, 0.90, 0.95, 1.02] as const;
+
 export function calculateHRZones(hrStream: number[], lthr: number): ZoneDistribution {
   const zones: ZoneDistribution = { z1: 0, z2: 0, z3: 0, z4: 0, z5: 0 };
   if (!hrStream || hrStream.length === 0 || lthr <= 0) return zones;
 
-  const z1Threshold = lthr * 0.81;
-  const z2Threshold = lthr * 0.90;
-  const z3Threshold = lthr * 0.95;
-  const z4Threshold = lthr * 1.02;
+  const [z1Threshold, z2Threshold, z3Threshold, z4Threshold] = HR_ZONE_THRESHOLD_FRACTIONS.map((fraction) => lthr * fraction);
 
   for (const hr of hrStream) {
     if (hr < z1Threshold) zones.z1++;
@@ -87,6 +87,30 @@ export function calculateHRZones(hrStream: number[], lthr: number): ZoneDistribu
   }
 
   return zones;
+}
+
+export interface HrZoneRange {
+  key: 'z1' | 'z2' | 'z3' | 'z4' | 'z5';
+  /** Lowest whole bpm in the zone; null for zone 1 (anything below the next zone) */
+  minBpm: number | null;
+  /** Highest whole bpm in the zone; null for zone 5 (no upper limit) */
+  maxBpm: number | null;
+}
+
+/**
+ * Heart-rate zone limits in whole bpm for a lactate threshold HR. Uses the same thresholds as
+ * calculateHRZones, so a reading falls in exactly the zone these ranges show.
+ */
+export function getHrZoneRanges(lthr: number): HrZoneRange[] | null {
+  if (!(lthr > 0)) return null;
+  // A reading at or above a threshold belongs to the next zone, so each zone starts at the whole bpm at or above it
+  const starts = HR_ZONE_THRESHOLD_FRACTIONS.map((fraction) => Math.ceil(lthr * fraction));
+  const keys = ['z1', 'z2', 'z3', 'z4', 'z5'] as const;
+  return keys.map((key, i) => ({
+    key,
+    minBpm: i === 0 ? null : starts[i - 1],
+    maxBpm: i === keys.length - 1 ? null : starts[i] - 1,
+  }));
 }
 
 export function calculateActivityHRZoneDuration(activity: Activity, lthr: number): ZoneDistribution {
