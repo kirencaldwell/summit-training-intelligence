@@ -1,16 +1,46 @@
 import React, { useState } from 'react';
-import type { Activity, SportType } from '../types';
+import type { Activity, AthleteProfile, SportType } from '../types';
 import { formatFeetFromMeters, formatMilesFromMeters } from '../lib/units';
 import { collectTags } from '../lib/tags';
+import { canImproveWithAi, resolveTss } from '../lib/trainingMath';
 import { Mountain, Bike, Compass, Footprints, ShieldAlert, Zap, Calendar, Search, Trash2, Tag, X } from 'lucide-react';
+
+interface BulkEstimateState {
+  running: boolean;
+  done: number;
+  total: number;
+  failed: number;
+  message?: string;
+}
 
 interface ActivityListProps {
   activities: Activity[];
+  profile?: AthleteProfile | null;
   onSelectActivity: (activity: Activity) => void;
   onDeleteActivity: (activity: Activity) => Promise<void>;
+  bulkEstimate?: BulkEstimateState;
+  onBulkEstimate?: () => void;
+  onCancelBulkEstimate?: () => void;
 }
 
-export const ActivityList: React.FC<ActivityListProps> = ({ activities, onSelectActivity, onDeleteActivity }) => {
+export const ActivityList: React.FC<ActivityListProps> = ({
+  activities,
+  profile,
+  onSelectActivity,
+  onDeleteActivity,
+  bulkEstimate,
+  onBulkEstimate,
+  onCancelBulkEstimate,
+}) => {
+  // Where each activity's training load comes from, and how many the AI could still improve
+  const loadProfile = profile ? { ftp: profile.ftp, lthr: profile.lthr, weight_kg: profile.weight_kg } : undefined;
+  const sourceCounts = { power: 0, ai: 0, heart_rate: 0, baseline: 0 };
+  let improvable = 0;
+  for (const activity of activities) {
+    sourceCounts[resolveTss(activity, loadProfile).source] += 1;
+    if (canImproveWithAi(activity, loadProfile)) improvable += 1;
+  }
+
   const [selectedSport, setSelectedSport] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [dateFrom, setDateFrom] = useState('');
@@ -117,6 +147,58 @@ export const ActivityList: React.FC<ActivityListProps> = ({ activities, onSelect
           />
         </div>
       </div>
+
+      {/* Training load sources: measured vs estimated, with a bulk AI estimate for the rest */}
+      {activities.length > 0 && (sourceCounts.baseline + sourceCounts.heart_rate + sourceCounts.ai > 0) && (
+        <div className="rounded-xl border border-white/10 bg-slate-900/50 p-3 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-slate-300">
+              <span className="font-semibold text-white">Training load:</span>{' '}
+              {sourceCounts.power > 0 && <>{sourceCounts.power} from power · </>}
+              {sourceCounts.ai > 0 && <>{sourceCounts.ai} AI-estimated · </>}
+              {sourceCounts.heart_rate > 0 && <>{sourceCounts.heart_rate} from heart rate · </>}
+              {sourceCounts.baseline} rough estimates
+            </p>
+            {onBulkEstimate && (
+              bulkEstimate?.running ? (
+                <button type="button" onClick={onCancelBulkEstimate} className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-200">
+                  Stop
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onBulkEstimate}
+                  disabled={improvable === 0}
+                  className="px-3 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-semibold disabled:opacity-50"
+                  title="Ask the coach to estimate intensity from each activity's data and notes"
+                >
+                  {improvable > 0 ? `Estimate ${improvable} with AI` : 'Nothing left to estimate'}
+                </button>
+              )
+            )}
+          </div>
+          {bulkEstimate?.running && (
+            <div className="space-y-1">
+              <div className="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
+                <div className="h-full bg-cyan-400 transition-all" style={{ width: `${bulkEstimate.total ? ((bulkEstimate.done + bulkEstimate.failed) / bulkEstimate.total) * 100 : 0}%` }} />
+              </div>
+              <p className="text-[11px] text-slate-400">
+                {bulkEstimate.done + bulkEstimate.failed} of {bulkEstimate.total}
+                {bulkEstimate.failed > 0 ? ` (${bulkEstimate.failed} failed)` : ''}. Results save as they arrive, so you can stop and resume.
+              </p>
+            </div>
+          )}
+          {!bulkEstimate?.running && bulkEstimate && bulkEstimate.total > 0 && (
+            <p role="status" className={`text-[11px] ${bulkEstimate.message || bulkEstimate.failed > 0 ? 'text-amber-300' : 'text-emerald-400'}`}>
+              Estimated {bulkEstimate.done} of {bulkEstimate.total}{bulkEstimate.failed > 0 ? `, ${bulkEstimate.failed} failed` : ''}.
+              {bulkEstimate.message ? ` ${bulkEstimate.message}` : ''}
+            </p>
+          )}
+          <p className="text-[10px] text-slate-500">
+            Loads marked ~ are estimates. Rough ones come from duration, terrain and pack weight until you add notes or run the AI estimate.
+          </p>
+        </div>
+      )}
 
       {/* Tag Filters */}
       {allTags.length > 0 && (
@@ -267,7 +349,10 @@ export const ActivityList: React.FC<ActivityListProps> = ({ activities, onSelect
                   <span className="text-[10px] text-slate-500 uppercase font-medium">TSS</span>
                   <p className="text-xs font-extrabold text-amber-400 flex items-center justify-center">
                     <Zap className="w-3 h-3 mr-0.5 inline" />
-                    {act.training_stress_score || 'N/A'}
+                    {(() => {
+                      const load = resolveTss(act, loadProfile);
+                      return load.tss > 0 ? `${load.source === 'power' ? '' : '~'}${Math.round(load.tss)}` : 'N/A';
+                    })()}
                   </p>
                 </div>
               </div>

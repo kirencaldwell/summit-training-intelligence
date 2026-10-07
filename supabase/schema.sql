@@ -118,6 +118,15 @@ CREATE TABLE IF NOT EXISTS public.activities (
 
   -- Athlete-defined tags
   tags TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+
+  -- Effort description and the AI training-load estimate derived from it
+  effort_notes TEXT,
+  estimated_tss NUMERIC(7,2),
+  estimated_if NUMERIC(4,3),
+  tss_source TEXT,
+  tss_confidence TEXT,
+  tss_rationale TEXT,
+  tss_estimated_at TIMESTAMPTZ,
   
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -126,7 +135,14 @@ ALTER TABLE public.activities
   ADD COLUMN IF NOT EXISTS power_curve_best_efforts JSONB,
   ADD COLUMN IF NOT EXISTS coach_assessment TEXT,
   ADD COLUMN IF NOT EXISTS coach_assessment_at TIMESTAMPTZ,
-  ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
+  ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+  ADD COLUMN IF NOT EXISTS effort_notes TEXT,
+  ADD COLUMN IF NOT EXISTS estimated_tss NUMERIC(7,2),
+  ADD COLUMN IF NOT EXISTS estimated_if NUMERIC(4,3),
+  ADD COLUMN IF NOT EXISTS tss_source TEXT,
+  ADD COLUMN IF NOT EXISTS tss_confidence TEXT,
+  ADD COLUMN IF NOT EXISTS tss_rationale TEXT,
+  ADD COLUMN IF NOT EXISTS tss_estimated_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS public.training_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

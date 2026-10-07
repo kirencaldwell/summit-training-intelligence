@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { X, Calendar, Clock, Navigation, Mountain, Zap, Heart, ShieldAlert, Bot, RefreshCw, Pencil, Check, Tag } from 'lucide-react';
-import type { Activity, SportType } from '../types';
+import type { Activity, AthleteProfile, SportType } from '../types';
 import { MAX_TAG_LENGTH, MAX_TAGS_PER_ACTIVITY, normalizeTags } from '../lib/tags';
+import { describeTssSource, resolveTss } from '../lib/trainingMath';
+import { kgToLb, lbToKg, roundTo } from '../lib/units';
 import { RouteMapViewer } from './RouteMapViewer';
 import { formatFeetFromMeters, formatFtPerHourFromMph, formatMilesFromMeters } from '../lib/units';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
@@ -12,7 +14,15 @@ interface ActivityDetailModalProps {
   onAssess?: (activity: Activity) => void;
   isAssessing?: boolean;
   assessmentError?: string;
-  onUpdate?: (id: string, updates: Pick<Partial<Activity>, 'title' | 'sport_type' | 'tags'>) => Promise<void>;
+  onUpdate?: (
+    id: string,
+    updates: Pick<Partial<Activity>, 'title' | 'sport_type' | 'tags' | 'effort_notes' | 'pack_weight_kg' | 'perceived_exertion'>
+  ) => Promise<void>;
+  profile?: AthleteProfile | null;
+  /** Ask the coach to (re-)estimate this activity's training load */
+  onEstimate?: (activity: Activity) => void;
+  isEstimating?: boolean;
+  estimateError?: string;
   /** Every tag already used on any activity, offered as quick picks */
   allTags?: string[];
 }
@@ -30,13 +40,16 @@ const SPORT_OPTIONS: { value: SportType; label: string }[] = [
 const ActivityEditor: React.FC<{
   activity: Activity;
   allTags: string[];
-  onSave: (updates: Pick<Partial<Activity>, 'title' | 'sport_type' | 'tags'>) => Promise<void>;
+  onSave: (updates: Pick<Partial<Activity>, 'title' | 'sport_type' | 'tags' | 'effort_notes' | 'pack_weight_kg' | 'perceived_exertion'>) => Promise<void>;
   onCancel: () => void;
 }> = ({ activity, allTags, onSave, onCancel }) => {
   const [title, setTitle] = useState(activity.title);
   const [sport, setSport] = useState<SportType>(activity.sport_type);
   const [tags, setTags] = useState<string[]>(activity.tags ?? []);
   const [tagInput, setTagInput] = useState('');
+  const [effortNotes, setEffortNotes] = useState(activity.effort_notes ?? '');
+  const [packLb, setPackLb] = useState(activity.pack_weight_kg ? String(roundTo(kgToLb(activity.pack_weight_kg), 1)) : '');
+  const [rpe, setRpe] = useState(activity.perceived_exertion ? String(activity.perceived_exertion) : '');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -59,7 +72,17 @@ const ActivityEditor: React.FC<{
     try {
       // Include a tag still typed in the box so it isn't silently dropped
       const finalTags = normalizeTags([...tags, ...tagInput.split(',')]);
-      await onSave({ title: trimmed, sport_type: sport, tags: finalTags });
+      const rpeNumber = Number(rpe);
+      const packNumber = Number(packLb);
+      await onSave({
+        title: trimmed,
+        sport_type: sport,
+        tags: finalTags,
+        effort_notes: effortNotes.trim() || undefined,
+        // null (not undefined) so clearing a field is saved
+        pack_weight_kg: (packNumber > 0 ? roundTo(lbToKg(packNumber), 2) : null) as unknown as number | undefined,
+        perceived_exertion: (rpeNumber >= 1 && rpeNumber <= 10 ? Math.round(rpeNumber) : null) as unknown as number | undefined,
+      });
     } catch (err: any) {
       setError(err?.message || 'Could not save changes.');
       setIsSaving(false);
@@ -138,6 +161,47 @@ const ActivityEditor: React.FC<{
         )}
       </div>
 
+      <div className="space-y-2 border-t border-white/10 pt-3">
+        <label className="block text-xs font-medium text-slate-400">
+          Effort description <span className="text-slate-500">(optional)</span>
+          <textarea
+            rows={3}
+            value={effortNotes}
+            onChange={(e) => setEffortNotes(e.target.value)}
+            maxLength={2000}
+            placeholder="e.g. Heavy 35 lb pack, steep scrambling in snow, felt like an 8/10 for the last hour. Rest stops included."
+            className="mt-1 w-full bg-slate-900 border border-white/10 rounded-xl p-3 text-xs text-slate-200 placeholder-slate-600 focus:border-cyan-500 focus:outline-none"
+          />
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="text-xs font-medium text-slate-400">
+            Pack weight (lb)
+            <input
+              type="number"
+              min={0}
+              step="0.5"
+              value={packLb}
+              onChange={(e) => setPackLb(e.target.value)}
+              className="mt-1 w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none"
+            />
+          </label>
+          <label className="text-xs font-medium text-slate-400">
+            Perceived effort (RPE 1-10)
+            <input
+              type="number"
+              min={1}
+              max={10}
+              value={rpe}
+              onChange={(e) => setRpe(e.target.value)}
+              className="mt-1 w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none"
+            />
+          </label>
+        </div>
+        <p className="text-[11px] text-slate-500">
+          Saving a new description asks the coach to re-estimate this activity's training load, and your fitness and fatigue curves update.
+        </p>
+      </div>
+
       {error && <p role="alert" className="text-xs text-rose-400">{error}</p>}
 
       <div className="flex items-center justify-end gap-2">
@@ -191,7 +255,12 @@ const ActivityDetailContent: React.FC<Omit<ActivityDetailModalProps, 'activity'>
   assessmentError,
   onUpdate,
   allTags = [],
+  profile,
+  onEstimate,
+  isEstimating = false,
+  estimateError,
 }) => {
+  const load = resolveTss(activity, profile ? { ftp: profile.ftp, lthr: profile.lthr, weight_kg: profile.weight_kg } : undefined);
   const [isEditing, setIsEditing] = useState(false);
 
   const streamData = activity.streams_data || [];
@@ -283,7 +352,9 @@ const ActivityDetailContent: React.FC<Omit<ActivityDetailModalProps, 'activity'>
             <span className="text-xs text-slate-400 flex items-center mb-1">
               <Zap className="w-3.5 h-3.5 mr-1 text-amber-400" /> TSS (Stress)
             </span>
-            <span className="text-lg font-extrabold text-amber-400">{activity.training_stress_score || 'N/A'}</span>
+            <span className="text-lg font-extrabold text-amber-400" title={describeTssSource(load.source)}>
+              {load.tss > 0 ? `${load.source === 'power' ? '' : '~'}${Math.round(load.tss)}` : 'N/A'}
+            </span>
           </div>
         </div>
 
@@ -329,6 +400,43 @@ const ActivityDetailContent: React.FC<Omit<ActivityDetailModalProps, 'activity'>
             </span>
           </div>
         )}
+
+        {/* Training load: where it came from, the athlete's notes, and the AI estimate */}
+        <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-amber-300 flex items-center">
+              <Zap className="w-4 h-4 mr-1.5" /> Training Load
+            </h3>
+            {onEstimate && load.source !== 'power' && (
+              <button
+                onClick={() => onEstimate(activity)}
+                disabled={isEstimating}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-semibold disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isEstimating ? 'animate-spin' : ''}`} />
+                {isEstimating ? 'Estimating…' : activity.tss_source === 'ai' ? 'Re-estimate with AI' : 'Estimate with AI'}
+              </button>
+            )}
+          </div>
+          <p className="text-xs text-slate-300">
+            <span className="font-bold text-white">{load.tss > 0 ? `${load.source === 'power' ? '' : '~'}${Math.round(load.tss)} TSS` : 'No load'}</span>
+            {load.intensityFactor ? <span className="text-slate-400"> · IF {load.intensityFactor}</span> : null}
+            <span className="text-slate-400"> · {describeTssSource(load.source)}</span>
+            {load.source === 'ai' && activity.tss_confidence ? <span className="text-slate-400"> ({activity.tss_confidence} confidence)</span> : null}
+          </p>
+          {load.source === 'ai' && activity.tss_rationale && (
+            <p className="text-xs text-slate-300 leading-relaxed">{activity.tss_rationale}</p>
+          )}
+          {activity.effort_notes && (
+            <p className="text-xs text-slate-400 italic border-l-2 border-white/10 pl-2">"{activity.effort_notes}"</p>
+          )}
+          {load.source === 'baseline' && !activity.effort_notes && (
+            <p className="text-[11px] text-slate-500">
+              A rough estimate from duration, terrain and pace. Add an effort description (Edit) for a better one.
+            </p>
+          )}
+          {estimateError && <p role="alert" className="text-xs text-rose-400">{estimateError}</p>}
+        </div>
 
         {/* AI Coach Assessment (saved with the activity) */}
         <div className="rounded-xl border border-cyan-500/25 bg-cyan-500/5 p-4 space-y-3">

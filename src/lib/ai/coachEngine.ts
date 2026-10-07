@@ -1,6 +1,6 @@
 import type { Activity, AICoachMessage, AICoachToolCall, AthleteProfile, Goal, ProposedGoalAction, ProposedPlanAction, TrainingSession } from '../../types';
 import { dataService } from '../supabase';
-import { calculatePMC, calculatePowerCurve } from '../trainingMath';
+import { calculatePMC, calculatePowerCurve, resolveTss, tssFromIntensity } from '../trainingMath';
 import { coachRequestExtras } from '../coachSettings';
 import { ftToM, kgToLb, kmToMi, mToFt, miToKm, roundTo } from '../units';
 
@@ -142,7 +142,8 @@ async function gatherAthleteContext(focusGoalId?: string) {
   const goals: Goal[] = goalsRes.status === 'fulfilled' ? goalsRes.value : [];
   const trainingSessions: TrainingSession[] = sessionsRes.status === 'fulfilled' ? sessionsRes.value : [];
 
-  const pmcData = calculatePMC(activities, 30);
+  const loadProfile = profile ? { ftp: profile.ftp, lthr: profile.lthr, weight_kg: profile.weight_kg } : undefined;
+  const pmcData = calculatePMC(activities, 30, loadProfile);
   const latestPmc = pmcData[pmcData.length - 1] || { ctl: 0, atl: 0, tsb: 0, tss: 0 };
 
   let formCategory = 'Optimal Training Window';
@@ -167,7 +168,8 @@ async function gatherAthleteContext(focusGoalId?: string) {
     ...activityUnitsForAI(a),
     normalized_power: a.normalized_power,
     intensity_factor: a.intensity_factor,
-    tss: a.training_stress_score,
+    tss: Math.round(resolveTss(a, loadProfile).tss),
+    tss_source: resolveTss(a, loadProfile).source,
     avg_hr: a.avg_hr,
     knee_discomfort_level: a.knee_discomfort_level,
   }));
@@ -209,7 +211,8 @@ async function gatherAthleteContext(focusGoalId?: string) {
     avg_power: a.avg_power,
     normalized_power: a.normalized_power,
     intensity_factor: a.intensity_factor,
-    tss: a.training_stress_score,
+    tss: Math.round(resolveTss(a, loadProfile).tss),
+    tss_source: resolveTss(a, loadProfile).source,
     avg_hr: a.avg_hr,
     max_hr: a.max_hr,
     avg_vam_ft_per_hour: mToFtRounded(a.avg_vam_mh),
@@ -308,7 +311,8 @@ class GeminiCoachEngine {
 
     // Make sure the activity itself is part of the load calculation even if the list is stale
     const withActivity = activities.some((a) => a.id === activity.id) ? activities : [activity, ...activities];
-    const pmc = calculatePMC(withActivity, 120);
+    const loadProfile = { ftp: profile.ftp, lthr: profile.lthr, weight_kg: profile.weight_kg };
+    const pmc = calculatePMC(withActivity, 120, loadProfile);
     const dayBefore = new Date(startMs - dayMs).toISOString().slice(0, 10);
     const pmcAfter = pmc.find((p) => p.date === activityDate);
     const pmcBefore = pmc.find((p) => p.date === dayBefore);
@@ -320,7 +324,7 @@ class GeminiCoachEngine {
             const t = new Date(a.start_date).getTime();
             return t <= startMs && t > startMs - days * dayMs;
           })
-          .reduce((sum, a) => sum + (a.training_stress_score || 0), 0)
+          .reduce((sum, a) => sum + resolveTss(a, loadProfile).tss, 0)
       );
 
     const compact = (a: Activity) => ({
@@ -329,7 +333,7 @@ class GeminiCoachEngine {
       sport_type: a.sport_type,
       duration_minutes: Math.round(a.duration_seconds / 60),
       ...activityUnitsForAI(a),
-      tss: a.training_stress_score,
+      tss: Math.round(resolveTss(a, loadProfile).tss),
     });
 
     const context = {
@@ -405,6 +409,89 @@ class GeminiCoachEngine {
     });
     if (!text) throw new Error('The coach returned an empty assessment.');
     return String(text).trim();
+  }
+
+  /**
+   * Estimate an activity's intensity (and so its TSS) from the athlete's notes plus the recorded
+   * data, for activities without power. The model returns only an intensity factor; TSS is
+   * computed here so the arithmetic is always consistent. `fast` uses the cheap model (bulk runs).
+   */
+  public async estimateActivityLoad(
+    activity: Activity,
+    profile: AthleteProfile,
+    options: { fast?: boolean } = {}
+  ): Promise<{ intensityFactor: number; tss: number; confidence: 'low' | 'medium' | 'high'; rationale: string }> {
+    const seconds = activity.moving_time_seconds || activity.duration_seconds;
+    const hours = seconds / 3600;
+    if (!(hours > 0)) throw new Error('This activity has no recorded duration to estimate from.');
+
+    const miles = kmToMi(activity.distance_meters / 1000);
+    const feet = mToFt(activity.total_elevation_gain_m || 0);
+    const zones = activity.time_in_hr_zones;
+    const zoneValues = zones ? [zones.z1, zones.z2, zones.z3, zones.z4, zones.z5].map((v) => v || 0) : [];
+    const zoneTotal = zoneValues.reduce((sum, v) => sum + v, 0);
+    const hasHr = Boolean(activity.avg_hr) || zoneTotal > 0;
+    const hasPower = (activity.avg_power || 0) > 0 || (activity.normalized_power || 0) > 0;
+
+    const context = {
+      profile: {
+        lthr: profile.lthr || null,
+        max_hr: profile.max_hr || null,
+        ftp: profile.ftp || null,
+        weight_lb: profile.weight_kg ? roundTo(kgToLb(profile.weight_kg), 1) : null,
+      },
+      activity: {
+        title: activity.title,
+        sport_type: activity.sport_type,
+        tags: activity.tags,
+        date: activity.start_date.slice(0, 10),
+        moving_hours: roundTo(hours, 2),
+        distance_mi: roundTo(miles, 1),
+        elevation_gain_ft: Math.round(feet),
+        avg_speed_mph: roundTo(miles / hours, 1),
+        avg_grade_pct: activity.distance_meters > 0 ? roundTo(((activity.total_elevation_gain_m || 0) / activity.distance_meters) * 100, 1) : null,
+        climb_rate_ft_per_hour: Math.round(feet / hours),
+        avg_hr: activity.avg_hr,
+        max_hr: activity.max_hr,
+        hr_zone_percent: zoneTotal > 0
+          ? Object.fromEntries(zoneValues.map((v, i) => [`z${i + 1}`, Math.round((v / zoneTotal) * 100)]))
+          : undefined,
+        avg_power: activity.avg_power,
+        normalized_power: activity.normalized_power,
+        pack_weight_lb: activity.pack_weight_kg ? roundTo(kgToLb(activity.pack_weight_kg), 1) : undefined,
+        rpe: activity.perceived_exertion,
+        gear_notes: activity.gear_notes,
+      },
+      data_available: { heart_rate: hasHr, power: hasPower, gps_and_time_only: !hasHr && !hasPower },
+      athlete_notes: activity.effort_notes?.trim() || null,
+    };
+
+    const text = await postCoach({
+      mode: 'load_estimate',
+      message: 'Estimate the intensity factor for this activity.',
+      context,
+      fast: Boolean(options.fast),
+    });
+
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    let parsed: { intensity_factor?: unknown; confidence?: unknown; rationale?: unknown };
+    try {
+      parsed = JSON.parse(start >= 0 && end > start ? text.slice(start, end + 1) : text);
+    } catch {
+      throw new Error('The coach returned an estimate that could not be read.');
+    }
+    const rawIf = Number(parsed.intensity_factor);
+    if (!Number.isFinite(rawIf) || rawIf <= 0) throw new Error('The coach did not return a usable intensity.');
+
+    const intensityFactor = roundTo(Math.min(1.2, Math.max(0.2, rawIf)), 2);
+    const confidence = parsed.confidence === 'high' || parsed.confidence === 'medium' ? parsed.confidence : 'low';
+    return {
+      intensityFactor,
+      tss: tssFromIntensity(hours, intensityFactor),
+      confidence,
+      rationale: typeof parsed.rationale === 'string' ? parsed.rationale.trim().slice(0, 500) : '',
+    };
   }
 
   /** Generate or replan a proposed weekly training plan via the active coach model */
