@@ -1,6 +1,6 @@
 import type { Activity, AICoachMessage, AICoachToolCall, AthleteProfile, Goal, ProposedGoalAction, ProposedPlanAction, TrainingSession } from '../../types';
 import { dataService } from '../supabase';
-import { calculatePMC, calculatePowerCurve, resolveTss, tssFromIntensity } from '../trainingMath';
+import { calculatePMC, calculatePowerCurve, calculatePowerReadiness, resolveTss, tssFromIntensity } from '../trainingMath';
 import { CoachApiError, coachRequestExtras, readCoachError } from '../coachSettings';
 import { isEbike } from '../tags';
 import { ftToM, kgToLb, kmToMi, mToFt, miToKm, roundTo } from '../units';
@@ -186,8 +186,9 @@ async function gatherAthleteContext(focusGoalId?: string) {
 
   // A goal under discussion takes the place of the default priority goal in the readiness numbers
   const goal = (focusGoalId && goals.find(g => g.id === focusGoalId)) || goals.find(g => g.status === 'ACTIVE') || goals[0];
-  const powerCurve = calculatePowerCurve(activities, profile?.weight_kg || undefined);
-  const power20m = powerCurve.find(p => p.label === '20m')?.watts || 0;
+  // Same basis as the dashboard: best 20m power in the last 90 days, e-bike rides excluded
+  const readiness = calculatePowerReadiness(activities, goal?.target_power_watts || 0, profile?.weight_kg || undefined);
+  const power20m = readiness?.bestWatts || 0;
   const targetW = goal?.target_power_watts || 0;
 
   const daysRemaining =
@@ -200,7 +201,7 @@ async function gatherAthleteContext(focusGoalId?: string) {
         )
       : null;
 
-  const readinessScorePct = targetW > 0 && power20m > 0 ? Math.min(100, Math.round((power20m / targetW) * 100)) : null;
+  const readinessScorePct = readiness?.pct ?? null;
   const coachingAdvice =
     readinessScorePct === null
       ? null
@@ -208,7 +209,7 @@ async function gatherAthleteContext(focusGoalId?: string) {
       ? 'Target 2x20m sweetspot/threshold efforts to lift 20m power closer to target.'
       : 'Power target is within reach! Prioritize event-specific simulation and injury management.';
 
-  const milestoneData = { goal: goalForAI(goal), daysRemaining, powerCurve20m: power20m || null, targetPowerWatts: targetW || null, readinessScorePct, coachingAdvice };
+  const milestoneData = { goal: goalForAI(goal), daysRemaining, powerCurve20m: power20m || null, powerCurve20mWindowDays: readiness?.windowDays ?? null, targetPowerWatts: targetW || null, readinessScorePct, coachingAdvice };
 
   // Full (compact) dataset — the server filters this down to what the question needs
   const allActivities = activities.map(a => ({

@@ -3,7 +3,7 @@ import type { Activity, Goal, AthleteProfile, PMCDayPoint, PowerCurvePoint, Trai
 import { Zap, Calendar, ArrowUpRight, TrendingUp, Sparkles, ChevronRight, Activity as ActivityIcon, CalendarDays, Clock3, Trash2 } from 'lucide-react';
 import { PerformanceManagementChart } from './PerformanceManagementChart';
 import { formatFeetFromMeters, formatMilesFromKm, formatMilesFromMeters } from '../lib/units';
-import { resolveTss } from '../lib/trainingMath';
+import { calculatePowerReadiness, resolveTss } from '../lib/trainingMath';
 
 interface DashboardOverviewProps {
   profile: AthleteProfile;
@@ -69,10 +69,10 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     ? Math.max(0, Math.ceil((new Date(priorityGoal.target_date).getTime() - new Date().getTime()) / (1000 * 3600 * 24)))
     : null;
 
-  // Readiness: best 20m power vs the goal's target power, when both are known
-  const best20m = powerCurve.find((p) => p.label === '20m')?.watts || 0;
-  const readinessPct = priorityGoal?.target_power_watts && best20m > 0
-    ? Math.min(100, Math.round((best20m / priorityGoal.target_power_watts) * 100))
+  // Readiness: best 20m power over the last 90 days (no e-bike rides) vs the goal's target power.
+  // Independent of the Power tab's year filter, and not capped at 100%.
+  const readiness = priorityGoal?.target_power_watts
+    ? calculatePowerReadiness(activities, priorityGoal.target_power_watts, profile.weight_kg || undefined)
     : null;
 
   // Recent 4 activities
@@ -156,16 +156,24 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 {daysRemaining ?? '—'} {daysRemaining !== null && <span className="text-sm font-normal text-slate-400">days</span>}
               </div>
 
-              {/* Progress bar: best 20m power vs goal target power */}
-              {readinessPct !== null && (
-                <div className="w-full mt-3 space-y-1">
+              {/* Best recent 20m power vs the goal's target power */}
+              {readiness && (
+                <div
+                  className="w-full mt-3 space-y-1"
+                  title={`Your best 20-minute power in the last ${readiness.windowDays} days (e-bike rides excluded) compared with the goal's target power of ${readiness.targetWatts} W. A goal's target power is usually held for much longer than 20 minutes, so treat 100% as a minimum, not as being ready.`}
+                >
                   <div className="flex justify-between text-[11px] font-semibold text-slate-300">
-                    <span>Power Readiness</span>
-                    <span className="text-cyan-400 font-bold">{readinessPct}%</span>
+                    <span>20m Power vs Target</span>
+                    <span className="text-cyan-400 font-bold">{readiness.pct !== null ? `${readiness.pct}%` : '—'}</span>
                   </div>
                   <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
-                    <div className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-emerald-400" style={{ width: `${readinessPct}%` }} />
+                    <div className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-emerald-400" style={{ width: `${Math.min(100, readiness.pct ?? 0)}%` }} />
                   </div>
+                  <p className="text-[10px] text-slate-500">
+                    {readiness.bestWatts > 0
+                      ? `Best ${readiness.bestWatts} W in last ${readiness.windowDays} days vs ${readiness.targetWatts} W target`
+                      : `No 20-minute power effort in the last ${readiness.windowDays} days`}
+                  </p>
                 </div>
               )}
             </div>

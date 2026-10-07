@@ -402,6 +402,43 @@ export function hasPowerCurveData(activity: Activity): boolean {
 /**
  * Calculates Power Curve across durations
  */
+export interface PowerReadiness {
+  targetWatts: number;
+  windowDays: number;
+  /** Best 20-minute power in the window, 0 when there is none */
+  bestWatts: number;
+  /** Best 20m power as a percentage of the target; null when there is no 20m effort in the window */
+  pct: number | null;
+  /** Number of activities with a 20-minute effort in the window */
+  activityCount: number;
+}
+
+/**
+ * Recent best 20-minute power against a goal's target power. Looks only at the last `windowDays` and skips
+ * e-bike rides (motor-assisted efforts don't measure the athlete's own output), so an old or assisted
+ * effort can't make the athlete look ready. The percentage is not capped.
+ */
+export function calculatePowerReadiness(
+  activities: Activity[],
+  targetWatts: number,
+  weightKg?: number,
+  windowDays = 90,
+  now = new Date(),
+): PowerReadiness | null {
+  if (!(targetWatts > 0)) return null;
+  const cutoff = now.getTime() - windowDays * 24 * 3600 * 1000;
+  const recent = activities.filter((a) => !isEbike(a) && new Date(a.start_date).getTime() >= cutoff);
+  const point = calculatePowerCurve(recent, weightKg).find((p) => p.label === '20m');
+  const bestWatts = point?.watts ?? 0;
+  return {
+    targetWatts,
+    windowDays,
+    bestWatts,
+    pct: bestWatts > 0 ? Math.round((bestWatts / targetWatts) * 100) : null,
+    activityCount: point?.sampleCount ?? 0,
+  };
+}
+
 export function calculatePowerCurve(activities: Activity[], weightKg: number = 70.5): PowerCurvePoint[] {
   const perKg = (watts: number) => (weightKg > 0 ? Number((watts / weightKg).toFixed(2)) : 0);
 
