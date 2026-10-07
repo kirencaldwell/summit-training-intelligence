@@ -21,7 +21,9 @@ export const config = { maxDuration: 60 };
 // or logged), so nobody else can spend the account owner's Claude tokens.
 // ---------------------------------------------------------------------------
 
-const CLAUDE_MODELS = ['claude-sonnet-5-5', 'claude-opus-5-5'];
+const CLAUDE_MODELS = ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5'];
+// Haiku has no server-side refusal fallback, so those requests go out without the fallback beta
+const CLAUDE_MODELS_WITHOUT_FALLBACK = ['claude-haiku-5-5'];
 const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-5-5';
 // Small, cheap model for the data-filter planning step
 const CLAUDE_FILTER_MODEL = 'claude-haiku-4-5';
@@ -127,12 +129,16 @@ async function completeUnbounded(engine: Engine, req: CompleteRequest): Promise<
 
   let response;
   try {
-    // Refusal fallback: if a safety classifier declines, the API re-runs on the server-defined fallback model
-    response = await engine.client.beta.messages.create({
-      ...params,
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-    });
+    if (CLAUDE_MODELS_WITHOUT_FALLBACK.includes(engine.model)) {
+      response = await engine.client.messages.create(params);
+    } else {
+      // Refusal fallback: if a safety classifier declines, the API re-runs on the server-defined fallback model
+      response = await engine.client.beta.messages.create({
+        ...params,
+        betas: ['server-side-fallback-2026-07-01'],
+        fallbacks: 'default',
+      });
+    }
   } catch (err) {
     // The fallback beta is an optimization; if it's not accepted for this key, retry without it
     if (err instanceof Anthropic.BadRequestError) {
