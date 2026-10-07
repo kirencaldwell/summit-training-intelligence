@@ -3,6 +3,7 @@ import { Gauge, Loader2, RefreshCw } from 'lucide-react';
 import type { Goal } from '../types';
 import {
   READINESS_STATUS_LABEL,
+  coerceReadiness,
   loadReadiness,
   saveReadiness,
   type DimensionRating,
@@ -12,7 +13,8 @@ import {
 
 interface GoalReadinessPanelProps {
   goal: Goal;
-  onAssess: (goalId: string) => Promise<GoalReadinessAssessment>;
+  /** Runs the assessment and saves it with the goal; `synced` is false when only this browser could keep it */
+  onAssess: (goalId: string) => Promise<{ assessment: GoalReadinessAssessment; synced: boolean }>;
 }
 
 const STATUS_STYLE: Record<ReadinessStatus, string> = {
@@ -42,23 +44,32 @@ function assessedAgo(iso: string): string {
 }
 
 export const GoalReadinessPanel: React.FC<GoalReadinessPanelProps> = ({ goal, onAssess }) => {
-  const [assessment, setAssessment] = useState<GoalReadinessAssessment | null>(() => loadReadiness(goal.id));
+  // The assessment lives on the goal (so every device sees it). A copy in this browser covers the case where
+  // the database can't store it yet; whichever is newer wins.
+  const [localCopy, setLocalCopy] = useState<GoalReadinessAssessment | null>(() => loadReadiness(goal.id));
   const [isAssessing, setIsAssessing] = useState(false);
   const [error, setError] = useState('');
 
-  // A different goal brings its own saved assessment (if any)
   useEffect(() => {
-    setAssessment(loadReadiness(goal.id));
+    setLocalCopy(loadReadiness(goal.id));
     setError('');
   }, [goal.id]);
+
+  const stored = coerceReadiness(goal.readiness_assessment, goal.id);
+  const useLocal = Boolean(localCopy && (!stored || localCopy.assessedAt > stored.assessedAt));
+  const assessment = useLocal ? localCopy : stored ?? null;
 
   const run = async () => {
     setIsAssessing(true);
     setError('');
     try {
-      const result = await onAssess(goal.id);
-      saveReadiness(result);
-      setAssessment(result);
+      const { assessment: result, synced } = await onAssess(goal.id);
+      if (synced) {
+        setLocalCopy(null);
+      } else {
+        saveReadiness(result);
+        setLocalCopy(result);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'The readiness assessment failed.');
     } finally {
@@ -135,6 +146,11 @@ export const GoalReadinessPanel: React.FC<GoalReadinessPanelProps> = ({ goal, on
           )}
 
           <p className="text-[11px] text-slate-500">Assessed {assessedAgo(assessment.assessedAt)}. It reflects your training at that time, so re-assess after a few weeks.</p>
+          {useLocal && (
+            <p className="text-[11px] text-amber-300/80">
+              Saved on this device only. To keep it across devices, add the readiness_assessment column to your goals table in Supabase (see supabase/schema.sql).
+            </p>
+          )}
         </div>
       ) : (
         !isAssessing && !error && (

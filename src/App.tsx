@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import type { User } from '@supabase/supabase-js';
 import type { AICoachMessage, Activity, AthleteProfile, Goal, PMCDayPoint, PowerCurvePoint, ProposedPlanAction, TrainingSession, TrainingSessionStatus } from './types';
 import { dataService, isSupabaseConfigured, supabase } from './lib/supabase';
+import type { GoalReadinessAssessment } from './lib/goalReadiness';
 import { calculatePMC, calculatePowerCurve, canImproveWithAi, hasPowerCurveData } from './lib/trainingMath';
 import { addDaysToDateOnly, getCurrentTrainingWeekStartDate, getNextTrainingWeekStartDate } from './lib/trainingSessions';
 import {
@@ -130,6 +131,22 @@ export function App() {
     }
     const savedGoal = await dataService.addGoal(goal);
     setGoals((prev) => [savedGoal, ...prev.filter(g => g.id !== savedGoal.id)]);
+  };
+
+  // Run the readiness assessment and store it with the goal so other devices see it. If the database can't
+  // keep it (the column hasn't been added yet) the panel falls back to this browser.
+  const handleAssessGoalReadiness = async (goalId: string): Promise<{ assessment: GoalReadinessAssessment; synced: boolean }> => {
+    const assessment = await coachEngine.assessGoalReadiness(goalId);
+    try {
+      const saved = await dataService.updateGoal(goalId, { readiness_assessment: assessment });
+      if (saved) {
+        setGoals((prev) => prev.map((g) => (g.id === goalId ? { ...g, readiness_assessment: saved.readiness_assessment ?? assessment } : g)));
+        return { assessment, synced: true };
+      }
+    } catch (err) {
+      console.warn('Readiness assessment could not be saved with the goal:', err);
+    }
+    return { assessment, synced: false };
   };
 
   const handleCompleteGoal = async (goalId: string, debriefNotes: string) => {
@@ -576,7 +593,7 @@ export function App() {
             pmcData={pmcData}
             trainingSessions={upcomingSessions}
             onDeleteTrainingSessions={handleDeleteTrainingSessions}
-            onAssessGoalReadiness={(goalId) => coachEngine.assessGoalReadiness(goalId)}
+            onAssessGoalReadiness={handleAssessGoalReadiness}
             onOpenActivity={handleOpenActivity}
             onNavigateTab={setActiveTab}
             onOpenProfile={() => setIsProfileModalOpen(true)}

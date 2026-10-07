@@ -17,7 +17,7 @@ interface DashboardOverviewProps {
   onNavigateTab: (tab: 'dashboard' | 'goals' | 'activities' | 'power' | 'heart-rate' | 'coach') => void;
   onOpenProfile?: () => void;
   onDeleteTrainingSessions?: (ids: string[]) => Promise<void>;
-  onAssessGoalReadiness?: (goalId: string) => Promise<GoalReadinessAssessment>;
+  onAssessGoalReadiness?: (goalId: string) => Promise<{ assessment: GoalReadinessAssessment; synced: boolean }>;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
