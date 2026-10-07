@@ -307,6 +307,13 @@ export function App() {
     }
   };
 
+  // Existing activities that an import filled in (e.g. names and types from a Strava CSV)
+  const handleActivitiesUpdated = (updated: Activity[]) => {
+    const byId = new Map(updated.map((a) => [a.id, a]));
+    setActivities((prev) => prev.map((a) => (byId.has(a.id) ? { ...a, ...byId.get(a.id)! , streams_data: a.streams_data } : a)));
+    setSelectedActivity((prev) => (prev && byId.has(prev.id) ? { ...prev, ...byId.get(prev.id)!, streams_data: prev.streams_data } : prev));
+  };
+
   const handleDeleteActivity = async (activity: Activity) => {
     await dataService.deleteActivity(activity.id);
     setActivities((prev) => prev.filter((item) => item.id !== activity.id));
@@ -698,6 +705,7 @@ export function App() {
         isOpen={isStravaModalOpen}
         onClose={() => setIsStravaModalOpen(false)}
         onActivitiesImported={handleFitImport}
+        onActivitiesUpdated={handleActivitiesUpdated}
       />
 
       {/* Modern Footer */}
