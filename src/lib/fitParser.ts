@@ -5,6 +5,7 @@
  */
 import FitParser from 'fit-file-parser';
 import { EBIKE_TAG } from './tags';
+import { lookupStravaMeta, stravaFileKey, stravaMetaToPatch, type StravaMetaIndex } from './stravaCsv';
 import type { Activity, MetricStreamPoint, SportType } from '../types';
 import {
   calculateNormalizedPower,
@@ -386,7 +387,7 @@ export async function parseGpxFile(file: File): Promise<Activity> {
 
 export interface FitImportResult {
   file: string;
-  status: 'success' | 'duplicate' | 'error';
+  status: 'success' | 'duplicate' | 'updated' | 'error';
   activity?: Activity;
   error?: string;
 }
@@ -395,7 +396,7 @@ export async function parseFitFiles(files: File[]): Promise<FitImportResult[]> {
   return parseActivityFiles(files);
 }
 
-export async function parseActivityFiles(files: File[]): Promise<FitImportResult[]> {
+export async function parseActivityFiles(files: File[], stravaMeta?: StravaMetaIndex): Promise<FitImportResult[]> {
   const supportedFiles = files.filter((file) => /\.(fit|fit\.gz|gpx)$/i.test(file.name));
   const results: FitImportResult[] = [];
 
@@ -404,11 +405,19 @@ export async function parseActivityFiles(files: File[]): Promise<FitImportResult
       const parsedActivity = /\.gpx$/i.test(file.name)
         ? await parseGpxFile(file)
         : await parseFitFile(file);
+      const meta = stravaMeta ? lookupStravaMeta(stravaMeta, file.name) : undefined;
       const duplicate = await dataService.findDuplicateActivity(parsedActivity);
       if (duplicate) {
-        results.push({ file: file.name, status: 'duplicate', activity: duplicate });
+        // Already imported from the bare file: fill in the Strava name/type, unless the athlete has renamed it since
+        if (meta && duplicate.title === stravaFileKey(file.name)) {
+          const updated = await dataService.updateActivity(duplicate.id, stravaMetaToPatch(meta, duplicate));
+          results.push({ file: file.name, status: 'updated', activity: updated });
+        } else {
+          results.push({ file: file.name, status: 'duplicate', activity: duplicate });
+        }
         continue;
       }
+      if (meta) Object.assign(parsedActivity, stravaMetaToPatch(meta, parsedActivity));
       const activity = await dataService.addActivity(parsedActivity);
       results.push({ file: file.name, status: 'success', activity });
     } catch (err) {
@@ -421,4 +430,17 @@ export async function parseActivityFiles(files: File[]): Promise<FitImportResult
   }
 
   return results;
+}
+
+/** Fills in names, types and descriptions from a Strava CSV on activities that are already imported under their bare file name. */
+export async function applyStravaCsvToExisting(stravaMeta: StravaMetaIndex): Promise<Activity[]> {
+  const existing = await dataService.getActivities();
+  const updated: Activity[] = [];
+  for (const activity of existing) {
+    const meta = lookupStravaMeta(stravaMeta, activity.title);
+    // Only activities still carrying their file-name title: anything renamed since is the athlete's own
+    if (!meta || activity.title !== stravaFileKey(activity.title)) continue;
+    updated.push(await dataService.updateActivity(activity.id, stravaMetaToPatch(meta, activity)));
+  }
+  return updated;
 }

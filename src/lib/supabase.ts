@@ -248,7 +248,7 @@ class DataService {
       const profile = await this.getAuthenticatedProfile();
       const { data, error } = await supabase
         .from('activities')
-        .select('id, title, sport_type, start_date, duration_seconds, moving_time_seconds, distance_meters')
+        .select('id, title, sport_type, start_date, duration_seconds, moving_time_seconds, distance_meters, tags, effort_notes')
         .eq('user_id', profile.id)
         .gte('start_date', startWindow)
         .lte('start_date', endWindow);

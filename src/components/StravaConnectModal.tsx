@@ -9,7 +9,8 @@ import {
   Key, ExternalLink, Mountain, ChevronRight, FileCode2,
 } from 'lucide-react';
 import type { Activity } from '../types';
-import { parseActivityFiles, type FitImportResult } from '../lib/fitParser';
+import { parseActivityFiles, applyStravaCsvToExisting, type FitImportResult } from '../lib/fitParser';
+import { parseStravaActivitiesCsv, type StravaMetaIndex } from '../lib/stravaCsv';
 import {
   getCorosAuthUrl,
   getStoredCorosClientId,
@@ -28,38 +29,79 @@ interface DataSyncModalProps {
   isOpen: boolean;
   onClose: () => void;
   onActivitiesImported: (activities: Activity[]) => void;
+  onActivitiesUpdated?: (activities: Activity[]) => void;
 }
 
 // ─── FIT Upload Tab ────────────────────────────────────────────────────────────
 
-const FitUploadTab: React.FC<{ onActivitiesImported: (a: Activity[]) => void }> = ({
+const FitUploadTab: React.FC<{
+  onActivitiesImported: (a: Activity[]) => void;
+  onActivitiesUpdated?: (a: Activity[]) => void;
+}> = ({
   onActivitiesImported,
+  onActivitiesUpdated,
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [results, setResults] = useState<FitImportResult[]>([]);
+  const [csvNote, setCsvNote] = useState<{ ok: boolean; text: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const processFiles = useCallback(
     async (files: File[]) => {
       const activityFiles = files.filter((file) => /\.(fit|fit\.gz|gpx)$/i.test(file.name));
-      if (activityFiles.length === 0) return;
+      const csvFile = files.find((file) => /\.csv$/i.test(file.name));
+      if (activityFiles.length === 0 && !csvFile) return;
 
       setIsProcessing(true);
       setResults([]);
+      setCsvNote(null);
 
       try {
-        const importResults = await parseActivityFiles(activityFiles);
+        let stravaMeta: StravaMetaIndex | undefined;
+        if (csvFile) {
+          try {
+            stravaMeta = parseStravaActivitiesCsv(await csvFile.text());
+          } catch (err) {
+            setCsvNote({ ok: false, text: err instanceof Error ? err.message : 'Could not read that CSV.' });
+            if (activityFiles.length === 0) return;
+          }
+        }
+
+        // A CSV on its own fills in activities that were imported earlier under their bare file names
+        if (stravaMeta && activityFiles.length === 0) {
+          const updated = await applyStravaCsvToExisting(stravaMeta);
+          if (updated.length > 0) onActivitiesUpdated?.(updated);
+          setCsvNote({
+            ok: true,
+            text: updated.length > 0
+              ? `Filled in names and types for ${updated.length} existing ${updated.length === 1 ? 'activity' : 'activities'}.`
+              : 'No existing activities needed updating. Renamed activities are left alone.',
+          });
+          return;
+        }
+
+        const importResults = await parseActivityFiles(activityFiles, stravaMeta);
         setResults(importResults);
         const successful = importResults
           .filter((r) => r.status === 'success' && r.activity)
           .map((r) => r.activity!);
+        const updated = importResults
+          .filter((r) => r.status === 'updated' && r.activity)
+          .map((r) => r.activity!);
         if (successful.length > 0) onActivitiesImported(successful);
+        if (updated.length > 0) onActivitiesUpdated?.(updated);
+        if (stravaMeta) {
+          setCsvNote({
+            ok: true,
+            text: `Applied Strava names and types to ${successful.length + updated.length} of ${importResults.length} files.`,
+          });
+        }
       } finally {
         setIsProcessing(false);
       }
     },
-    [onActivitiesImported]
+    [onActivitiesImported, onActivitiesUpdated]
   );
 
   const handleDrop = useCallback(
@@ -111,6 +153,7 @@ const FitUploadTab: React.FC<{ onActivitiesImported: (a: Activity[]) => void }> 
           <li>Click <strong className="text-slate-200">"Get Started"</strong> under <em>Request your archive</em></li>
           <li>Strava emails you a .zip — usually within a few hours</li>
           <li>Unzip it, then select or drag the <strong className="text-slate-200">.fit.gz, .fit, or .gpx files</strong> from the activities folder below</li>
+          <li>Also add <strong className="text-slate-200">activities.csv</strong> from the same zip, in the same drop, to bring in your Strava activity names, types and descriptions. Dropped on its own, it fills in activities you already imported.</li>
         </ol>
       </div>
 
@@ -129,7 +172,7 @@ const FitUploadTab: React.FC<{ onActivitiesImported: (a: Activity[]) => void }> 
         <input
           ref={fileInputRef}
           type="file"
-          accept=".fit,.fit.gz,.gz,.gpx,application/gzip,application/octet-stream"
+          accept=".fit,.fit.gz,.gz,.gpx,.csv,text/csv,application/gzip,application/octet-stream"
           multiple
           className="hidden"
           onChange={handleFileSelect}
@@ -150,13 +193,19 @@ const FitUploadTab: React.FC<{ onActivitiesImported: (a: Activity[]) => void }> 
             </div>
             <div>
               <p className="text-sm font-bold text-white">
-                {isDragOver ? 'Drop to import!' : 'Drop .fit, .fit.gz, or .gpx files here'}
+                {isDragOver ? 'Drop to import!' : 'Drop .fit, .fit.gz, or .gpx files here (plus Strava\'s activities.csv)'}
               </p>
               <p className="text-xs text-slate-400 mt-0.5">or click to browse — multiple files supported</p>
             </div>
           </div>
         )}
       </div>
+
+      {csvNote && (
+        <p className={`p-3 rounded-xl border text-xs ${csvNote.ok ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200' : 'bg-rose-500/10 border-rose-500/30 text-rose-300'}`}>
+          {csvNote.text}
+        </p>
+      )}
 
       {/* Results */}
       {results.length > 0 && (
@@ -166,14 +215,14 @@ const FitUploadTab: React.FC<{ onActivitiesImported: (a: Activity[]) => void }> 
             <div
               key={r.file}
               className={`flex items-start space-x-3 p-3 rounded-xl border text-xs ${
-                r.status === 'success'
+                r.status === 'success' || r.status === 'updated'
                   ? 'bg-emerald-500/10 border-emerald-500/30'
                   : r.status === 'duplicate'
                   ? 'bg-amber-500/10 border-amber-500/30'
                   : 'bg-rose-500/10 border-rose-500/30'
               }`}
             >
-              {r.status === 'success' ? (
+              {r.status === 'success' || r.status === 'updated' ? (
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
               ) : r.status === 'duplicate' ? (
                 <CopyCheck className="w-4 h-4 text-amber-300 flex-shrink-0 mt-0.5" />
@@ -182,8 +231,9 @@ const FitUploadTab: React.FC<{ onActivitiesImported: (a: Activity[]) => void }> 
               )}
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-white truncate">{r.file}</p>
-                {r.status === 'success' && r.activity ? (
+                {(r.status === 'success' || r.status === 'updated') && r.activity ? (
                   <div className="flex flex-wrap gap-2 mt-1">
+                    {r.status === 'updated' && <span className="text-emerald-300">Updated from Strava CSV: {r.activity.title}</span>}
                     <span className="text-slate-400">
                       🏔 {r.activity.sport_type.replace('_', ' ')}
                     </span>
@@ -427,6 +477,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   isOpen,
   onClose,
   onActivitiesImported,
+  onActivitiesUpdated,
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('fit');
 
@@ -530,6 +581,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
               onActivitiesImported={(activities) => {
                 onActivitiesImported(activities);
               }}
+              onActivitiesUpdated={onActivitiesUpdated}
             />
           )}
           {activeTab === 'coros' && (
