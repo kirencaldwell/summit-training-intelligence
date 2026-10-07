@@ -1,6 +1,6 @@
 import React from 'react';
 import type { Activity, Goal, AthleteProfile, PMCDayPoint, PowerCurvePoint, TrainingSession } from '../types';
-import { Mountain, Zap, Calendar, ArrowUpRight, TrendingUp, Sparkles, ChevronRight, Activity as ActivityIcon, CalendarDays, Clock3 } from 'lucide-react';
+import { Zap, Calendar, ArrowUpRight, TrendingUp, Sparkles, ChevronRight, Activity as ActivityIcon, CalendarDays, Clock3 } from 'lucide-react';
 import { PerformanceManagementChart } from './PerformanceManagementChart';
 import { formatFeetFromMeters, formatMilesFromKm, formatMilesFromMeters } from '../lib/units';
 import { resolveTss } from '../lib/trainingMath';
@@ -56,8 +56,6 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   // Recent 4 activities
   const recentActivities = activities.slice(0, 4);
 
-  // Discipline totals
-  const totalElevM = activities.reduce((acc, a) => acc + a.total_elevation_gain_m, 0);
 
   return (
     <div className="space-y-6">
@@ -154,7 +152,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       )}
 
       {/* PMC Key Performance Metrics */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         {/* CTL Fitness */}
         <div className="glass-panel p-5 rounded-2xl border-white/10 space-y-1">
           <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center">
@@ -191,17 +189,6 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <span className="text-xs text-amber-400 font-bold">{formLabel}</span>
           </div>
           <p className="text-[11px] text-slate-400">Form Balance (CTL - ATL)</p>
-        </div>
-
-        {/* Total Elevation */}
-        <div className="glass-panel p-5 rounded-2xl border-white/10 space-y-1">
-          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center">
-            <Mountain className="w-4 h-4 mr-1 text-sky-400" /> Multi-Sport Ascent
-          </span>
-          <div className="flex items-baseline space-x-2">
-            <span className="text-3xl font-extrabold text-white">{formatFeetFromMeters(totalElevM)}</span>
-          </div>
-          <p className="text-[11px] text-slate-400">Total Elevation Gain across {activities.length} sessions</p>
         </div>
       </div>
 
