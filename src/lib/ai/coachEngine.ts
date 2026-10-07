@@ -2,6 +2,7 @@ import type { Activity, AICoachMessage, AICoachToolCall, AthleteProfile, Goal, P
 import { dataService } from '../supabase';
 import { calculatePMC, calculatePowerCurve, resolveTss, tssFromIntensity } from '../trainingMath';
 import { coachRequestExtras } from '../coachSettings';
+import { isEbike } from '../tags';
 import { ftToM, kgToLb, kmToMi, mToFt, miToKm, roundTo } from '../units';
 
 // The athlete works in imperial units. Data is stored metric, so everything sent to the model
@@ -221,6 +222,7 @@ async function gatherAthleteContext(focusGoalId?: string) {
     knee_discomfort_level: a.knee_discomfort_level,
     gear_notes: a.gear_notes,
     tags: a.tags,
+    ebike_motor_assist: isEbike(a) || undefined,
   }));
 
   const focusGoal = focusGoalId && goal?.id === focusGoalId ? goalForAI(goal) : undefined;
@@ -363,6 +365,7 @@ class GeminiCoachEngine {
         knee_discomfort_level: activity.knee_discomfort_level,
         gear_notes: activity.gear_notes,
         tags: activity.tags,
+        ebike_motor_assist: isEbike(activity) || undefined,
       },
       training_load: {
         before_activity: pmcBefore ? { ctl: pmcBefore.ctl, atl: pmcBefore.atl, tsb: pmcBefore.tsb } : null,
@@ -444,6 +447,7 @@ class GeminiCoachEngine {
         title: activity.title,
         sport_type: activity.sport_type,
         tags: activity.tags,
+        ebike_motor_assist: isEbike(activity) || undefined,
         date: activity.start_date.slice(0, 10),
         moving_hours: roundTo(hours, 2),
         distance_mi: roundTo(miles, 1),

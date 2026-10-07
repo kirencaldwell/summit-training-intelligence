@@ -31,3 +31,15 @@ export function collectTags(activities: { tags?: string[] }[]): string[] {
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
     .map((entry) => entry.label);
 }
+
+/** Canonical tag for rides with motor assist. Other spellings ("ebike", "E-Bike", "electric bike") count too. */
+export const EBIKE_TAG = 'e-bike';
+
+export function isEbikeTag(tag: string): boolean {
+  const key = tag.toLowerCase().replace(/[^a-z]/g, '');
+  return key === 'ebike' || key === 'electricbike' || key === 'ebikeride' || key === 'emtb';
+}
+
+export function isEbike(activity: { tags?: string[] }): boolean {
+  return (activity.tags ?? []).some(isEbikeTag);
+}

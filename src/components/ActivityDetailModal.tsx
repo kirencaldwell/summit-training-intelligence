@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { X, Calendar, Clock, Navigation, Mountain, Zap, Heart, ShieldAlert, Bot, RefreshCw, Pencil, Check, Tag } from 'lucide-react';
 import type { Activity, AthleteProfile, SportType } from '../types';
-import { MAX_TAG_LENGTH, MAX_TAGS_PER_ACTIVITY, normalizeTags } from '../lib/tags';
+import { EBIKE_TAG, MAX_TAG_LENGTH, MAX_TAGS_PER_ACTIVITY, isEbike, isEbikeTag, normalizeTags } from '../lib/tags';
 import { describeTssSource, resolveTss } from '../lib/trainingMath';
 import { kgToLb, lbToKg, roundTo } from '../lib/units';
 import { RouteMapViewer } from './RouteMapViewer';
@@ -59,6 +59,10 @@ const ActivityEditor: React.FC<{
     setTagInput('');
   };
   const removeTag = (tag: string) => setTags((prev) => prev.filter((t) => t !== tag));
+  const ebike = isEbike({ tags });
+  // One switch for motor assist: adds the canonical tag, or removes every e-bike spelling
+  const toggleEbike = (on: boolean) =>
+    setTags((prev) => (on ? normalizeTags([...prev, EBIKE_TAG]) : prev.filter((t) => !isEbikeTag(t))));
   const suggestions = allTags.filter((t) => !tags.some((x) => x.toLowerCase() === t.toLowerCase())).slice(0, 12);
 
   const handleSave = async () => {
@@ -113,6 +117,23 @@ const ActivityEditor: React.FC<{
           </select>
         </label>
       </div>
+
+      {(sport === 'cycling' || sport === 'zwift') && (
+        <label className="flex items-start gap-2.5 rounded-xl border border-white/10 bg-slate-900/60 p-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={ebike}
+            onChange={(e) => toggleEbike(e.target.checked)}
+            className="mt-0.5 h-4 w-4 accent-cyan-500"
+          />
+          <span>
+            <span className="block text-sm font-semibold text-white">E-bike (motor assist)</span>
+            <span className="block text-xs text-slate-400">
+              Adds the "{EBIKE_TAG}" tag. Training load is then estimated from your heart rate and notes rather than speed and climbing.
+            </span>
+          </span>
+        </label>
+      )}
 
       <div>
         <span className="text-xs font-medium text-slate-400 flex items-center"><Tag className="w-3.5 h-3.5 mr-1" /> Tags</span>
