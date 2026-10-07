@@ -3,6 +3,7 @@ import { dataService } from '../supabase';
 import { calculatePMC, calculatePowerCurve, calculatePowerReadiness, resolveTss, tssFromIntensity } from '../trainingMath';
 import { CoachApiError, coachRequestExtras, readCoachError } from '../coachSettings';
 import { isEbike } from '../tags';
+import { parseReadinessReply, type GoalReadinessAssessment } from '../goalReadiness';
 import { ftToM, kgToLb, kmToMi, mToFt, miToKm, roundTo } from '../units';
 import {
   addDaysToDateOnly,
@@ -315,6 +316,166 @@ class GeminiCoachEngine {
    * Assess how a newly added activity fits the athlete's accepted training plan and goals.
    * Returns markdown; the caller persists it with the activity.
    */
+  /**
+   * On-request, holistic judgement of how ready the athlete is for one goal. The model gets a curated
+   * summary (goal, load trend, 12 weeks of training, recent best power, biggest efforts, plan adherence,
+   * data quality) and answers with a status, a short summary and a few goal-specific dimensions.
+   */
+  public async assessGoalReadiness(goalId: string): Promise<GoalReadinessAssessment> {
+    const [profile, activities, goals, sessions] = await Promise.all([
+      dataService.getProfile(),
+      dataService.getActivities(),
+      dataService.getGoals(),
+      dataService.getTrainingSessions(),
+    ]);
+    const goal = goals.find((g) => g.id === goalId);
+    if (!goal) throw new Error('That goal could not be found.');
+
+    const dayMs = 24 * 3600 * 1000;
+    const now = new Date();
+    const today = getLocalDateString(now);
+    const dateDaysAgo = (n: number) => getLocalDateString(new Date(now.getTime() - n * dayMs));
+    const loadProfile = { ftp: profile.ftp, lthr: profile.lthr, weight_kg: profile.weight_kg };
+    const dayOf = (a: Activity) => a.start_date.slice(0, 10);
+    const hoursOf = (a: Activity) => (a.moving_time_seconds || a.duration_seconds) / 3600;
+    const milesOf = (a: Activity) => kmToMi(a.distance_meters / 1000);
+    const feetOf = (a: Activity) => mToFt(a.total_elevation_gain_m || 0);
+
+    // Motor-assisted rides don't measure the athlete's own output: keep them out of volume and power
+    const own = activities.filter((a) => !isEbike(a));
+
+    // Load trend
+    const pmc = calculatePMC(activities, 120, loadProfile);
+    const pmcOn = (daysAgo: number) => pmc.find((p) => p.date === dateDaysAgo(daysAgo)) ?? pmc[0];
+    const pmcNow = pmc[pmc.length - 1];
+    const loadPoint = (p?: { ctl: number; atl: number; tsb: number }) => p ? { ctl: roundTo(p.ctl, 1), atl: roundTo(p.atl, 1), tsb: roundTo(p.tsb, 1) } : null;
+
+    // Weekly volume, newest first (12 weeks including the current one)
+    const thisWeek = getCurrentTrainingWeekStartDate(now);
+    const weeks = Array.from({ length: 12 }, (_, i) => addDaysToDateOnly(thisWeek, -7 * i));
+    const weekly = weeks.map((weekStart) => {
+      const inWeek = activities.filter((a) => getWeekStartDate(dayOf(a)) === weekStart);
+      const ownInWeek = inWeek.filter((a) => !isEbike(a));
+      return {
+        week_start: weekStart,
+        activities: ownInWeek.length,
+        hours: roundTo(ownInWeek.reduce((s, a) => s + hoursOf(a), 0), 1),
+        miles: roundTo(ownInWeek.reduce((s, a) => s + milesOf(a), 0), 1),
+        vert_ft: Math.round(ownInWeek.reduce((s, a) => s + feetOf(a), 0)),
+        tss: Math.round(inWeek.reduce((s, a) => s + resolveTss(a, loadProfile).tss, 0)),
+        ebike_rides: inWeek.length - ownInWeek.length || undefined,
+      };
+    });
+
+    const cutoff12w = now.getTime() - 84 * dayMs;
+    const cutoff90d = now.getTime() - 90 * dayMs;
+    const recent12w = activities.filter((a) => new Date(a.start_date).getTime() >= cutoff12w);
+    const own90d = own.filter((a) => new Date(a.start_date).getTime() >= cutoff90d);
+
+    const bySport: Record<string, { activities: number; hours: number; miles: number; vert_ft: number }> = {};
+    for (const a of own.filter((x) => new Date(x.start_date).getTime() >= cutoff12w)) {
+      const s = (bySport[a.sport_type] ??= { activities: 0, hours: 0, miles: 0, vert_ft: 0 });
+      s.activities += 1;
+      s.hours = roundTo(s.hours + hoursOf(a), 1);
+      s.miles = roundTo(s.miles + milesOf(a), 1);
+      s.vert_ft += Math.round(feetOf(a));
+    }
+
+    // Power: recent best versus all-time best, own efforts only
+    const weightKg = profile.weight_kg || undefined;
+    const recentCurve = calculatePowerCurve(own90d, weightKg);
+    const allTimeCurve = calculatePowerCurve(own, weightKg);
+    const powerFor = (sec: number) => {
+      const r = recentCurve.find((p) => p.durationSeconds === sec);
+      const all = allTimeCurve.find((p) => p.durationSeconds === sec);
+      return {
+        duration_minutes: sec / 60,
+        best_watts_last_90_days: r?.watts || null,
+        average_of_best_efforts_last_90_days: r?.meanWatts || null,
+        efforts_counted: r?.sampleCount ?? 0,
+        all_time_best_watts: all?.watts || null,
+      };
+    };
+
+    const compact = (a: Activity) => ({
+      date: dayOf(a),
+      title: a.title,
+      sport_type: a.sport_type,
+      hours: roundTo(hoursOf(a), 1),
+      miles: roundTo(milesOf(a), 1),
+      vert_ft: Math.round(feetOf(a)),
+      tss: Math.round(resolveTss(a, loadProfile).tss),
+      pack_weight_lb: a.pack_weight_kg ? roundTo(kgToLb(a.pack_weight_kg), 1) : undefined,
+      tags: a.tags?.length ? a.tags : undefined,
+    });
+    const topVert = [...own90d].sort((a, b) => feetOf(b) - feetOf(a)).slice(0, 5);
+    const topDistance = [...own90d].sort((a, b) => milesOf(b) - milesOf(a)).slice(0, 5);
+    const biggest = [...new Map([...topVert, ...topDistance].map((a) => [a.id, a])).values()].map(compact);
+
+    // Plan: only sessions the athlete accepted
+    const accepted = sessions.filter((s) => s.status === 'ACCEPTED' || s.status === 'COMPLETED');
+    const past28 = accepted.filter((s) => s.session_date >= dateDaysAgo(28) && s.session_date < today);
+    const upcoming = accepted
+      .filter((s) => s.session_date >= today && s.session_date <= getLocalDateString(new Date(now.getTime() + 14 * dayMs)))
+      .sort((a, b) => a.session_date.localeCompare(b.session_date))
+      .map((s) => ({ date: s.session_date, title: s.title, sport_type: s.sport_type, duration_minutes: s.duration_minutes, target_tss: s.target_tss }));
+
+    const sources = { power: 0, heart_rate: 0, ai_estimate: 0, baseline: 0 } as Record<string, number>;
+    for (const a of recent12w) {
+      const source = resolveTss(a, loadProfile).source;
+      if (source === 'power') sources.power += 1;
+      else if (source === 'ai') sources.ai_estimate += 1;
+      else if (source === 'baseline') sources.baseline += 1;
+      else sources.heart_rate += 1;
+    }
+
+    const daysRemaining = goal.target_date
+      ? Math.ceil((new Date(`${goal.target_date}T12:00:00`).getTime() - now.getTime()) / dayMs)
+      : null;
+
+    const context = {
+      today,
+      goal: {
+        ...goalForAI(goal),
+        days_remaining: daysRemaining,
+        weeks_remaining: daysRemaining !== null ? roundTo(daysRemaining / 7, 1) : null,
+      },
+      athlete: {
+        ftp: profile.ftp || null,
+        lthr: profile.lthr || null,
+        weight_lb: profile.weight_kg ? roundTo(kgToLb(profile.weight_kg), 1) : null,
+        notes: profile.notes?.trim() || null,
+      },
+      training_load: {
+        now: loadPoint(pmcNow),
+        four_weeks_ago: loadPoint(pmcOn(28)),
+        eight_weeks_ago: loadPoint(pmcOn(56)),
+        note: 'ctl = fitness, atl = fatigue, tsb = form (ctl - atl)',
+      },
+      weekly_training_last_12_weeks_newest_first: weekly,
+      totals_by_sport_last_12_weeks: bySport,
+      power_last_90_days: [powerFor(300), powerFor(1200), powerFor(3600)],
+      biggest_efforts_last_90_days: biggest,
+      plan: {
+        accepted_sessions_last_28_days: past28.length,
+        of_which_marked_completed: past28.filter((s) => s.status === 'COMPLETED').length,
+        upcoming_14_days: upcoming,
+      },
+      data_quality: {
+        activities_last_12_weeks: recent12w.length,
+        training_load_basis: sources,
+        ebike_rides_last_12_weeks: recent12w.filter((a) => isEbike(a)).length,
+      },
+    };
+
+    const reply = await postCoach({
+      mode: 'goal_readiness',
+      message: 'Assess how ready the athlete is for this goal right now.',
+      context,
+    });
+    return parseReadinessReply(String(reply ?? ''), goalId);
+  }
+
   public async assessActivity(activity: Activity): Promise<string> {
     const [profile, activities, goals, sessions] = await Promise.all([
       dataService.getProfile(),

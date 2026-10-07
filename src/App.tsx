@@ -577,6 +577,7 @@ export function App() {
             powerCurve={powerCurveData}
             trainingSessions={upcomingSessions}
             onDeleteTrainingSessions={handleDeleteTrainingSessions}
+            onAssessGoalReadiness={(goalId) => coachEngine.assessGoalReadiness(goalId)}
             onOpenActivity={handleOpenActivity}
             onNavigateTab={setActiveTab}
             onOpenProfile={() => setIsProfileModalOpen(true)}

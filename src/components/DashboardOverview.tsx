@@ -4,6 +4,8 @@ import { Zap, Calendar, ArrowUpRight, TrendingUp, Sparkles, ChevronRight, Activi
 import { PerformanceManagementChart } from './PerformanceManagementChart';
 import { formatFeetFromMeters, formatMilesFromKm, formatMilesFromMeters } from '../lib/units';
 import { resolveTss } from '../lib/trainingMath';
+import { GoalReadinessPanel } from './GoalReadinessPanel';
+import type { GoalReadinessAssessment } from '../lib/goalReadiness';
 
 interface DashboardOverviewProps {
   profile: AthleteProfile;
@@ -16,6 +18,7 @@ interface DashboardOverviewProps {
   onNavigateTab: (tab: 'dashboard' | 'goals' | 'activities' | 'power' | 'heart-rate' | 'coach') => void;
   onOpenProfile?: () => void;
   onDeleteTrainingSessions?: (ids: string[]) => Promise<void>;
+  onAssessGoalReadiness?: (goalId: string) => Promise<GoalReadinessAssessment>;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
@@ -29,6 +32,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onNavigateTab,
   onOpenProfile,
   onDeleteTrainingSessions,
+  onAssessGoalReadiness,
 }) => {
   // Deleting asks for a second click: either one session (by id) or everything not yet completed
   const [confirmDelete, setConfirmDelete] = useState<string | 'all' | null>(null);
@@ -143,7 +147,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               </div>
             </div>
 
-            {/* Countdown Badge & Readiness */}
+            {/* Countdown Badge */}
             <div className="flex flex-col items-center justify-center p-6 rounded-2xl bg-slate-900/80 border border-white/10 text-center w-full lg:w-72 shadow-lg">
               <span className="text-xs text-slate-400 uppercase font-semibold tracking-wider">Countdown</span>
               <div className="text-4xl font-black text-cyan-400 font-mono my-1">
@@ -152,6 +156,11 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* On-request holistic readiness for the priority goal */}
+      {priorityGoal && onAssessGoalReadiness && (
+        <GoalReadinessPanel goal={priorityGoal} onAssess={onAssessGoalReadiness} />
       )}
 
       {/* PMC Key Performance Metrics */}
