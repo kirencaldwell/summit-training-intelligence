@@ -5,15 +5,6 @@ import { dataService, isSupabaseConfigured, supabase } from './lib/supabase';
 import type { GoalReadinessAssessment } from './lib/goalReadiness';
 import { calculatePMC, calculatePowerCurve, canImproveWithAi, hasPowerCurveData } from './lib/trainingMath';
 import { addDaysToDateOnly, getCurrentTrainingWeekStartDate, getNextTrainingWeekStartDate } from './lib/trainingSessions';
-import {
-  parseCorosAuthCode,
-  exchangeCorosCode,
-  setCorosTokens,
-  clearCorosTokens,
-  syncCorosActivities,
-  getStoredCorosClientId,
-} from './lib/coros';
-
 import { Navbar } from './components/Navbar';
 import { DashboardOverview } from './components/DashboardOverview';
 import { ActivityList } from './components/ActivityList';
@@ -22,7 +13,7 @@ import { HeartRateDistributionPage } from './components/HeartRateDistributionPag
 import { AICoachPanel, INITIAL_COACH_MESSAGES } from './components/AICoachPanel';
 import { ActivityDetailModal } from './components/ActivityDetailModal';
 import { AthleteProfileModal } from './components/AthleteProfileModal';
-import { DataSyncModal } from './components/StravaConnectModal';
+import { DataSyncModal } from './components/ImportDataModal';
 import { GoalsManager } from './components/GoalsManager';
 import { GoogleSignInScreen } from './components/GoogleSignInScreen';
 import { coachEngine } from './lib/ai/coachEngine';
@@ -30,6 +21,8 @@ import { formatLbFromKg } from './lib/units';
 import { collectTags, isEbike } from './lib/tags';
 import {
   IntervalsError,
+  clearIntervalsSettings,
+  getIntervalsAccountStatus,
   syncIntervalsSettings,
   autoSyncDue,
   autoSyncStart,
@@ -44,6 +37,17 @@ import { mergeMessages, planChatSync, sameMessages, toSyncable, type ChatSyncSta
 import { Mountain, Zap } from 'lucide-react';
 
 const CURRENT_YEAR = new Date().getFullYear();
+
+// The direct COROS and Strava importers were removed (Intervals.icu replaces them); drop what they left in the browser
+function removeLegacyImporterKeys() {
+  try {
+    for (const key of ['summit_coros_client_id', 'summit_coros_access_token', 'summit_coros_refresh_token', 'summit_coros_athlete', 'summit_strava_client_id']) {
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // storage may be blocked
+  }
+}
 
 export function App() {
   // Coach chat lives here so it survives tab switches (the panel unmounts), and is mirrored to localStorage for reloads
@@ -61,6 +65,8 @@ export function App() {
   useEffect(() => {
     try { localStorage.setItem('summit-coach-messages', JSON.stringify(coachMessages)); } catch { /* ignore */ }
   }, [coachMessages]);
+
+  useEffect(() => { removeLegacyImporterKeys(); }, []);
 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'goals' | 'activities' | 'power' | 'heart-rate' | 'coach'>('dashboard');
   const [powerCurveYear, setPowerCurveYear] = useState<'all' | number>('all');
@@ -448,7 +454,11 @@ export function App() {
     if (!supabase) return;
     const { error } = await supabase.auth.signOut();
     if (error) setAppError(`Sign out failed: ${error.message}`);
-    else clearCorosTokens();
+    else {
+      // The signed-in account holds the Intervals.icu key, so don't leave a copy behind in this browser
+      if (getIntervalsAccountStatus().state === 'saved') clearIntervalsSettings();
+      removeLegacyImporterKeys();
+    }
   };
 
   useEffect(() => {
@@ -604,29 +614,6 @@ export function App() {
       window.removeEventListener('focus', refresh);
     };
   }, [dataReady]);
-
-  useEffect(() => {
-    if (!authReady || (isSupabaseConfigured && !authUser)) return;
-
-    const params = new URLSearchParams(window.location.search);
-
-    const corosCode = params.get('coros_code') || (params.has('scope') ? parseCorosAuthCode() : null);
-    if (corosCode) {
-      const clientId = getStoredCorosClientId();
-      if (clientId) {
-        exchangeCorosCode(corosCode, clientId)
-          .then(({ accessToken, refreshToken }) => {
-            setCorosTokens(accessToken, refreshToken);
-            return syncCorosActivities(accessToken);
-          })
-          .then((newActivities) => {
-            setActivities((prev) => [...newActivities, ...prev]);
-          })
-          .catch((err) => setAppError(`COROS sync failed: ${err.message}`));
-      }
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  }, [authReady, authUser]);
 
   if (isSupabaseConfigured && !authReady) {
     return (

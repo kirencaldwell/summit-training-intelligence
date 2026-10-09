@@ -1,31 +1,20 @@
 /**
- * DataSyncModal.tsx
- * Unified Data Sources hub — FIT file import, COROS OAuth, and legacy Strava.
- * Replaces the old StravaConnectModal.
+ * ImportDataModal.tsx
+ * The Import Data window: automatic import from Intervals.icu (which collects Garmin, COROS and Zwift), or
+ * uploading FIT / GPX files and a Strava export.
  */
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
-  X, Upload, CheckCircle2, AlertCircle, Loader2, Watch, RefreshCw, CopyCheck,
-  Key, ExternalLink, Mountain, ChevronRight, FileCode2, Waypoints,
+  X, Upload, CheckCircle2, AlertCircle, Loader2, RefreshCw, CopyCheck, FileCode2, Waypoints,
 } from 'lucide-react';
 import type { Activity } from '../types';
 import { parseActivityFiles, applyStravaCsvToExisting, type FitImportResult, type ImportProgress } from '../lib/fitParser';
 import { parseStravaActivitiesCsv, type StravaMetaIndex } from '../lib/stravaCsv';
-import {
-  getCorosAuthUrl,
-  getStoredCorosClientId,
-  setStoredCorosClientId,
-  isCorosConnected,
-  clearCorosTokens,
-  getCorosAccessToken,
-  syncCorosActivities,
-} from '../lib/coros';
 import { formatFeetFromMeters } from '../lib/units';
 import { IntervalsTab } from './IntervalsTab';
 import { getIntervalsSettings } from '../lib/intervals';
-import { getStoredStravaClientId, setStoredStravaClientId, getStravaAuthUrl } from '../lib/strava';
 
-type Tab = 'fit' | 'intervals' | 'coros' | 'strava';
+type Tab = 'intervals' | 'files';
 
 interface DataSyncModalProps {
   isOpen: boolean;
@@ -129,41 +118,6 @@ const FitUploadTab: React.FC<{
 
   return (
     <div className="space-y-4">
-      {/* Instructions */}
-      <div className="p-3.5 rounded-xl bg-slate-900 border border-white/5 text-xs text-slate-300 space-y-2">
-        <p className="font-semibold text-white flex items-center">
-          <FileCode2 className="w-3.5 h-3.5 mr-1.5 text-cyan-400" />
-          Works with Garmin, COROS, Wahoo, Polar, Suunto — any FIT-compatible device
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-400">
-          <div>
-            <p className="font-semibold text-slate-300">📲 From Garmin Connect:</p>
-            <p>Activities → select activity → ⋯ → Export Original (.fit). Gzip-compressed .fit.gz files are also supported.</p>
-          </div>
-          <div>
-            <p className="font-semibold text-slate-300">📲 From COROS App:</p>
-            <p>Activities → select → Share → Export Data → FIT</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Strava Bulk Export Tip */}
-      <div className="p-3.5 rounded-xl bg-orange-500/10 border border-orange-500/25 text-xs space-y-2">
-        <p className="font-semibold text-orange-300 flex items-center gap-1.5">
-          <span>📦</span> Import your full Strava history (free, one-time)
-        </p>
-        <p className="text-slate-300 leading-relaxed">
-          Strava lets you export <strong className="text-white">every activity you've ever recorded</strong> as .fit.gz files — no paid subscription needed for the export. GPX and uncompressed FIT files are supported too.
-        </p>
-        <ol className="text-slate-400 space-y-0.5 list-decimal list-inside leading-relaxed">
-          <li>Go to <a href="https://www.strava.com/athlete/delete_your_account" target="_blank" rel="noreferrer" className="text-orange-400 hover:underline">strava.com/athlete/delete_your_account</a> <span className="text-slate-500">(you're not deleting anything)</span></li>
-          <li>Click <strong className="text-slate-200">"Get Started"</strong> under <em>Request your archive</em></li>
-          <li>Strava emails you a .zip — usually within a few hours</li>
-          <li>Unzip it, then select or drag the <strong className="text-slate-200">.fit.gz, .fit, or .gpx files</strong> from the activities folder below</li>
-          <li>Also add <strong className="text-slate-200">activities.csv</strong> from the same zip, in the same drop, to bring in your Strava activity names, types and descriptions. Dropped on its own, it fills in activities you already imported.</li>
-        </ol>
-      </div>
-
       {/* Drop Zone */}
       <div
         onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
@@ -231,6 +185,49 @@ const FitUploadTab: React.FC<{
         )}
       </div>
 
+      {/* Where the files come from: collapsed so the drop zone is the first thing you see */}
+      <details className="group rounded-xl border border-white/5 bg-slate-900/60 text-xs">
+        <summary className="cursor-pointer select-none list-none px-3.5 py-3 font-semibold text-slate-200 flex items-center justify-between gap-2 min-h-11">
+          <span className="flex items-center"><FileCode2 className="w-3.5 h-3.5 mr-1.5 text-cyan-400" />Where do I get these files?</span>
+          <span className="text-slate-500 group-open:rotate-180 transition-transform" aria-hidden="true">▾</span>
+        </summary>
+        <div className="space-y-3 px-3.5 pb-3.5 text-slate-300">
+      <div className="p-3.5 rounded-xl bg-slate-900 border border-white/5 text-xs text-slate-300 space-y-2">
+        <p className="font-semibold text-white flex items-center">
+          <FileCode2 className="w-3.5 h-3.5 mr-1.5 text-cyan-400" />
+          Works with Garmin, COROS, Wahoo, Polar, Suunto — any FIT-compatible device
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-400">
+          <div>
+            <p className="font-semibold text-slate-300">📲 From Garmin Connect:</p>
+            <p>Activities → select activity → ⋯ → Export Original (.fit). Gzip-compressed .fit.gz files are also supported.</p>
+          </div>
+          <div>
+            <p className="font-semibold text-slate-300">📲 From COROS App:</p>
+            <p>Activities → select → Share → Export Data → FIT</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="p-3.5 rounded-xl bg-orange-500/10 border border-orange-500/25 text-xs space-y-2">
+        <p className="font-semibold text-orange-300 flex items-center gap-1.5">
+          <span>📦</span> Import your full Strava history (free, one-time)
+        </p>
+        <p className="text-slate-300 leading-relaxed">
+          Strava lets you export <strong className="text-white">every activity you've ever recorded</strong> as .fit.gz files — no paid subscription needed for the export. GPX and uncompressed FIT files are supported too.
+        </p>
+        <ol className="text-slate-400 space-y-0.5 list-decimal list-inside leading-relaxed">
+          <li>Go to <a href="https://www.strava.com/athlete/delete_your_account" target="_blank" rel="noreferrer" className="text-orange-400 hover:underline">strava.com/athlete/delete_your_account</a> <span className="text-slate-500">(you're not deleting anything)</span></li>
+          <li>Click <strong className="text-slate-200">"Get Started"</strong> under <em>Request your archive</em></li>
+          <li>Strava emails you a .zip — usually within a few hours</li>
+          <li>Unzip it, then select or drag the <strong className="text-slate-200">.fit.gz, .fit, or .gpx files</strong> from the activities folder onto the drop zone above</li>
+          <li>Also add <strong className="text-slate-200">activities.csv</strong> from the same zip, in the same drop, to bring in your Strava activity names, types and descriptions. Dropped on its own, it fills in activities you already imported.</li>
+        </ol>
+      </div>
+
+        </div>
+      </details>
+
       {csvNote && (
         <p className={`p-3 rounded-xl border text-xs ${csvNote.ok ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200' : 'bg-rose-500/10 border-rose-500/30 text-rose-300'}`}>
           {csvNote.text}
@@ -263,7 +260,7 @@ const FitUploadTab: React.FC<{
                 <p className="font-semibold text-white truncate">{r.file}</p>
                 {(r.status === 'success' || r.status === 'updated') && r.activity ? (
                   <div className="flex flex-wrap gap-2 mt-1">
-                    {r.status === 'updated' && <span className="text-emerald-300">Updated from Strava CSV: {r.activity.title}</span>}
+                    {r.status === 'updated' && <span className="text-emerald-300 break-all">Updated from Strava CSV: {r.activity.title}</span>}
                     <span className="text-slate-400">
                       🏔 {r.activity.sport_type.replace('_', ' ')}
                     </span>
@@ -282,221 +279,15 @@ const FitUploadTab: React.FC<{
                     )}
                   </div>
                 ) : r.status === 'duplicate' ? (
-                  <p className="text-amber-200 mt-0.5">Already imported; skipped{r.activity ? ` (matches ${r.activity.title})` : ''}.</p>
+                  <p className="text-amber-200 mt-0.5 break-words">Already imported; skipped{r.activity ? ` (matches ${r.activity.title})` : ''}.</p>
                 ) : (
-                  <p className="text-rose-300 mt-0.5">{r.error}</p>
+                  <p className="text-rose-300 mt-0.5 break-words">{r.error}</p>
                 )}
               </div>
             </div>
           ))}
         </div>
       )}
-    </div>
-  );
-};
-
-// ─── COROS Tab ─────────────────────────────────────────────────────────────────
-
-const CorosTab: React.FC<{ onActivitiesImported: (a: Activity[]) => void }> = ({
-  onActivitiesImported,
-}) => {
-  const [clientIdInput, setClientIdInput] = useState(getStoredCorosClientId());
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState('');
-  const [errorMsg, setErrorMsg] = useState('');
-  const connected = isCorosConnected();
-
-  const handleConnect = () => {
-    if (!clientIdInput.trim()) {
-      setErrorMsg('Enter your COROS Client ID from developer.coros.com');
-      return;
-    }
-    setStoredCorosClientId(clientIdInput.trim());
-    window.location.href = getCorosAuthUrl(clientIdInput.trim());
-  };
-
-  const handleSync = async () => {
-    const token = getCorosAccessToken();
-    if (!token) return;
-    setIsSyncing(true);
-    setSyncStatus('');
-    setErrorMsg('');
-    try {
-      const activities = await syncCorosActivities(token);
-      setSyncStatus(`✓ Synced ${activities.length} activities from COROS`);
-      onActivitiesImported(activities);
-    } catch (err: any) {
-      setErrorMsg(err.message);
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  const handleDisconnect = () => {
-    clearCorosTokens();
-    setSyncStatus('');
-    window.location.reload();
-  };
-
-  return (
-    <div className="space-y-4">
-      {/* Status */}
-      <div className={`flex items-center space-x-3 p-3.5 rounded-xl border ${
-        connected
-          ? 'bg-emerald-500/10 border-emerald-500/30'
-          : 'bg-slate-900 border-white/5'
-      }`}>
-        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-          connected ? 'bg-emerald-500/20' : 'bg-slate-800'
-        }`}>
-          <Watch className={`w-4 h-4 ${connected ? 'text-emerald-400' : 'text-slate-500'}`} />
-        </div>
-        <div className="flex-1">
-          <p className="text-sm font-semibold text-white">
-            {connected ? 'COROS Account Connected' : 'COROS Not Connected'}
-          </p>
-          <p className="text-xs text-slate-400">
-            {connected ? 'Ready to sync activities from your COROS watch' : 'Connect via OAuth2 below'}
-          </p>
-        </div>
-        {connected && (
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-        )}
-      </div>
-
-      {!connected ? (
-        <>
-          {/* Setup Instructions */}
-          <div className="p-3.5 rounded-xl bg-slate-900 border border-white/5 text-xs text-slate-400 space-y-1.5">
-            <p className="font-semibold text-white">How to get your COROS Client ID:</p>
-            <ol className="list-decimal list-inside space-y-1">
-              <li>
-                Visit{' '}
-                <a
-                  href="https://developer.coros.com"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-cyan-400 hover:underline inline-flex items-center"
-                >
-                  developer.coros.com <ExternalLink className="w-3 h-3 ml-0.5" />
-                </a>
-              </li>
-              <li>Create a Developer App (free, no approval needed)</li>
-              <li>Set Redirect URI to: <code className="text-cyan-300 bg-slate-800 px-1 rounded">{window.location.origin}/</code></li>
-              <li>Copy your Client ID below</li>
-            </ol>
-          </div>
-
-          {/* Client ID Input */}
-          <div>
-            <label className="text-xs font-semibold text-slate-300 flex items-center mb-1">
-              <Key className="w-3.5 h-3.5 mr-1.5 text-cyan-400" /> COROS Client ID
-            </label>
-            <input
-              type="text"
-              placeholder="e.g. abc123def456"
-              value={clientIdInput}
-              onChange={(e) => { setClientIdInput(e.target.value); setErrorMsg(''); }}
-              className="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white font-mono placeholder-slate-500 focus:outline-none focus:border-cyan-500"
-            />
-            {errorMsg && <p className="text-xs text-rose-400 mt-1">{errorMsg}</p>}
-          </div>
-
-          <button
-            onClick={handleConnect}
-            className="w-full py-3 rounded-xl bg-gradient-to-r from-sky-500 to-cyan-500 text-slate-950 font-bold text-sm hover:opacity-95 transition-all flex items-center justify-center space-x-2 shadow-lg shadow-cyan-500/20"
-          >
-            <Watch className="w-4 h-4" />
-            <span>Authorize COROS via OAuth</span>
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </>
-      ) : (
-        /* Connected State */
-        <div className="space-y-3">
-          <button
-            onClick={handleSync}
-            disabled={isSyncing}
-            className="w-full py-3 rounded-xl bg-gradient-to-r from-sky-500 to-cyan-500 text-slate-950 font-bold text-sm hover:opacity-95 disabled:opacity-50 transition-all flex items-center justify-center space-x-2 shadow-lg shadow-cyan-500/20"
-          >
-            {isSyncing ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <RefreshCw className="w-4 h-4" />
-            )}
-            <span>{isSyncing ? 'Syncing from COROS...' : 'Sync Recent Activities'}</span>
-          </button>
-
-          {syncStatus && (
-            <p className="text-xs text-emerald-400 text-center font-semibold">{syncStatus}</p>
-          )}
-          {errorMsg && (
-            <p className="text-xs text-rose-400 text-center">{errorMsg}</p>
-          )}
-
-          <button
-            onClick={handleDisconnect}
-            className="w-full py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white text-xs font-medium transition-all"
-          >
-            Disconnect COROS Account
-          </button>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ─── Strava Tab (legacy) ───────────────────────────────────────────────────────
-
-const StravaTab: React.FC = () => {
-  const [clientIdInput, setClientIdInput] = useState(getStoredStravaClientId());
-  const [errorMsg, setErrorMsg] = useState('');
-
-  const handleAuthorize = () => {
-    if (!clientIdInput.trim()) {
-      setErrorMsg('Enter your Strava Client ID');
-      return;
-    }
-    setStoredStravaClientId(clientIdInput.trim());
-    const url = getStravaAuthUrl(clientIdInput.trim());
-    if (!url) { setErrorMsg('Invalid Client ID format.'); return; }
-    window.location.href = url;
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200 leading-relaxed">
-        <p className="font-semibold text-amber-300 mb-1">⚠️ Strava API Changes (June 2026)</p>
-        Strava now requires an active Strava subscription for API access. If you have a paid Strava account, this still works. Otherwise use FIT upload or COROS sync above.
-      </div>
-
-      <div>
-        <label className="text-xs font-semibold text-slate-300 flex items-center mb-1">
-          <Key className="w-3.5 h-3.5 mr-1.5 text-orange-400" /> Strava Client ID
-        </label>
-        <input
-          type="text"
-          placeholder="e.g. 123456"
-          value={clientIdInput}
-          onChange={(e) => { setClientIdInput(e.target.value); setErrorMsg(''); }}
-          className="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white font-mono placeholder-slate-500 focus:outline-none focus:border-orange-500"
-        />
-        {errorMsg && <p className="text-xs text-rose-400 mt-1">{errorMsg}</p>}
-        <p className="text-[11px] text-slate-500 mt-1">
-          Find at{' '}
-          <a href="https://www.strava.com/settings/api" target="_blank" rel="noreferrer" className="text-orange-400 hover:underline">
-            strava.com/settings/api
-          </a>
-        </p>
-      </div>
-
-      <button
-        onClick={handleAuthorize}
-        className="w-full py-3 rounded-xl bg-gradient-to-r from-orange-600 to-amber-500 text-white font-bold text-sm hover:opacity-95 flex items-center justify-center space-x-2 shadow-lg shadow-orange-600/30"
-      >
-        <RefreshCw className="w-4 h-4" />
-        <span>Authorize Strava OAuth</span>
-      </button>
     </div>
   );
 };
@@ -510,8 +301,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   onActivitiesUpdated,
   onActivitiesAdded,
 }) => {
-  // Once Intervals.icu is connected it is where most people will want to land
-  const [activeTab, setActiveTab] = useState<Tab>(() => (getIntervalsSettings() ? 'intervals' : 'fit'));
+  const [activeTab, setActiveTab] = useState<Tab>('intervals');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -526,27 +316,15 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode; badge?: string }[] = [
     {
-      id: 'fit',
-      label: 'FIT Upload',
-      icon: <Upload className="w-3.5 h-3.5" />,
-      badge: 'Recommended',
-    },
-    {
       id: 'intervals',
       label: 'Intervals.icu',
       icon: <Waypoints className="w-3.5 h-3.5" />,
-      badge: getIntervalsSettings() ? '●' : 'Auto',
+      badge: getIntervalsSettings() ? '●' : 'Recommended',
     },
     {
-      id: 'coros',
-      label: 'COROS Sync',
-      icon: <Watch className="w-3.5 h-3.5" />,
-      badge: isCorosConnected() ? '●' : undefined,
-    },
-    {
-      id: 'strava',
-      label: 'Strava',
-      icon: <Mountain className="w-3.5 h-3.5" />,
+      id: 'files',
+      label: 'Upload files',
+      icon: <Upload className="w-3.5 h-3.5" />,
     },
   ];
 
@@ -614,22 +392,14 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
         {/* Tab Content */}
         <div>
-          {activeTab === 'fit' && (
-            <FitUploadTab
-              onActivitiesImported={(activities) => {
-                onActivitiesImported(activities);
-              }}
-              onActivitiesUpdated={onActivitiesUpdated}
-            />
-          )}
           {activeTab === 'intervals' && (
             <IntervalsTab onActivitiesImported={onActivitiesAdded ?? onActivitiesImported} onActivitiesUpdated={onActivitiesUpdated} />
           )}
-          {activeTab === 'coros' && (
-            <CorosTab onActivitiesImported={onActivitiesImported} />
-          )}
-          {activeTab === 'strava' && (
-            <StravaTab />
+          {activeTab === 'files' && (
+            <FitUploadTab
+              onActivitiesImported={onActivitiesImported}
+              onActivitiesUpdated={onActivitiesUpdated}
+            />
           )}
         </div>
       </div>
@@ -637,5 +407,3 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   );
 };
 
-// Keep old export name for backward compatibility during transition
-export { DataSyncModal as StravaConnectModal };
