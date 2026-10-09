@@ -575,8 +575,9 @@ export function App() {
     try {
       const result = await syncFromIntervals({ apiKey: settings.apiKey, oldest: autoSyncStart(settings) });
       saveIntervalsSettings({ ...settings, lastSyncAt: new Date().toISOString() });
-      if (result.imported.length > 0) {
-        setActivities((previous) => [...result.imported, ...previous]);
+      if (result.imported.length > 0) setActivities((previous) => [...result.imported, ...previous]);
+      if (result.updated.length > 0) handleActivitiesUpdated(result.updated);
+      if (result.imported.length > 0 || result.updated.length > 0) {
         setSyncNotice({ text: `Intervals.icu: ${describeSync(result)}`, tone: 'ok' });
       }
     } catch (err) {

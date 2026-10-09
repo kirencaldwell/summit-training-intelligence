@@ -623,7 +623,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             />
           )}
           {activeTab === 'intervals' && (
-            <IntervalsTab onActivitiesImported={onActivitiesAdded ?? onActivitiesImported} />
+            <IntervalsTab onActivitiesImported={onActivitiesAdded ?? onActivitiesImported} onActivitiesUpdated={onActivitiesUpdated} />
           )}
           {activeTab === 'coros' && (
             <CorosTab onActivitiesImported={onActivitiesImported} />

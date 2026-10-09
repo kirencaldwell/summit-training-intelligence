@@ -16,6 +16,8 @@ import {
 
 interface IntervalsTabProps {
   onActivitiesImported: (activities: Activity[]) => void;
+  /** Activities already in the log that gained data from a second device's recording */
+  onActivitiesUpdated?: (activities: Activity[]) => void;
 }
 
 const HISTORY_OPTIONS = [
@@ -27,7 +29,7 @@ const HISTORY_OPTIONS = [
 
 const isoDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-export const IntervalsTab: React.FC<IntervalsTabProps> = ({ onActivitiesImported }) => {
+export const IntervalsTab: React.FC<IntervalsTabProps> = ({ onActivitiesImported, onActivitiesUpdated }) => {
   const [settings, setSettings] = useState<IntervalsSettings | null>(() => getIntervalsSettings());
   const [keyInput, setKeyInput] = useState('');
   const [history, setHistory] = useState<(typeof HISTORY_OPTIONS)[number]['id']>('90');
@@ -91,6 +93,7 @@ export const IntervalsTab: React.FC<IntervalsTabProps> = ({ onActivitiesImported
       const oldest = days > 0 ? isoDate(new Date(Date.now() - days * 24 * 3600 * 1000)) : '2000-01-01';
       const result = await syncFromIntervals({ apiKey: settings.apiKey, oldest, onProgress: setProgress, signal: controller.signal });
       if (result.imported.length > 0) onActivitiesImported(result.imported);
+      if (result.updated.length > 0) onActivitiesUpdated?.(result.updated);
       // Only a full run counts as caught up; a stopped one will be picked up again next time
       if (!result.cancelled) {
         const next = { ...settings, lastSyncAt: new Date().toISOString() };
@@ -143,7 +146,7 @@ export const IntervalsTab: React.FC<IntervalsTabProps> = ({ onActivitiesImported
               <li>Further down the same Settings page, find your <strong className="text-slate-200">API key</strong> and copy it.</li>
               <li>Paste it below. It stays in this browser, so enter it once on each device.</li>
             </ol>
-            <p className="text-slate-500 pt-1">If a workout comes from both a Garmin and a COROS, the Garmin recording is kept.</p>
+            <p className="text-slate-500 pt-1 leading-relaxed">A ride recorded on two devices (say a Garmin and a COROS) becomes one activity, never two: the Garmin recording is the base, and anything it lacks, like heart rate or power, is filled in from the other.</p>
           </div>
           <div>
             <label htmlFor="intervals-key" className="text-xs font-semibold text-slate-300 flex items-center mb-1">

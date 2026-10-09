@@ -7,7 +7,17 @@ import type { Activity } from '../types';
 import { dataService } from './supabase';
 import { parseFitFile, parseGpxFile } from './fitParser';
 import { isDuplicateActivity } from './activityDuplicates';
-import { activityFromCandidate, applyCandidate, planImport, toCandidate, type IntervalsCandidate, type IntervalsRaw } from './intervalsMap';
+import {
+  activityFromCandidate,
+  activityHas,
+  applyCandidate,
+  couldAdd,
+  planImport,
+  toCandidate,
+  type IntervalsCandidate,
+  type IntervalsRaw,
+} from './intervalsMap';
+import { mergeRecordings, recordingFields } from './mergeActivities';
 
 const STORAGE_KEY = 'summit_intervals_settings';
 /** The sync checks again when the app comes back into view, at most this often */
@@ -163,17 +173,48 @@ export interface SyncProgress {
 export interface SyncResult {
   /** Activities found at Intervals.icu in the range */
   listed: number;
+  /** New activities added to the log */
   imported: Activity[];
+  /** Activities already in the log that gained something from another device's recording */
+  updated: Activity[];
+  /** Recordings that matched something already in the log and added nothing */
   alreadyHave: number;
-  droppedDuplicates: number;
-  /** COROS copies skipped because a Garmin (or other) recording of the same workout was kept */
-  droppedCoros: number;
+  /** Workouts recorded on more than one device: the extra recordings were not counted again */
+  duplicatesHandled: number;
   /** Swim, strength, yoga and other sports this app doesn't track */
   unsupported: number;
   /** Imported from the summary because the recording file wasn't available */
   summaryOnly: number;
   failed: { name: string; error: string }[];
   cancelled: boolean;
+}
+
+// What this browser remembers about activities it imported: which source was preferred for each (so a
+// better recording that turns up later can take over), and which recordings were already merged.
+const LEDGER_KEY = 'summit_intervals_ledger';
+const LEDGER_MAX = 3000;
+interface Ledger {
+  /** saved activity id -> rank of the recording it is based on (0 Garmin, 1 other, 2 COROS) */
+  ranks: Record<string, number>;
+  /** Intervals.icu activity ids already merged into an activity */
+  merged: string[];
+}
+function readLedger(): Ledger {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LEDGER_KEY) || '{}') as Partial<Ledger>;
+    return { ranks: parsed.ranks && typeof parsed.ranks === 'object' ? parsed.ranks : {}, merged: Array.isArray(parsed.merged) ? parsed.merged : [] };
+  } catch {
+    return { ranks: {}, merged: [] };
+  }
+}
+function writeLedger(ledger: Ledger): void {
+  try {
+    const keys = Object.keys(ledger.ranks);
+    if (keys.length > LEDGER_MAX) for (const key of keys.slice(0, keys.length - LEDGER_MAX)) delete ledger.ranks[key];
+    localStorage.setItem(LEDGER_KEY, JSON.stringify({ ranks: ledger.ranks, merged: ledger.merged.slice(-LEDGER_MAX) }));
+  } catch {
+    // Storage can be blocked; combining still works, it just won't remember which source was preferred
+  }
 }
 
 let syncRunning = false;
@@ -205,35 +246,100 @@ async function runSync(options: {
   signal?: AbortSignal;
 }): Promise<SyncResult> {
   const raw = await listIntervalsActivities(options.apiKey, options.oldest, options.newest ?? isoDate(new Date(Date.now() + DAY_MS)));
-  const candidates = raw.map(toCandidate);
-  const usable = candidates.filter((c): c is IntervalsCandidate => c !== null);
+  const usable = raw.map(toCandidate).filter((c): c is IntervalsCandidate => c !== null);
 
-  const existing = await dataService.getActivities();
+  // A copy: in local mode getActivities() returns the store's own list, which this function must not add to
+  const existing = [...(await dataService.getActivities())];
   const plan = planImport(usable, existing);
+  const ledger = readLedger();
 
   const result: SyncResult = {
     listed: raw.length,
     imported: [],
-    alreadyHave: plan.alreadyHave,
-    droppedDuplicates: plan.droppedDuplicates,
-    droppedCoros: plan.droppedCoros,
+    updated: [],
+    alreadyHave: 0,
+    duplicatesHandled: 0,
     unsupported: raw.length - usable.length,
     summaryOnly: 0,
     failed: [],
     cancelled: false,
   };
 
-  for (const [index, candidate] of plan.toImport.entries()) {
+  // Matches first (cheap, usually nothing to do), then new workouts
+  const total = plan.matches.length + plan.groups.length;
+  let done = 0;
+  const step = async (name: string | undefined) => {
+    options.onProgress?.({ done, total, name });
+    // Let the browser paint progress between downloads
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+  const rethrowFatal = (err: unknown) => {
+    // A rate limit or a rejected key will fail every download: stop instead of failing them all one by one
+    if (err instanceof IntervalsError && (err.status === 401 || err.status === 429)) throw err;
+  };
+
+  for (const { candidate, existing: match } of plan.matches) {
     if (options.signal?.aborted) {
       result.cancelled = true;
       break;
     }
-    options.onProgress?.({ done: index, total: plan.toImport.length, name: candidate.name });
-    // Let the browser paint progress between downloads
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await step(candidate.name);
+    done += 1;
+    // Only when this browser knows the saved activity came from a less preferred source does a better one take over
+    const knownRank = ledger.ranks[match.id];
+    const takesOver = knownRank !== undefined && candidate.rank < knownRank;
+    // Skip the download unless this recording could add heart rate or power, or is the preferred source
+    if (ledger.merged.includes(candidate.id) || !(takesOver || couldAdd(activityHas(match), candidate))) {
+      result.alreadyHave += 1;
+      continue;
+    }
     try {
-      const { activity, fromFile } = await buildActivity(candidate, options.apiKey);
-      // Candidates without a UTC start couldn't be matched earlier; check again with the real start time
+      const full = (await dataService.getActivityById(match.id)) ?? match;
+      const { activity: incoming } = await buildActivity(candidate, options.apiKey);
+      // A preferred recording becomes the base; the one already saved only fills what it lacks
+      const merged = takesOver ? mergeRecordings(incoming, full) : mergeRecordings(full, incoming);
+      const changed = takesOver || merged.filled.length > 0;
+      if (changed) {
+        const saved = await dataService.updateActivity(match.id, recordingFields(merged.activity));
+        const index = existing.findIndex((e) => e.id === match.id);
+        if (index >= 0) existing[index] = { ...existing[index], ...saved };
+        result.updated.push(saved);
+        result.duplicatesHandled += 1;
+        if (takesOver) ledger.ranks[match.id] = candidate.rank;
+      } else {
+        result.alreadyHave += 1;
+      }
+      ledger.merged.push(candidate.id);
+    } catch (err) {
+      rethrowFatal(err);
+      result.failed.push({ name: candidate.name || candidate.id, error: err instanceof Error ? err.message : 'Merge failed.' });
+    }
+  }
+
+  for (const group of plan.groups) {
+    if (result.cancelled || options.signal?.aborted) {
+      result.cancelled = true;
+      break;
+    }
+    await step(group.primary.name);
+    done += 1;
+    try {
+      let { activity, fromFile } = await buildActivity(group.primary, options.apiKey);
+      // Other devices' recordings of the same workout: fold in what the primary lacks, count it once
+      for (const extra of group.extras) {
+        result.duplicatesHandled += 1;
+        ledger.merged.push(extra.id);
+        // Only worth downloading if it has heart rate or power that the activity built so far lacks
+        if (!couldAdd(activityHas(activity), extra)) continue;
+        try {
+          const { activity: other } = await buildActivity(extra, options.apiKey);
+          activity = mergeRecordings(activity, other).activity;
+        } catch (err) {
+          rethrowFatal(err);
+          // The extra recording is optional; the primary is still worth saving
+        }
+      }
+      // A recording without a UTC start couldn't be matched earlier; check again with the real start time
       if (existing.some((e) => isDuplicateActivity(activity, e))) {
         result.alreadyHave += 1;
         continue;
@@ -241,13 +347,17 @@ async function runSync(options: {
       const saved = await dataService.addActivity(activity);
       existing.push(saved);
       result.imported.push(saved);
+      ledger.ranks[saved.id] = group.primary.rank;
+      ledger.merged.push(group.primary.id);
       if (!fromFile) result.summaryOnly += 1;
     } catch (err) {
-      if (err instanceof IntervalsError && (err.status === 401 || err.status === 429)) throw err;
-      result.failed.push({ name: candidate.name || candidate.id, error: err instanceof Error ? err.message : 'Import failed.' });
+      rethrowFatal(err);
+      result.failed.push({ name: group.primary.name || group.primary.id, error: err instanceof Error ? err.message : 'Import failed.' });
     }
   }
-  options.onProgress?.({ done: plan.toImport.length, total: plan.toImport.length });
+
+  writeLedger(ledger);
+  options.onProgress?.({ done: total, total });
   return result;
 }
 
@@ -270,10 +380,9 @@ export function autoSyncDue(settings: IntervalsSettings | null, now = Date.now()
 /** "Imported 3 activities" plus anything worth knowing, for a notice or status line. */
 export function describeSync(result: SyncResult): string {
   const parts = [`Imported ${result.imported.length} ${result.imported.length === 1 ? 'activity' : 'activities'}`];
+  if (result.updated.length) parts.push(`${result.updated.length} improved with data from a second device`);
+  if (result.duplicatesHandled) parts.push(`${result.duplicatesHandled} duplicate recording${result.duplicatesHandled === 1 ? '' : 's'} from other devices counted once`);
   if (result.alreadyHave) parts.push(`${result.alreadyHave} already in your log`);
-  if (result.droppedDuplicates) {
-    parts.push(`${result.droppedDuplicates} duplicate${result.droppedDuplicates === 1 ? '' : 's'} skipped${result.droppedCoros ? ` (${result.droppedCoros} COROS ${result.droppedCoros === 1 ? 'copy' : 'copies'}, keeping Garmin)` : ''}`);
-  }
   if (result.unsupported) parts.push(`${result.unsupported} of other sports skipped`);
   if (result.summaryOnly) parts.push(`${result.summaryOnly} imported without a recording file (no map or charts)`);
   if (result.failed.length) parts.push(`${result.failed.length} failed`);

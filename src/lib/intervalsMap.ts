@@ -105,53 +105,69 @@ function asActivity(c: IntervalsCandidate): Activity | null {
   } as Activity;
 }
 
-export interface ImportPlan {
-  toImport: IntervalsCandidate[];
-  /** Already in the log (from any earlier import) */
-  alreadyHave: number;
-  /** A second copy of a workout in this batch, dropped in favour of the preferred device's recording */
-  droppedDuplicates: number;
-  /** Of those, how many were COROS copies dropped because a Garmin (or other) recording exists */
-  droppedCoros: number;
+/** One workout that is new to the log: the preferred recording, plus other devices' recordings of the same workout. */
+export interface WorkoutGroup {
+  primary: IntervalsCandidate;
+  extras: IntervalsCandidate[];
 }
 
+/** A recording that matches an activity already in the log. */
+export interface ExistingMatch {
+  candidate: IntervalsCandidate;
+  existing: Activity;
+}
+
+export interface ImportPlan {
+  groups: WorkoutGroup[];
+  matches: ExistingMatch[];
+}
+
+const dataScore = (c: IntervalsCandidate) => (c.avgWatts ? 1 : 0) + (c.avgHr ? 1 : 0);
+
+/** Does this other recording have heart rate or power that the base lacks? Only then is it worth downloading. */
+export function couldAdd(base: { hasHr: boolean; hasPower: boolean }, extra: IntervalsCandidate): boolean {
+  return (Boolean(extra.avgHr) && !base.hasHr) || (Boolean(extra.avgWatts) && !base.hasPower);
+}
+
+export const activityHas = (a: Activity) => ({
+  hasHr: (a.avg_hr ?? 0) > 0,
+  hasPower: (a.avg_power ?? 0) > 0 || (a.normalized_power ?? 0) > 0,
+});
+
 /**
- * Decides what to import. Candidates that match something already logged are skipped. Of the rest, copies of
- * the same workout are collapsed to one, keeping the most preferred source (Garmin over others over COROS).
- * A candidate without a UTC start time can't be matched here; the importer checks it again once parsed.
+ * Works out what to do with a batch. Recordings that match something already logged are set aside as
+ * `matches` (they may still add heart rate or power to it). The rest are grouped by workout, so a ride recorded
+ * on both a Garmin and a COROS is one group whose primary is the most preferred recording (Garmin, then
+ * anything else, then COROS; on a tie, the one with more data). A recording without a UTC start time can't be
+ * matched here and stands alone; the importer checks it again once its file is parsed.
  */
 export function planImport(candidates: IntervalsCandidate[], existing: Activity[]): ImportPlan {
-  let alreadyHave = 0;
+  const matches: ExistingMatch[] = [];
   const fresh: IntervalsCandidate[] = [];
   for (const candidate of candidates) {
     const record = asActivity(candidate);
-    if (record && existing.some((e) => isDuplicateActivity(record, e))) alreadyHave += 1;
+    const found = record ? existing.find((e) => isDuplicateActivity(record, e)) : undefined;
+    if (found) matches.push({ candidate, existing: found });
     else fresh.push(candidate);
   }
 
   // Preferred sources first; the sort is stable so equal ranks keep their original (newest first) order
-  const ordered = [...fresh].sort((a, b) => a.rank - b.rank);
-  const kept: IntervalsCandidate[] = [];
-  let droppedDuplicates = 0;
-  let droppedCoros = 0;
+  const ordered = [...fresh].sort((a, b) => a.rank - b.rank || dataScore(b) - dataScore(a));
+  const groups: WorkoutGroup[] = [];
   for (const candidate of ordered) {
     const record = asActivity(candidate);
-    const twin = record ? kept.find((k) => {
-      const other = asActivity(k);
-      return other ? isDuplicateActivity(record, other) : false;
+    const group = record ? groups.find((g) => {
+      const primary = asActivity(g.primary);
+      return primary ? isDuplicateActivity(record, primary) : false;
     }) : undefined;
-    if (twin) {
-      droppedDuplicates += 1;
-      if (candidate.rank === 2 && twin.rank < 2) droppedCoros += 1;
-    } else {
-      kept.push(candidate);
-    }
+    if (group) group.extras.push(candidate);
+    else groups.push({ primary: candidate, extras: [] });
   }
 
-  // Back to chronological order for importing, newest first as the API returns them
+  // Back to the order the API returned them in (newest first)
   const order = new Map(candidates.map((c, i) => [c.id, i]));
-  kept.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
-  return { toImport: kept, alreadyHave, droppedDuplicates, droppedCoros };
+  groups.sort((a, b) => (order.get(a.primary.id) ?? 0) - (order.get(b.primary.id) ?? 0));
+  return { groups, matches };
 }
 
 /** An activity built from the list record alone, for when the recording file can't be fetched or read. */

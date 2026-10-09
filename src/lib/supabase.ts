@@ -2,7 +2,7 @@ import { createClient, type User } from '@supabase/supabase-js';
 import type { Activity, AICoachMessage, AthleteProfile, Goal, TrainingSession, TrainingSessionStatus } from '../types';
 import { addDaysToDateOnly } from './trainingSessions';
 import { readStoredMessages } from './coachChatSync';
-import { isDuplicateActivity } from './activityDuplicates';
+import { isDuplicateActivity, MAX_START_GAP_MS } from './activityDuplicates';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
@@ -217,8 +217,8 @@ class DataService {
   public async findDuplicateActivity(candidate: Activity): Promise<Activity | undefined> {
     const candidateStart = new Date(candidate.start_date).getTime();
     if (!Number.isFinite(candidateStart)) return undefined;
-    const startWindow = new Date(candidateStart - 5 * 60 * 1000).toISOString();
-    const endWindow = new Date(candidateStart + 5 * 60 * 1000).toISOString();
+    const startWindow = new Date(candidateStart - MAX_START_GAP_MS).toISOString();
+    const endWindow = new Date(candidateStart + MAX_START_GAP_MS).toISOString();
     let possibleMatches: Activity[];
 
     if (this.mode === 'supabase' && supabase) {
@@ -234,7 +234,7 @@ class DataService {
     } else {
       possibleMatches = this.localActivities.filter((activity) => {
         const start = new Date(activity.start_date).getTime();
-        return Number.isFinite(start) && Math.abs(start - candidateStart) <= 5 * 60 * 1000;
+        return Number.isFinite(start) && Math.abs(start - candidateStart) <= MAX_START_GAP_MS;
       });
     }
 
