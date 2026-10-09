@@ -1,13 +1,16 @@
 import React, { useRef, useState } from 'react';
 import { CheckCircle2, ExternalLink, Key, Loader2, RefreshCw, Waypoints } from 'lucide-react';
 import type { Activity } from '../types';
+import { isSupabaseConfigured } from '../lib/supabase';
 import {
   IntervalsError,
   clearIntervalsSettings,
   describeSync,
+  getIntervalsAccountStatus,
   getIntervalsSettings,
   isIntervalsSyncRunning,
   saveIntervalsSettings,
+  saveIntervalsToAccount,
   syncFromIntervals,
   testIntervalsKey,
   type IntervalsSettings,
@@ -38,7 +41,9 @@ export const IntervalsTab: React.FC<IntervalsTabProps> = ({ onActivitiesImported
   const [progress, setProgress] = useState<SyncProgress | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [account, setAccount] = useState(() => getIntervalsAccountStatus());
   const abortRef = useRef<AbortController | null>(null);
+  const refreshAccount = () => setAccount(getIntervalsAccountStatus());
 
   const connect = async () => {
     const apiKey = keyInput.trim();
@@ -55,6 +60,9 @@ export const IntervalsTab: React.FC<IntervalsTabProps> = ({ onActivitiesImported
       saveIntervalsSettings(next);
       setSettings(next);
       setKeyInput('');
+      // Also on the account, so the athlete's other devices pick it up
+      await saveIntervalsToAccount(next);
+      refreshAccount();
       setMessage('Connected. New activities will be imported automatically when you open the app.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not connect to Intervals.icu.');
@@ -63,11 +71,14 @@ export const IntervalsTab: React.FC<IntervalsTabProps> = ({ onActivitiesImported
     }
   };
 
-  const disconnect = () => {
+  const disconnect = async () => {
     clearIntervalsSettings();
     setSettings(null);
     setMessage('');
     setError('');
+    // Remove it from the account too, so no other device brings it back
+    await saveIntervalsToAccount(null);
+    refreshAccount();
   };
 
   const setAuto = (auto: boolean) => {
@@ -75,6 +86,7 @@ export const IntervalsTab: React.FC<IntervalsTabProps> = ({ onActivitiesImported
     const next = { ...settings, auto };
     saveIntervalsSettings(next);
     setSettings(next);
+    void saveIntervalsToAccount(next).then(refreshAccount);
   };
 
   const sync = async (days: number) => {
@@ -134,6 +146,19 @@ export const IntervalsTab: React.FC<IntervalsTabProps> = ({ onActivitiesImported
         </div>
       </div>
 
+      {settings && isSupabaseConfigured && account.state !== 'unknown' && (
+        account.state === 'saved' ? (
+          <p className="text-[11px] text-emerald-300/80">Your key is saved with your account, so your other devices use it too.</p>
+        ) : account.state === 'unavailable' ? (
+          <p className="text-[11px] leading-relaxed text-amber-300/90">
+            Your key is saved on this device only. To use it on all your devices, add the integration_settings table to your Supabase project (see supabase/schema.sql).
+            <span className="block text-amber-300/60 mt-0.5">{account.detail}</span>
+          </p>
+        ) : (
+          <p role="status" className="text-[11px] leading-relaxed text-rose-300">Could not save your key to your account, so it is on this device only for now: {account.detail}</p>
+        )
+      )}
+
       {!settings ? (
         <>
           <div className="p-3.5 rounded-xl bg-slate-900 border border-white/5 text-xs text-slate-400 space-y-1.5">
@@ -144,7 +169,7 @@ export const IntervalsTab: React.FC<IntervalsTabProps> = ({ onActivitiesImported
                 open <strong className="text-slate-200">Settings</strong> and connect Garmin Connect, COROS and Zwift.
               </li>
               <li>Further down the same Settings page, find your <strong className="text-slate-200">API key</strong> and copy it.</li>
-              <li>Paste it below. It stays in this browser, so enter it once on each device.</li>
+              <li>{isSupabaseConfigured ? 'Paste it below. It is saved with your account, so you only do this once for all your devices.' : 'Paste it below. It stays in this browser.'}</li>
             </ol>
             <p className="text-slate-500 pt-1 leading-relaxed">A ride recorded on two devices (say a Garmin and a COROS) becomes one activity, never two: the Garmin recording is the base, and anything it lacks, like heart rate or power, is filled in from the other.</p>
           </div>
@@ -221,7 +246,7 @@ export const IntervalsTab: React.FC<IntervalsTabProps> = ({ onActivitiesImported
             </div>
           )}
 
-          <button type="button" onClick={disconnect} className="w-full py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white text-xs font-medium transition-all">
+          <button type="button" onClick={() => void disconnect()} className="w-full py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white text-xs font-medium transition-all">
             Disconnect Intervals.icu
           </button>
         </div>
