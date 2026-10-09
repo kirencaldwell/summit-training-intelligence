@@ -7,6 +7,11 @@ import { isDuplicateActivity, MAX_START_GAP_MS } from './activityDuplicates';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
+export interface IntegrationSettings {
+  intervals_api_key: string | null;
+  intervals_auto: boolean;
+}
+
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
 export const supabase = isSupabaseConfigured 
@@ -396,6 +401,35 @@ class DataService {
       .from('coach_chats')
       .upsert({ user_id: profile.id, messages, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
     if (error) throw new Error(`Coach chat could not be saved: ${error.message}`);
+  }
+
+  /**
+   * The account's connections to other services. Null means the athlete never saved any; a row with a null key
+   * means they disconnected on purpose. Only available with Supabase; throws if the table is missing.
+   */
+  public async getIntegrationSettings(): Promise<IntegrationSettings | null> {
+    if (!(this.mode === 'supabase' && supabase)) return null;
+    const profile = await this.getAuthenticatedProfile();
+    const { data, error } = await supabase
+      .from('integration_settings')
+      .select('intervals_api_key, intervals_auto')
+      .eq('user_id', profile.id)
+      .maybeSingle();
+    if (error) throw new Error(`Connection settings could not be loaded: ${error.message}`);
+    if (!data) return null;
+    return {
+      intervals_api_key: typeof data.intervals_api_key === 'string' && data.intervals_api_key.trim() ? data.intervals_api_key.trim() : null,
+      intervals_auto: data.intervals_auto !== false,
+    };
+  }
+
+  public async saveIntegrationSettings(settings: Partial<IntegrationSettings>): Promise<void> {
+    if (!(this.mode === 'supabase' && supabase)) return;
+    const profile = await this.getAuthenticatedProfile();
+    const { error } = await supabase
+      .from('integration_settings')
+      .upsert({ user_id: profile.id, ...settings, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+    if (error) throw new Error(`Connection settings could not be saved: ${error.message}`);
   }
 
   public async getTrainingSessions(): Promise<TrainingSession[]> {

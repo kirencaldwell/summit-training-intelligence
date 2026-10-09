@@ -191,6 +191,15 @@ CREATE TABLE IF NOT EXISTS public.coach_chats (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Per-athlete connections to other services (the Intervals.icu API key), kept apart from `profiles` so a
+-- secret never travels with the profile data the app and the AI coach read.
+CREATE TABLE IF NOT EXISTS public.integration_settings (
+  user_id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
+  intervals_api_key TEXT,
+  intervals_auto BOOLEAN NOT NULL DEFAULT TRUE,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ---------------------------------------------------------
 -- INDEXES FOR PERFORMANCE
 -- ---------------------------------------------------------
@@ -207,6 +216,7 @@ ALTER TABLE public.goals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.training_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.coach_chats ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.integration_settings ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Users can view own profile" ON public.profiles;
 DROP POLICY IF EXISTS "Users can view own goals" ON public.goals;
@@ -228,6 +238,9 @@ DROP POLICY IF EXISTS "Users can delete own training sessions" ON public.trainin
 DROP POLICY IF EXISTS "Users can view own coach chat" ON public.coach_chats;
 DROP POLICY IF EXISTS "Users can insert own coach chat" ON public.coach_chats;
 DROP POLICY IF EXISTS "Users can update own coach chat" ON public.coach_chats;
+DROP POLICY IF EXISTS "Users can view own integration settings" ON public.integration_settings;
+DROP POLICY IF EXISTS "Users can insert own integration settings" ON public.integration_settings;
+DROP POLICY IF EXISTS "Users can update own integration settings" ON public.integration_settings;
 
 CREATE OR REPLACE FUNCTION public.current_profile_id()
 RETURNS UUID
@@ -287,6 +300,15 @@ CREATE POLICY "Users can update own coach chat" ON public.coach_chats
   FOR UPDATE TO authenticated USING (user_id = (SELECT public.current_profile_id()))
   WITH CHECK (user_id = (SELECT public.current_profile_id()));
 GRANT SELECT, INSERT, UPDATE ON public.coach_chats TO authenticated;
+
+CREATE POLICY "Users can view own integration settings" ON public.integration_settings
+  FOR SELECT TO authenticated USING (user_id = (SELECT public.current_profile_id()));
+CREATE POLICY "Users can insert own integration settings" ON public.integration_settings
+  FOR INSERT TO authenticated WITH CHECK (user_id = (SELECT public.current_profile_id()));
+CREATE POLICY "Users can update own integration settings" ON public.integration_settings
+  FOR UPDATE TO authenticated USING (user_id = (SELECT public.current_profile_id()))
+  WITH CHECK (user_id = (SELECT public.current_profile_id()));
+GRANT SELECT, INSERT, UPDATE ON public.integration_settings TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.handle_new_auth_user()
 RETURNS TRIGGER

@@ -4,7 +4,7 @@
  * /api/intervals with each request; the server forwards it to Intervals.icu without storing it.
  */
 import type { Activity } from '../types';
-import { dataService } from './supabase';
+import { dataService, isSupabaseConfigured, type IntegrationSettings } from './supabase';
 import { parseFitFile, parseGpxFile } from './fitParser';
 import { isDuplicateActivity } from './activityDuplicates';
 import {
@@ -68,6 +68,88 @@ export function clearIntervalsSettings(): void {
     localStorage.removeItem(STORAGE_KEY);
   } catch {
     // ignore
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// Keeping the key with the athlete's account (Supabase) so every device they sign in on has it. This browser
+// keeps a copy because the rest of the code reads it synchronously; the account's copy is the shared one.
+// ---------------------------------------------------------------------------------------------------------
+
+export type AccountKeyStatus =
+  | { state: 'unknown' }
+  | { state: 'saved' }
+  | { state: 'unavailable'; detail: string }
+  | { state: 'error'; detail: string };
+
+let accountStatus: AccountKeyStatus = { state: 'unknown' };
+export const getIntervalsAccountStatus = (): AccountKeyStatus => accountStatus;
+
+type Reconciliation =
+  | { action: 'none' }
+  /** The account has nothing yet: upload this device's key (how an existing connection moves to the account) */
+  | { action: 'push-local' }
+  /** The account has a key that differs from this device's (or this device has none): take the account's */
+  | { action: 'use-remote'; settings: IntervalsSettings }
+  /** The athlete disconnected on another device: forget the key here too */
+  | { action: 'clear-local' };
+
+/**
+ * Decides how this device's settings and the account's fit together. No account row means nothing was ever
+ * saved; a row with an empty key means the athlete disconnected on purpose, which must not be undone by a
+ * device that still has the old key.
+ */
+export function reconcileIntervalsSettings(local: IntervalsSettings | null, remote: IntegrationSettings | null): Reconciliation {
+  if (remote === null) return local ? { action: 'push-local' } : { action: 'none' };
+  if (remote.intervals_api_key === null) return local ? { action: 'clear-local' } : { action: 'none' };
+  if (local && local.apiKey === remote.intervals_api_key && local.auto === remote.intervals_auto) return { action: 'none' };
+  return { action: 'use-remote', settings: { apiKey: remote.intervals_api_key, auto: remote.intervals_auto, lastSyncAt: local?.lastSyncAt } };
+}
+
+type SettingsStore = Pick<typeof dataService, 'getIntegrationSettings' | 'saveIntegrationSettings'>;
+
+function recordAccountError(err: unknown) {
+  const detail = err instanceof Error ? err.message : 'Unknown error';
+  // A missing table is a setup step; anything else (offline, expired session, permissions) is shown as a problem
+  accountStatus = /integration_settings|schema cache|does not exist/i.test(detail) && !/permission|policy/i.test(detail)
+    ? { state: 'unavailable', detail }
+    : { state: 'error', detail };
+}
+
+/** Run once the app has loaded: bring this device in line with the account, in either direction. */
+export async function syncIntervalsSettings(store: SettingsStore = dataService, enabled = isSupabaseConfigured): Promise<void> {
+  if (!enabled) return;
+  try {
+    const remote = await store.getIntegrationSettings();
+    const local = getIntervalsSettings();
+    const outcome = reconcileIntervalsSettings(local, remote);
+    if (outcome.action === 'use-remote') saveIntervalsSettings(outcome.settings);
+    else if (outcome.action === 'clear-local') clearIntervalsSettings();
+    else if (outcome.action === 'push-local' && local) {
+      await store.saveIntegrationSettings({ intervals_api_key: local.apiKey, intervals_auto: local.auto });
+    }
+    accountStatus = { state: 'saved' };
+  } catch (err) {
+    console.warn('Intervals.icu settings could not be synced with the account:', err);
+    recordAccountError(err);
+  }
+}
+
+/** Saves (or, with null, disconnects) the key on the account. Never throws: the outcome is in the account status. */
+export async function saveIntervalsToAccount(
+  settings: IntervalsSettings | null,
+  store: SettingsStore = dataService,
+  enabled = isSupabaseConfigured,
+): Promise<void> {
+  if (!enabled) return;
+  try {
+    await store.saveIntegrationSettings(settings
+      ? { intervals_api_key: settings.apiKey, intervals_auto: settings.auto }
+      : { intervals_api_key: null });
+    accountStatus = { state: 'saved' };
+  } catch (err) {
+    console.warn('Intervals.icu settings could not be saved to the account:', err);
+    recordAccountError(err);
   }
 }
 

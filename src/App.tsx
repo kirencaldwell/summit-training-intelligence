@@ -30,6 +30,7 @@ import { formatLbFromKg } from './lib/units';
 import { collectTags, isEbike } from './lib/tags';
 import {
   IntervalsError,
+  syncIntervalsSettings,
   autoSyncDue,
   autoSyncStart,
   describeSync,
@@ -593,7 +594,8 @@ export function App() {
 
   useEffect(() => {
     if (!dataReady) return;
-    void intervalsAutoSyncRef.current();
+    // Bring the key in line with the account first, so a device that was never set up still syncs
+    void syncIntervalsSettings().finally(() => void intervalsAutoSyncRef.current());
     const refresh = () => { if (document.visibilityState === 'visible') void intervalsAutoSyncRef.current(); };
     document.addEventListener('visibilitychange', refresh);
     window.addEventListener('focus', refresh);
