@@ -6,7 +6,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   X, Upload, CheckCircle2, AlertCircle, Loader2, Watch, RefreshCw, CopyCheck,
-  Key, ExternalLink, Mountain, ChevronRight, FileCode2,
+  Key, ExternalLink, Mountain, ChevronRight, FileCode2, Waypoints,
 } from 'lucide-react';
 import type { Activity } from '../types';
 import { parseActivityFiles, applyStravaCsvToExisting, type FitImportResult, type ImportProgress } from '../lib/fitParser';
@@ -21,15 +21,19 @@ import {
   syncCorosActivities,
 } from '../lib/coros';
 import { formatFeetFromMeters } from '../lib/units';
+import { IntervalsTab } from './IntervalsTab';
+import { getIntervalsSettings } from '../lib/intervals';
 import { getStoredStravaClientId, setStoredStravaClientId, getStravaAuthUrl } from '../lib/strava';
 
-type Tab = 'fit' | 'coros' | 'strava';
+type Tab = 'fit' | 'intervals' | 'coros' | 'strava';
 
 interface DataSyncModalProps {
   isOpen: boolean;
   onClose: () => void;
   onActivitiesImported: (activities: Activity[]) => void;
   onActivitiesUpdated?: (activities: Activity[]) => void;
+  /** New activities that shouldn't open a detail view (a bulk sync from Intervals.icu) */
+  onActivitiesAdded?: (activities: Activity[]) => void;
 }
 
 // ─── FIT Upload Tab ────────────────────────────────────────────────────────────
@@ -504,8 +508,10 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   onClose,
   onActivitiesImported,
   onActivitiesUpdated,
+  onActivitiesAdded,
 }) => {
-  const [activeTab, setActiveTab] = useState<Tab>('fit');
+  // Once Intervals.icu is connected it is where most people will want to land
+  const [activeTab, setActiveTab] = useState<Tab>(() => (getIntervalsSettings() ? 'intervals' : 'fit'));
 
   useEffect(() => {
     if (!isOpen) return;
@@ -524,6 +530,12 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       label: 'FIT Upload',
       icon: <Upload className="w-3.5 h-3.5" />,
       badge: 'Recommended',
+    },
+    {
+      id: 'intervals',
+      label: 'Intervals.icu',
+      icon: <Waypoints className="w-3.5 h-3.5" />,
+      badge: getIntervalsSettings() ? '●' : 'Auto',
     },
     {
       id: 'coros',
@@ -574,7 +586,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         </div>
 
         {/* Tab Bar */}
-        <div className="flex items-center bg-slate-900/80 rounded-xl p-1 border border-white/5">
+        <div className="grid grid-cols-2 sm:flex sm:items-center gap-1 bg-slate-900/80 rounded-xl p-1 border border-white/5">
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -609,6 +621,9 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
               }}
               onActivitiesUpdated={onActivitiesUpdated}
             />
+          )}
+          {activeTab === 'intervals' && (
+            <IntervalsTab onActivitiesImported={onActivitiesAdded ?? onActivitiesImported} onActivitiesUpdated={onActivitiesUpdated} />
           )}
           {activeTab === 'coros' && (
             <CorosTab onActivitiesImported={onActivitiesImported} />

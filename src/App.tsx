@@ -28,6 +28,16 @@ import { GoogleSignInScreen } from './components/GoogleSignInScreen';
 import { coachEngine } from './lib/ai/coachEngine';
 import { formatLbFromKg } from './lib/units';
 import { collectTags, isEbike } from './lib/tags';
+import {
+  IntervalsError,
+  autoSyncDue,
+  autoSyncStart,
+  describeSync,
+  getIntervalsSettings,
+  isIntervalsSyncRunning,
+  saveIntervalsSettings,
+  syncFromIntervals,
+} from './lib/intervals';
 import { mergeMessages, planChatSync, sameMessages, toSyncable, type ChatSyncStatus } from './lib/coachChatSync';
 
 import { Mountain, Zap } from 'lucide-react';
@@ -65,6 +75,8 @@ export function App() {
   const [chatSync, setChatSync] = useState<ChatSyncStatus>({ state: 'idle' });
   const [authReady, setAuthReady] = useState(!isSupabaseConfigured);
   const [appError, setAppError] = useState('');
+  // A short message after an automatic Intervals.icu import (or a problem with it)
+  const [syncNotice, setSyncNotice] = useState<{ text: string; tone: 'ok' | 'problem' } | null>(null);
 
   // Goal the coach chat is focused on (set from the Goals tab), with an optional prompt to prefill
   const [coachFocus, setCoachFocus] = useState<{ goalId: string; prompt?: string } | null>(null);
@@ -555,6 +567,42 @@ export function App() {
     };
   }, [authUser, activeTab]);
 
+  // Pull new activities from Intervals.icu when the app opens and whenever it comes back into view
+  const dataReady = profile !== null;
+  const intervalsAutoSync = async () => {
+    const settings = getIntervalsSettings();
+    if (!settings || !autoSyncDue(settings) || isIntervalsSyncRunning()) return;
+    try {
+      const result = await syncFromIntervals({ apiKey: settings.apiKey, oldest: autoSyncStart(settings) });
+      saveIntervalsSettings({ ...settings, lastSyncAt: new Date().toISOString() });
+      if (result.imported.length > 0) setActivities((previous) => [...result.imported, ...previous]);
+      if (result.updated.length > 0) handleActivitiesUpdated(result.updated);
+      if (result.imported.length > 0 || result.updated.length > 0) {
+        setSyncNotice({ text: `Intervals.icu: ${describeSync(result)}`, tone: 'ok' });
+      }
+    } catch (err) {
+      console.warn('Intervals.icu sync failed:', err);
+      // A rejected key won't fix itself; anything else (offline, busy) is retried on the next visit
+      if (err instanceof IntervalsError && err.status === 401) {
+        setSyncNotice({ text: 'Intervals.icu rejected your API key. Reconnect it under Import Data.', tone: 'problem' });
+      }
+    }
+  };
+  const intervalsAutoSyncRef = useRef(intervalsAutoSync);
+  intervalsAutoSyncRef.current = intervalsAutoSync;
+
+  useEffect(() => {
+    if (!dataReady) return;
+    void intervalsAutoSyncRef.current();
+    const refresh = () => { if (document.visibilityState === 'visible') void intervalsAutoSyncRef.current(); };
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [dataReady]);
+
   useEffect(() => {
     if (!authReady || (isSupabaseConfigured && !authUser)) return;
 
@@ -651,6 +699,19 @@ export function App() {
 
       {/* Main Content Body */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8 pb-28 md:pb-8 space-y-6">
+        {syncNotice && (
+          <div
+            role="status"
+            className={`flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm ${
+              syncNotice.tone === 'ok'
+                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+                : 'border-amber-500/30 bg-amber-500/10 text-amber-200'
+            }`}
+          >
+            <span>{syncNotice.text}</span>
+            <button type="button" onClick={() => setSyncNotice(null)} aria-label="Dismiss" className="shrink-0 font-semibold opacity-80 hover:opacity-100">Dismiss</button>
+          </div>
+        )}
         {activeTab === 'dashboard' && (
           <DashboardOverview
             profile={profile}
@@ -812,6 +873,7 @@ export function App() {
         onClose={() => setIsStravaModalOpen(false)}
         onActivitiesImported={handleFitImport}
         onActivitiesUpdated={handleActivitiesUpdated}
+        onActivitiesAdded={(added) => setActivities((previous) => [...added, ...previous])}
       />
 
       {/* Modern Footer */}
