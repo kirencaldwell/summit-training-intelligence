@@ -2,6 +2,7 @@ import { createClient, type User } from '@supabase/supabase-js';
 import type { Activity, AICoachMessage, AthleteProfile, Goal, TrainingSession, TrainingSessionStatus } from '../types';
 import { addDaysToDateOnly } from './trainingSessions';
 import { readStoredMessages } from './coachChatSync';
+import { isDuplicateActivity } from './activityDuplicates';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
@@ -11,32 +12,6 @@ export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 export const supabase = isSupabaseConfigured 
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null;
-
-function sportFamily(sportType: string): string {
-  if (sportType === 'cycling' || sportType === 'zwift') return 'cycling';
-  if (sportType === 'skimo' || sportType === 'backcountry_skiing') return 'skiing';
-  return sportType;
-}
-
-function isDuplicateActivity(candidate: Activity, existing: Activity): boolean {
-  const candidateStart = new Date(candidate.start_date).getTime();
-  const existingStart = new Date(existing.start_date).getTime();
-  if (!Number.isFinite(candidateStart) || !Number.isFinite(existingStart)) return false;
-  if (Math.abs(candidateStart - existingStart) > 5 * 60 * 1000) return false;
-  if (sportFamily(candidate.sport_type) !== sportFamily(existing.sport_type)) return false;
-
-  const candidateDuration = candidate.moving_time_seconds || candidate.duration_seconds;
-  const existingDuration = existing.moving_time_seconds || existing.duration_seconds;
-  const durationTolerance = Math.max(120, Math.max(candidateDuration, existingDuration) * 0.03);
-  if (Math.abs(candidateDuration - existingDuration) > durationTolerance) return false;
-
-  if (candidate.distance_meters > 0 && existing.distance_meters > 0) {
-    const distanceTolerance = Math.max(300, Math.max(candidate.distance_meters, existing.distance_meters) * 0.03);
-    if (Math.abs(candidate.distance_meters - existing.distance_meters) > distanceTolerance) return false;
-  }
-
-  return true;
-}
 
 // Everything except the heavy streams_data, which is only loaded for the detail view
 const ACTIVITY_LIST_COLUMNS =
