@@ -3,7 +3,8 @@ import type { Activity, AthleteProfile, SportType } from '../types';
 import { formatFeetFromMeters, formatMilesFromMeters } from '../lib/units';
 import { collectTags } from '../lib/tags';
 import { ActivityTotals } from './ActivityTotals';
-import { canImproveWithAi, resolveTss } from '../lib/trainingMath';
+import { canImproveWithAi, resolveTss, type TssSource } from '../lib/trainingMath';
+import type { GroupScore, ModelSummary } from '../lib/intensityModel';
 import { Mountain, Bike, Compass, Footprints, ShieldAlert, Zap, Calendar, Search, Trash2, Tag, X } from 'lucide-react';
 
 interface BulkEstimateState {
@@ -17,6 +18,8 @@ interface BulkEstimateState {
 interface ActivityListProps {
   activities: Activity[];
   profile?: AthleteProfile | null;
+  /** How the learned intensity model did on this athlete's data (see intensityModel.ts) */
+  intensityModel?: ModelSummary;
   onSelectActivity: (activity: Activity) => void;
   onDeleteActivity: (activity: Activity) => Promise<void>;
   bulkEstimate?: BulkEstimateState;
@@ -27,6 +30,7 @@ interface ActivityListProps {
 export const ActivityList: React.FC<ActivityListProps> = ({
   activities,
   profile,
+  intensityModel,
   onSelectActivity,
   onDeleteActivity,
   bulkEstimate,
@@ -35,7 +39,7 @@ export const ActivityList: React.FC<ActivityListProps> = ({
 }) => {
   // Where each activity's training load comes from, and how many the AI could still improve
   const loadProfile = profile ? { ftp: profile.ftp, lthr: profile.lthr, weight_kg: profile.weight_kg } : undefined;
-  const sourceCounts = { power: 0, ai: 0, heart_rate: 0, baseline: 0 };
+  const sourceCounts: Record<TssSource, number> = { power: 0, ai: 0, model: 0, heart_rate: 0, baseline: 0 };
   let improvable = 0;
   for (const activity of activities) {
     sourceCounts[resolveTss(activity, loadProfile).source] += 1;
@@ -166,13 +170,14 @@ export const ActivityList: React.FC<ActivityListProps> = ({
       </div>
 
       {/* Training load sources: measured vs estimated, with a bulk AI estimate for the rest */}
-      {activities.length > 0 && (sourceCounts.baseline + sourceCounts.heart_rate + sourceCounts.ai > 0) && (
+      {activities.length > 0 && (sourceCounts.baseline + sourceCounts.heart_rate + sourceCounts.ai + sourceCounts.model > 0) && (
         <div className="rounded-xl border border-white/10 bg-slate-900/50 p-3 space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-slate-300">
               <span className="font-semibold text-white">Training load:</span>{' '}
               {sourceCounts.power > 0 && <>{sourceCounts.power} from power · </>}
               {sourceCounts.ai > 0 && <>{sourceCounts.ai} AI-estimated · </>}
+              {sourceCounts.model > 0 && <>{sourceCounts.model} from the learned model · </>}
               {sourceCounts.heart_rate > 0 && <>{sourceCounts.heart_rate} from heart rate · </>}
               {sourceCounts.baseline} rough estimates
             </p>
@@ -211,6 +216,7 @@ export const ActivityList: React.FC<ActivityListProps> = ({
               {bulkEstimate.message ? ` ${bulkEstimate.message}` : ''}
             </p>
           )}
+          {intensityModel && <LearnedModelNote summary={intensityModel} />}
           <p className="text-[10px] text-slate-500">
             Loads marked ~ are estimates. Rough ones come from duration, terrain and pack weight until you add notes or run the AI estimate.
           </p>
@@ -395,3 +401,48 @@ export const ActivityList: React.FC<ActivityListProps> = ({
     </div>
   );
 };
+
+const fmtIf = (n: number) => n.toFixed(2);
+
+function scoreLine(label: string, score: GroupScore | undefined, vsWhat: string) {
+  if (!score) return null;
+  return (
+    <li key={label}>
+      <span className="text-slate-200">{label}</span> ({score.rows}): typically off by {fmtIf(score.modelError)} intensity
+      vs {fmtIf(score.formulaError)} for the {vsWhat}
+      {score.trusted ? '' : ', not clearly better'}
+    </li>
+  );
+}
+
+/** What the learned intensity model has learned from this athlete's activities, and how far to trust it. */
+const LearnedModelNote: React.FC<{ summary: ModelSummary }> = ({ summary }) => (
+  <details className="group text-[11px]">
+    <summary className="cursor-pointer select-none list-none flex items-start gap-1.5 text-slate-300 min-h-6">
+      <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${summary.status === 'ready' ? 'bg-emerald-400' : 'bg-slate-500'}`} aria-hidden="true" />
+      <span>
+        <span className="font-semibold text-white">Learned model: </span>
+        {summary.message}
+        <span className="text-cyan-400 group-open:hidden"> Details</span>
+      </span>
+    </summary>
+    <div className="mt-2 ml-3.5 space-y-1.5 text-slate-400 leading-relaxed">
+      <p>
+        It learns from {summary.powerRows} activities with a power meter and {summary.aiRows} the AI has estimated, using only
+        what an activity without power would have (heart rate, speed, climbing, duration, pack weight, effort rating, e-bike assist).
+        Errors are measured on activities it was not trained on. An intensity of 1.0 is a threshold effort; 0.1 of intensity is roughly 15 to 25 TSS per hour.
+      </p>
+      {(summary.vsPower || summary.vsAi || summary.ebike) && (
+        <ul className="list-disc list-inside space-y-0.5">
+          {scoreLine('Against measured power', summary.vsPower, 'heart-rate formula')}
+          {scoreLine('Against the AI estimates', summary.vsAi, 'heart-rate formula')}
+          {scoreLine('E-bike rides', summary.ebike, 'heart-rate formula')}
+        </ul>
+      )}
+      <p className="text-slate-500">
+        Matching the AI is not the same as being right: where there is no power meter it can only be as good as the AI it learned from.
+        Re-run "Estimate with AI" on an activity to override the model for it.
+      </p>
+    </div>
+  </details>
+);
