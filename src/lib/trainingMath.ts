@@ -1,5 +1,6 @@
 import type { Activity, MetricStreamPoint, PMCDayPoint, PowerCurvePoint, ZoneDistribution } from '../types';
 import { isEbike } from './tags';
+import { getActiveIntensityModel } from './learnedIntensity';
 
 const POWER_CURVE_DURATIONS = [
   { sec: 1, label: '1s' },
@@ -187,12 +188,14 @@ export function calculatePowerZones(wattsStream: number[], ftp: number): ZoneDis
 // athlete's LTHR or weight updates the curves without rewriting activities.
 // ---------------------------------------------------------------------------
 
-export type TssSource = 'power' | 'ai' | 'heart_rate' | 'baseline';
+export type TssSource = 'power' | 'ai' | 'model' | 'heart_rate' | 'baseline';
 
 export interface ResolvedTss {
   tss: number;
   source: TssSource;
   intensityFactor?: number;
+  /** For learned-model estimates: the typical error of the intensity factor */
+  sigmaIf?: number;
 }
 
 export interface LoadProfile {
@@ -288,6 +291,7 @@ export function describeTssSource(source: TssSource): string {
   switch (source) {
     case 'power': return 'measured power';
     case 'ai': return 'AI estimate from your notes';
+    case 'model': return 'learned from your own activities';
     case 'heart_rate': return 'heart-rate estimate';
     default: return 'rough baseline estimate';
   }
@@ -296,7 +300,7 @@ export function describeTssSource(source: TssSource): string {
 /** True when the AI could meaningfully improve this activity's load: no power, and no HR or the athlete wrote notes. */
 export function canImproveWithAi(activity: Activity, profile?: LoadProfile): boolean {
   const { source } = resolveTss(activity, profile);
-  return source === 'baseline' || (source === 'heart_rate' && Boolean(activity.effort_notes?.trim()));
+  return source === 'baseline' || ((source === 'heart_rate' || source === 'model') && Boolean(activity.effort_notes?.trim()));
 }
 
 /** The training load to use for an activity, and where it came from. */
@@ -312,6 +316,17 @@ export function resolveTss(activity: Activity, profile?: LoadProfile): ResolvedT
   }
   if (activity.tss_source === 'ai' && (activity.estimated_tss || 0) > 0) {
     return { tss: activity.estimated_tss!, source: 'ai', intensityFactor: activity.estimated_if };
+  }
+  // The athlete's own learned model, where it has proven better than the formulas below
+  const learned = getActiveIntensityModel()?.predict(activity, profile);
+  const hours = movingHours(activity);
+  if (learned && hours > 0) {
+    return {
+      tss: tssFromIntensity(hours, learned.intensityFactor),
+      source: 'model',
+      intensityFactor: Math.round(learned.intensityFactor * 100) / 100,
+      sigmaIf: Math.round(learned.sigma * 1000) / 1000,
+    };
   }
   return (
     heartRateTss(activity, profile?.lthr ?? 0) ??

@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import type { User } from '@supabase/supabase-js';
 import type { AICoachMessage, Activity, AthleteProfile, Goal, PMCDayPoint, PowerCurvePoint, ProposedPlanAction, TrainingSession, TrainingSessionStatus } from './types';
 import { dataService, isSupabaseConfigured, supabase } from './lib/supabase';
 import type { GoalReadinessAssessment } from './lib/goalReadiness';
+import { installIntensityModel } from './lib/intensityModel';
 import { calculatePMC, calculatePowerCurve, canImproveWithAi, hasPowerCurveData } from './lib/trainingMath';
 import { addDaysToDateOnly, getCurrentTrainingWeekStartDate, getNextTrainingWeekStartDate } from './lib/trainingSessions';
 import { Navbar } from './components/Navbar';
@@ -75,6 +76,12 @@ export function App() {
   const [profile, setProfile] = useState<AthleteProfile | null>(null);
   const loadProfile = profile ? { ftp: profile.ftp, lthr: profile.lthr, weight_kg: profile.weight_kg } : undefined;
   const [activities, setActivities] = useState<Activity[]>([]);
+  // Learn from the athlete's own power rides and AI estimates how hard activities without power were. This also
+  // makes it the model the load calculations consult, so it must run before anything below uses them.
+  const intensityModel = useMemo(
+    () => installIntensityModel(activities, { ftp: profile?.ftp, lthr: profile?.lthr, weight_kg: profile?.weight_kg }),
+    [activities, profile?.ftp, profile?.lthr, profile?.weight_kg],
+  );
   const [goals, setGoals] = useState<Goal[]>([]);
   const [trainingSessions, setTrainingSessions] = useState<TrainingSession[]>([]);
   const [isGeneratingWeeklyPlan, setIsGeneratingWeeklyPlan] = useState(false);
@@ -745,6 +752,7 @@ export function App() {
             <ActivityList
               activities={activities}
               profile={profile}
+              intensityModel={intensityModel}
               onSelectActivity={handleOpenActivity}
               onDeleteActivity={handleDeleteActivity}
               bulkEstimate={bulkEstimate}

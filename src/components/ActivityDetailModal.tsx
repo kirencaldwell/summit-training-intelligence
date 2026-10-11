@@ -3,6 +3,7 @@ import { X, Calendar, Clock, Navigation, Mountain, Zap, Heart, ShieldAlert, Bot,
 import type { Activity, AthleteProfile, SportType } from '../types';
 import { EBIKE_TAG, MAX_TAG_LENGTH, MAX_TAGS_PER_ACTIVITY, isEbike, isEbikeTag, normalizeTags } from '../lib/tags';
 import { describeTssSource, resolveTss } from '../lib/trainingMath';
+import { tssRange } from '../lib/intensityModel';
 import { kgToLb, lbToKg, roundTo } from '../lib/units';
 import { RouteMapViewer } from './RouteMapViewer';
 import { formatFeetFromMeters, formatFtPerHourFromMph, formatMilesFromMeters } from '../lib/units';
@@ -444,6 +445,9 @@ const ActivityDetailContent: React.FC<Omit<ActivityDetailModalProps, 'activity'>
             {load.intensityFactor ? <span className="text-slate-400"> · IF {load.intensityFactor}</span> : null}
             <span className="text-slate-400"> · {describeTssSource(load.source)}</span>
             {load.source === 'ai' && activity.tss_confidence ? <span className="text-slate-400"> ({activity.tss_confidence} confidence)</span> : null}
+            {load.source === 'model' && load.intensityFactor && load.sigmaIf ? (
+              <span className="text-slate-400"> (likely {tssRange(activity, load.intensityFactor, load.sigmaIf).map(Math.round).join(' to ')})</span>
+            ) : null}
           </p>
           {load.source === 'ai' && activity.tss_rationale && (
             <p className="text-xs text-slate-300 leading-relaxed">{activity.tss_rationale}</p>
