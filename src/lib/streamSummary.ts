@@ -80,6 +80,88 @@ export function powerCurve(points: MetricStreamPoint[] | undefined): CurvePoint[
   return out;
 }
 
+export interface SelectionStats {
+  seconds: number;
+  avg_watts?: number;
+  max_watts?: number;
+  normalized_watts?: number;
+  percent_ftp?: number;
+  avg_hr?: number;
+  max_hr?: number;
+  avg_cadence?: number;
+  avg_mph?: number;
+  miles?: number;
+  gain_ft?: number;
+  loss_ft?: number;
+  avg_grade_pct?: number;
+  climb_ft_per_hour?: number;
+}
+
+/** Stats for a time range of the ride (seconds from the start), from the same 1 Hz grid the detectors use. */
+export function selectionStats(points: MetricStreamPoint[] | undefined, fromSec: number, toSec: number, ftp?: number): SelectionStats | undefined {
+  if (!points) return undefined;
+  const secs = toSeconds(points);
+  const from = Math.max(0, Math.floor(Math.min(fromSec, toSec)));
+  const to = Math.min(secs.length, Math.ceil(Math.max(fromSec, toSec)));
+  if (to - from < 2) return undefined;
+  const out: SelectionStats = { seconds: to - from };
+
+  const values = (key: 'w' | 'hr' | 'speed' | 'cad') => {
+    const v: number[] = [];
+    for (let i = from; i < to; i++) { const x = secs[i]?.[key]; if (x !== undefined) v.push(x); }
+    return v;
+  };
+  const w = values('w');
+  if (w.length >= 2) {
+    const avg = mean(w)!;
+    out.avg_watts = round(avg);
+    out.max_watts = round(Math.max(...w));
+    if (w.length >= 60) {
+      const w30 = smooth(secs.slice(from, to), 'w', 30).filter((x): x is number => x !== undefined);
+      if (w30.length) {
+        const np = (w30.reduce((a, x) => a + x ** 4, 0) / w30.length) ** 0.25;
+        out.normalized_watts = round(np);
+      }
+    }
+    if (ftp) out.percent_ftp = round(((out.normalized_watts ?? avg) / ftp) * 100);
+  }
+  const hr = values('hr');
+  if (hr.length >= 2) { out.avg_hr = round(mean(hr)!); out.max_hr = round(Math.max(...hr)); }
+  const cad = values('cad');
+  if (cad.length >= 2) out.avg_cadence = round(mean(cad)!);
+  const speed = values('speed');
+  if (speed.length >= 2) {
+    out.avg_mph = round(mean(speed)! * KMH_TO_MPH, 1);
+    // Each second with a speed reading covers speed/3600 km
+    out.miles = round((speed.reduce((a, x) => a + x, 0) / 3600) * KMH_TO_MPH, 2);
+  }
+  const alt = smooth(secs, 'alt', 15);
+  let gain = 0;
+  let loss = 0;
+  let last: number | undefined;
+  let seen = 0;
+  for (let i = from; i < to; i += 5) {
+    const a = alt[i];
+    if (a === undefined) continue;
+    seen++;
+    if (last !== undefined) { const d = a - last; if (d > 0) gain += d; else loss -= d; }
+    last = a;
+  }
+  if (seen >= 2) {
+    out.gain_ft = round(gain * M_TO_FT);
+    out.loss_ft = round(loss * M_TO_FT);
+    if (out.miles && out.miles > 0.02) {
+      const first = alt.slice(from, to).find((x) => x !== undefined);
+      const lastAlt = [...alt.slice(from, to)].reverse().find((x) => x !== undefined);
+      if (first !== undefined && lastAlt !== undefined) {
+        out.avg_grade_pct = round(((lastAlt - first) / (out.miles * 1609.34)) * 100, 1);
+      }
+    }
+    if (out.seconds >= 60) out.climb_ft_per_hour = round((gain * M_TO_FT) / (out.seconds / 3600));
+  }
+  return out;
+}
+
 /** Smoothed watts / HR for charting: a centred moving average of `window` seconds, sampled every `step` seconds. */
 export function smoothedSeries(points: MetricStreamPoint[] | undefined, window: number, step: number) {
   if (!points || points.length < 2) return [];
@@ -100,7 +182,7 @@ export function smoothedSeries(points: MetricStreamPoint[] | undefined, window: 
   return out;
 }
 
-interface Second { w?: number; hr?: number; speed?: number; alt?: number }
+interface Second { w?: number; hr?: number; speed?: number; alt?: number; cad?: number }
 
 /**
  * The longest gap between two samples that still counts as one continuous stretch. Saved rides are thinned to ~500
@@ -139,6 +221,7 @@ function toSeconds(points: MetricStreamPoint[]): Second[] {
         hr: typeof p.hr === 'number' && p.hr > 0 ? p.hr : undefined,
         speed: typeof p.speed === 'number' ? p.speed : undefined,
         alt: typeof p.alt === 'number' ? p.alt : undefined,
+        cad: typeof p.cadence === 'number' && p.cadence > 0 ? p.cadence : undefined,
       };
     }
   }

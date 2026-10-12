@@ -5,7 +5,7 @@ import {
 } from 'recharts';
 import type { Activity, AthleteProfile } from '../types';
 import { isEbike } from '../lib/tags';
-import { powerCurve, sampleSpacingSeconds, smoothedSeries, summarizeStreams, type CurvePoint, type RunInfo } from '../lib/streamSummary';
+import { powerCurve, sampleSpacingSeconds, selectionStats, smoothedSeries, summarizeStreams, type CurvePoint, type RunInfo } from '../lib/streamSummary';
 
 interface RideAnalysisProps {
   activity: Activity;
@@ -87,6 +87,10 @@ export const RideAnalysis: React.FC<RideAnalysisProps> = ({ activity, profile })
   );
   const step = Math.max(1, Math.round((streams?.length ?? 0) / 1200));
   const curve = useMemo(() => powerCurve(streams), [streams]);
+  // Click-and-drag selection on the time series (seconds from the start)
+  const [drag, setDrag] = useState<{ from: number; to: number } | null>(null);
+  const [selection, setSelection] = useState<{ from: number; to: number } | null>(null);
+  const dragging = useRef(false);
   const spacing = useMemo(() => sampleSpacingSeconds(streams), [streams]);
   const [picked, setPicked] = useState<CurvePoint | null>(null);
   const chartRef = useRef<HTMLDivElement>(null);
@@ -118,6 +122,38 @@ export const RideAnalysis: React.FC<RideAnalysisProps> = ({ activity, profile })
     setPicked((prev) => (prev?.seconds === point.seconds ? null : point));
     chartRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   };
+  const labelOf = (state: unknown): number | undefined => {
+    const v = (state as { activeLabel?: string | number } | null)?.activeLabel;
+    const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
+    return Number.isFinite(n) ? n : undefined;
+  };
+  const startDrag = (state: unknown) => {
+    const t = labelOf(state);
+    if (t === undefined) return;
+    dragging.current = true;
+    setPicked(null);
+    setDrag({ from: t, to: t });
+  };
+  const moveDrag = (state: unknown) => {
+    const t = labelOf(state);
+    if (!dragging.current || t === undefined) return;
+    setDrag((d) => (d ? { ...d, to: t } : d));
+  };
+  const endDrag = () => {
+    if (!dragging.current) return;
+    dragging.current = false;
+    setDrag((d) => {
+      // A bare click (or a sliver of a drag) clears the selection instead of selecting nothing
+      if (d && Math.abs(d.to - d.from) >= Math.max(5, totalSeconds * 0.005)) setSelection({ from: Math.min(d.from, d.to), to: Math.max(d.from, d.to) });
+      else setSelection(null);
+      return null;
+    });
+  };
+  const active = drag ?? selection;
+  const stats = useMemo(
+    () => (selection ? selectionStats(streams, selection.from, selection.to, profile?.ftp || undefined) : undefined),
+    [selection, streams, profile?.ftp],
+  );
   const totalSeconds = series.length ? series[series.length - 1].time : 0;
 
   return (
@@ -159,7 +195,17 @@ export const RideAnalysis: React.FC<RideAnalysisProps> = ({ activity, profile })
         )}
         <div className="w-full h-56 rounded-xl bg-slate-900/60 p-3 border border-white/10">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={series}>
+            <ComposedChart
+              data={series}
+              onMouseDown={startDrag}
+              onMouseMove={moveDrag}
+              onMouseUp={endDrag}
+              onMouseLeave={endDrag}
+              onTouchStart={startDrag}
+              onTouchMove={moveDrag}
+              onTouchEnd={endDrag}
+              style={{ cursor: 'crosshair', userSelect: 'none', touchAction: 'pan-y' }}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
               <XAxis
                 dataKey="time"
@@ -185,6 +231,16 @@ export const RideAnalysis: React.FC<RideAnalysisProps> = ({ activity, profile })
               {areas.map((a) => (
                 <ReferenceArea key={a.key} yAxisId={hasPower ? 'watts' : 'hr'} x1={a.x1} x2={a.x2} fill={a.fill} fillOpacity={0.2} stroke="none" />
               ))}
+              {active && (
+                <ReferenceArea
+                  yAxisId={hasPower ? 'watts' : 'hr'}
+                  x1={Math.min(active.from, active.to)}
+                  x2={Math.max(active.from, active.to)}
+                  fill="#38BDF8"
+                  fillOpacity={0.25}
+                  stroke="#38BDF8"
+                />
+              )}
               {picked && (
                 <ReferenceArea
                   yAxisId={hasPower ? 'watts' : 'hr'}
@@ -200,6 +256,39 @@ export const RideAnalysis: React.FC<RideAnalysisProps> = ({ activity, profile })
             </ComposedChart>
           </ResponsiveContainer>
         </div>
+        {stats ? (
+          <div className="mt-2 rounded-lg bg-sky-500/10 border border-sky-500/30 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-sky-200">
+                Selection {clock(selection!.from / 60)}–{clock(selection!.to / 60)} · {lengthLabel(Math.round((stats.seconds / 60) * 10) / 10)}
+              </p>
+              <button onClick={() => setSelection(null)} className="text-[11px] underline text-slate-400">Clear</button>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2">
+              {([
+                ['Avg power', stats.avg_watts !== undefined ? `${stats.avg_watts} W${stats.percent_ftp !== undefined && !stats.normalized_watts ? ` (${stats.percent_ftp}% FTP)` : ''}` : null],
+                ['Normalized', stats.normalized_watts !== undefined ? `${stats.normalized_watts} W${stats.percent_ftp !== undefined ? ` (${stats.percent_ftp}% FTP)` : ''}` : null],
+                ['Max power', stats.max_watts !== undefined ? `${stats.max_watts} W` : null],
+                ['Avg HR', stats.avg_hr !== undefined ? `${stats.avg_hr} bpm` : null],
+                ['Max HR', stats.max_hr !== undefined ? `${stats.max_hr} bpm` : null],
+                ['Cadence', stats.avg_cadence !== undefined ? `${stats.avg_cadence} rpm` : null],
+                ['Distance', stats.miles !== undefined ? `${stats.miles} mi` : null],
+                ['Avg speed', stats.avg_mph !== undefined ? `${stats.avg_mph} mph` : null],
+                ['Climbed', stats.gain_ft !== undefined ? `${stats.gain_ft.toLocaleString()} ft` : null],
+                ['Descended', stats.loss_ft !== undefined ? `${stats.loss_ft.toLocaleString()} ft` : null],
+                ['Avg grade', stats.avg_grade_pct !== undefined ? `${stats.avg_grade_pct}%` : null],
+                ['Climb rate', stats.climb_ft_per_hour !== undefined ? `${stats.climb_ft_per_hour.toLocaleString()} ft/h` : null],
+              ] as [string, string | null][]).filter(([, v]) => v !== null).map(([label, value]) => (
+                <div key={label}>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wide">{label}</p>
+                  <p className="text-xs font-semibold text-slate-100 tabular-nums">{value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="mt-1.5 text-[10px] text-slate-500">Click and drag on the chart to get stats for a section.</p>
+        )}
       </div>
 
       {hasPower && curve.length > 1 && (
