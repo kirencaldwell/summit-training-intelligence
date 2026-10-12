@@ -168,6 +168,36 @@ function findPowerBlocks(secs: Second[], ftp?: number): Block[] | undefined {
   return lasting.length >= 4 ? lasting : undefined;
 }
 
+/** Time-in-power histogram with bins sized to this ride (about 8-14 bins of a round width), plus coasting time and percentiles. */
+function powerDistribution(secs: Second[], ftp?: number) {
+  const vals = secs.map((s) => s?.w).filter((v): v is number => v !== undefined);
+  if (vals.length < 60) return undefined;
+  const coasting = vals.filter((v) => v < 5).length;
+  const pedalling = vals.filter((v) => v >= 5).sort((a, b) => a - b);
+  if (pedalling.length < 30) return undefined;
+  const pct = (q: number) => pedalling[Math.min(pedalling.length - 1, Math.floor(q * pedalling.length))];
+  const top = pct(0.99);
+  const widths = [5, 10, 20, 25, 50, 100];
+  const width = widths.find((w) => Math.ceil(top / w) <= 14) ?? 100;
+  const count = Math.max(1, Math.ceil(top / width));
+  const bins = new Array<number>(count).fill(0);
+  for (const v of pedalling) bins[Math.min(count - 1, Math.floor(v / width))]++;
+  const total = vals.length;
+  return {
+    note: `Seconds of recorded data by power. Bins are ${width} W wide; the last bin includes everything above it. Coasting is under 5 W.`,
+    coasting_minutes: round(coasting / 60, 1),
+    percentiles_watts_while_pedalling: { p10: round(pct(0.1)), p50: round(pct(0.5)), p90: round(pct(0.9)), p99: round(top) },
+    bins: bins
+      .map((n, i) => ({
+        watts: i === count - 1 ? `${i * width}+` : `${i * width}-${(i + 1) * width}`,
+        ...(ftp ? { percent_ftp: i === count - 1 ? `${round((i * width / ftp) * 100)}+` : `${round((i * width / ftp) * 100)}-${round(((i + 1) * width / ftp) * 100)}` } : {}),
+        minutes: round(n / 60, 1),
+        percent_of_ride: round((n / total) * 100),
+      }))
+      .filter((b) => b.minutes > 0),
+  };
+}
+
 /**
  * Condense a raw time-series into something a language model can read: a coarse timeline, best
  * power for key durations, sustained efforts, short power surges and periods of high heart rate.
@@ -234,6 +264,7 @@ export function summarizeStreams(points: MetricStreamPoint[] | undefined, opts: 
       if (b && secs.length >= win) best[label] = round(b.avg);
     }
     out.best_power_watts = best;
+    out.power_distribution = powerDistribution(secs, ftp);
 
     const allW = secs.map((s) => s?.w).filter((v): v is number => v !== undefined && v > 0);
     const avgW = mean(allW) ?? 0;
