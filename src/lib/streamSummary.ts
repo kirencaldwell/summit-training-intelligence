@@ -14,6 +14,41 @@ const round = (n: number, d = 0) => { const f = 10 ** d; return Math.round(n * f
 const KMH_TO_MPH = 0.621371;
 const M_TO_FT = 3.28084;
 
+export interface RunInfo { start_min: number; duration_min: number; avg_watts?: number; percent_ftp?: number; avg_hr?: number; avg_mph?: number }
+export interface BlockInfo extends RunInfo { role: 'hard' | 'easy' | 'step_up' | 'step_down' }
+export interface SurgeInfo { start_min: number; seconds: number; peak_5s_watts: number }
+export interface DistributionBin { watts: string; percent_ftp?: string; minutes: number; percent_of_ride: number }
+export interface StreamSummary {
+  sample_note: string;
+  elapsed_minutes: number;
+  timeline: Record<string, number>[];
+  best_power_watts?: Record<string, number>;
+  power_distribution?: {
+    note: string;
+    coasting_minutes: number;
+    percentiles_watts_while_pedalling: Record<string, number>;
+    bins: DistributionBin[];
+  };
+  block_structure?: { criteria: string; blocks: BlockInfo[]; trend?: string };
+  sustained_power_efforts?: { criteria: string; efforts: RunInfo[] };
+  power_surges?: { criteria: string; surges: SurgeInfo[] };
+  high_heart_rate_periods?: { criteria: string; periods: RunInfo[] };
+  ebike_note?: string;
+}
+
+/** Smoothed watts / HR for charting: a centred moving average of `window` seconds, sampled every `step` seconds. */
+export function smoothedSeries(points: MetricStreamPoint[] | undefined, window: number, step: number) {
+  if (!points || points.length < 2) return [];
+  const secs = toSeconds(points);
+  const w = window > 1 ? smooth(secs, 'w', window) : secs.map((x) => x?.w);
+  const h = window > 1 ? smooth(secs, 'hr', window) : secs.map((x) => x?.hr);
+  const out: { time: number; watts?: number; hr?: number }[] = [];
+  for (let t = 0; t < secs.length; t += step) {
+    out.push({ time: t, watts: w[t] !== undefined ? Math.round(w[t]!) : undefined, hr: h[t] !== undefined ? Math.round(h[t]!) : undefined });
+  }
+  return out;
+}
+
 interface Second { w?: number; hr?: number; speed?: number; alt?: number }
 
 /** Resample to a 1 Hz grid; gaps longer than MAX_GAP_S stay empty so pauses don't smear into efforts. */
@@ -203,7 +238,7 @@ function powerDistribution(secs: Second[], ftp?: number) {
  * power for key durations, sustained efforts, short power surges and periods of high heart rate.
  * Returns undefined when there is no usable power/HR/speed data.
  */
-export function summarizeStreams(points: MetricStreamPoint[] | undefined, opts: StreamSummaryOptions = {}) {
+export function summarizeStreams(points: MetricStreamPoint[] | undefined, opts: StreamSummaryOptions = {}): StreamSummary | undefined {
   if (!points || points.length < 10) return undefined;
   const secs = toSeconds(points);
   if (secs.length < 60) return undefined;
@@ -237,7 +272,7 @@ export function summarizeStreams(points: MetricStreamPoint[] | undefined, opts: 
     if (Object.keys(row).length > 1) timeline.push(row);
   }
 
-  const describeRun = (r: { start: number; end: number }) => {
+  const describeRun = (r: { start: number; end: number }): RunInfo => {
     const w = avgOver(secs, r.start, r.end, 'w');
     const hr = avgOver(secs, r.start, r.end, 'hr');
     const sp = avgOver(secs, r.start, r.end, 'speed');
@@ -250,7 +285,7 @@ export function summarizeStreams(points: MetricStreamPoint[] | undefined, opts: 
     };
   };
 
-  const out: Record<string, unknown> = {
+  const out: StreamSummary = {
     sample_note: 'Condensed from the recorded time-series. Times are minutes from the start (elapsed, including stops).',
     elapsed_minutes: min(secs.length),
     timeline,
@@ -287,7 +322,7 @@ export function summarizeStreams(points: MetricStreamPoint[] | undefined, opts: 
         const above = (x?: number) => x === undefined || b.watts >= x * 1.15;
         const below = (x?: number) => x === undefined || b.watts <= x / 1.15;
         const role = above(prev) && above(next) ? 'hard' : below(prev) && below(next) ? 'easy' : next !== undefined && b.watts > next ? 'step_down' : 'step_up';
-        return { ...describeRun(b), role };
+        return { ...describeRun(b), role } as BlockInfo;
       });
       const hard = rows.filter((r) => r.role === 'hard' && r.avg_watts !== undefined);
       const trend = hard.length >= 3
