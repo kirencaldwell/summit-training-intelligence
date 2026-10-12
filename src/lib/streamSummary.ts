@@ -8,6 +8,10 @@ export interface StreamSummaryOptions {
 }
 
 const MAX_GAP_S = 10;
+/** Longer than any real activity; a time axis beyond this means the times are not seconds from the start (epoch stamps, ms). */
+const MAX_RIDE_SECONDS = 4 * 24 * 3600;
+/** Math.max(...xs) throws on very large arrays. */
+const maxOf = (xs: number[]) => xs.reduce((m, x) => (x > m ? x : m), -Infinity);
 const MAX_TIMELINE_POINTS = 48;
 const MAX_LISTED = 6;
 const round = (n: number, d = 0) => { const f = 10 ** d; return Math.round(n * f) / f; };
@@ -115,7 +119,7 @@ export function selectionStats(points: MetricStreamPoint[] | undefined, fromSec:
   if (w.length >= 2) {
     const avg = mean(w)!;
     out.avg_watts = round(avg);
-    out.max_watts = round(Math.max(...w));
+    out.max_watts = round(maxOf(w));
     if (w.length >= 60) {
       const w30 = smooth(secs.slice(from, to), 'w', 30).filter((x): x is number => x !== undefined);
       if (w30.length) {
@@ -126,7 +130,7 @@ export function selectionStats(points: MetricStreamPoint[] | undefined, fromSec:
     if (ftp) out.percent_ftp = round(((out.normalized_watts ?? avg) / ftp) * 100);
   }
   const hr = values('hr');
-  if (hr.length >= 2) { out.avg_hr = round(mean(hr)!); out.max_hr = round(Math.max(...hr)); }
+  if (hr.length >= 2) { out.avg_hr = round(mean(hr)!); out.max_hr = round(maxOf(hr)); }
   const cad = values('cad');
   if (cad.length >= 2) out.avg_cadence = round(mean(cad)!);
   const speed = values('speed');
@@ -207,7 +211,7 @@ function toSeconds(points: MetricStreamPoint[]): Second[] {
   const sorted = points
     .filter((p) => typeof p.time === 'number' && p.time >= 0)
     .sort((a, b) => a.time - b.time);
-  if (sorted.length < 2) return [];
+  if (sorted.length < 2 || sorted[sorted.length - 1].time > MAX_RIDE_SECONDS) return [];
   const maxGap = maxGapSeconds(sorted.map((p) => p.time));
   const out: Second[] = new Array(Math.floor(sorted[sorted.length - 1].time) + 1);
   for (let i = 0; i < sorted.length; i++) {
@@ -404,7 +408,7 @@ export function summarizeStreams(points: MetricStreamPoint[] | undefined, opts: 
   const min = (s: number) => round(s / 60, 1);
   const ftp = opts.ftp && opts.ftp > 0 ? opts.ftp : undefined;
   const hrs = secs.map((s) => s?.hr).filter((v): v is number => v !== undefined);
-  const maxHr = opts.maxHr && opts.maxHr > 0 ? opts.maxHr : hrs.length ? Math.max(...hrs) : undefined;
+  const maxHr = opts.maxHr && opts.maxHr > 0 ? opts.maxHr : hrs.length ? maxOf(hrs) : undefined;
   const hrThreshold = opts.lthr && opts.lthr > 0 ? opts.lthr : maxHr ? maxHr * 0.9 : undefined;
 
   // Coarse timeline
@@ -493,7 +497,7 @@ export function summarizeStreams(points: MetricStreamPoint[] | undefined, opts: 
     const w5 = smooth(secs, 'w', 5);
     const surgeLine = ftp ? ftp * 1.5 : avgW * 2.5;
     const surges = findRuns(w5, (v) => v >= surgeLine, 5, 5)
-      .map((r) => ({ start_min: min(r.start), seconds: r.end - r.start, peak_5s_watts: round(Math.max(...w5.slice(r.start, r.end).filter((v): v is number => v !== undefined))) }))
+      .map((r) => ({ start_min: min(r.start), seconds: r.end - r.start, peak_5s_watts: round(maxOf(w5.slice(r.start, r.end).filter((v): v is number => v !== undefined))) }))
       .sort((a, b) => b.peak_5s_watts - a.peak_5s_watts)
       .slice(0, MAX_LISTED);
     out.power_surges = {

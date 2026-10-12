@@ -70,7 +70,7 @@ const ListSection: React.FC<{ title: string; criteria: string; rows: { at: numbe
   </div>
 );
 
-export const RideAnalysis: React.FC<RideAnalysisProps> = ({ activity, profile }) => {
+const RideAnalysisInner: React.FC<RideAnalysisProps> = ({ activity, profile }) => {
   const streams = activity.streams_data;
   const [smoothing, setSmoothing] = useState(30);
   const [showElevation, setShowElevation] = useState(true);
@@ -96,13 +96,19 @@ export const RideAnalysis: React.FC<RideAnalysisProps> = ({ activity, profile })
   const chartRef = useRef<HTMLDivElement>(null);
   const series = useMemo(() => smoothedSeries(streams, smoothing, step), [streams, smoothing, step]);
 
+  // Every hook must run before this early return: the streams load after the modal opens, so the first render has none
+  const stats = useMemo(
+    () => (selection ? selectionStats(streams, selection.from, selection.to, profile?.ftp || undefined) : undefined),
+    [selection, streams, profile?.ftp],
+  );
+
   if (!streams || streams.length === 0 || !summary) return null;
   const hasPower = series.some((p) => p.watts !== undefined && p.watts > 0);
   const hasHr = series.some((p) => p.hr !== undefined);
   const elevations = series.map((p) => p.elevation_ft).filter((v): v is number => v !== undefined);
-  const hasElevation = elevations.length > 10 && Math.max(...elevations) - Math.min(...elevations) >= 15;
-  const elevLow = hasElevation ? Math.min(...elevations) : 0;
-  const elevHigh = hasElevation ? Math.max(...elevations) : 0;
+  const elevLow = elevations.reduce((m, v) => (v < m ? v : m), Infinity);
+  const elevHigh = elevations.reduce((m, v) => (v > m ? v : m), -Infinity);
+  const hasElevation = elevations.length > 10 && elevHigh - elevLow >= 15;
   const blocks = summary.block_structure?.blocks ?? [];
   const efforts = summary.sustained_power_efforts?.efforts ?? [];
   const surges = summary.power_surges?.surges ?? [];
@@ -150,10 +156,6 @@ export const RideAnalysis: React.FC<RideAnalysisProps> = ({ activity, profile })
     });
   };
   const active = drag ?? selection;
-  const stats = useMemo(
-    () => (selection ? selectionStats(streams, selection.from, selection.to, profile?.ftp || undefined) : undefined),
-    [selection, streams, profile?.ftp],
-  );
   const totalSeconds = series.length ? series[series.length - 1].time : 0;
 
   return (
@@ -426,3 +428,25 @@ export const RideAnalysis: React.FC<RideAnalysisProps> = ({ activity, profile })
     </div>
   );
 };
+
+/** The analysis is an extra on top of the activity; if it ever throws, the rest of the activity view must keep working. */
+class RideAnalysisBoundary extends React.Component<{ children: React.ReactNode; resetKey: string }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch(error: unknown) { console.error('Ride analysis failed:', error); }
+  componentDidUpdate(prev: { resetKey: string }) {
+    if (prev.resetKey !== this.props.resetKey && this.state.failed) this.setState({ failed: false });
+  }
+  render() {
+    if (this.state.failed) {
+      return <p className="text-xs text-slate-500">The ride analysis could not be shown for this activity.</p>;
+    }
+    return this.props.children;
+  }
+}
+
+export const RideAnalysis: React.FC<RideAnalysisProps> = (props) => (
+  <RideAnalysisBoundary resetKey={props.activity.id}>
+    <RideAnalysisInner {...props} />
+  </RideAnalysisBoundary>
+);
