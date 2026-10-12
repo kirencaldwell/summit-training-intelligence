@@ -7,7 +7,7 @@ import { tssRange } from '../lib/intensityModel';
 import { kgToLb, lbToKg, roundTo } from '../lib/units';
 import { RouteMapViewer } from './RouteMapViewer';
 import { formatFeetFromMeters, formatFtPerHourFromMph, formatMilesFromMeters } from '../lib/units';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { RideAnalysis } from './RideAnalysis';
 
 interface ActivityDetailModalProps {
   activity: Activity | null;
@@ -285,7 +285,6 @@ const ActivityDetailContent: React.FC<Omit<ActivityDetailModalProps, 'activity'>
   const load = resolveTss(activity, profile ? { ftp: profile.ftp, lthr: profile.lthr, weight_kg: profile.weight_kg } : undefined);
   const [isEditing, setIsEditing] = useState(false);
 
-  const streamData = activity.streams_data || [];
   const durationMin = Math.round(activity.duration_seconds / 60);
 
   return (
@@ -504,37 +503,8 @@ const ActivityDetailContent: React.FC<Omit<ActivityDetailModalProps, 'activity'>
           <RouteMapViewer streamPoints={activity.streams_data} title={activity.title} />
         </div>
 
-        {/* Time-series Power & HR Streams Chart */}
-        {streamData.length > 0 && (
-          <div>
-            <h3 className="text-sm font-semibold text-slate-300 mb-2">Metric Time-Series Streams (Power / Heart Rate)</h3>
-            <div className="w-full h-56 rounded-xl bg-slate-900/60 p-3 border border-white/10">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={streamData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                  <XAxis 
-                    dataKey="time" 
-                    stroke="#64748B" 
-                    tick={{ fontSize: 10 }}
-                    tickFormatter={(sec) => `${Math.floor(sec / 60)}m`}
-                  />
-                  <YAxis yAxisId="watts" stroke="#F59E0B" tick={{ fontSize: 10 }} unit="W" />
-                  <YAxis yAxisId="hr" orientation="right" stroke="#F43F5E" tick={{ fontSize: 10 }} unit="bpm" />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: 'rgba(15, 23, 42, 0.95)', 
-                      borderColor: 'rgba(255, 255, 255, 0.15)',
-                      borderRadius: '0.5rem',
-                      fontSize: '11px'
-                    }}
-                  />
-                  <Line yAxisId="watts" type="monotone" dataKey="watts" stroke="#F59E0B" dot={false} strokeWidth={1.5} name="Watts" />
-                  <Line yAxisId="hr" type="monotone" dataKey="hr" stroke="#F43F5E" dot={false} strokeWidth={1.5} name="Heart Rate" />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
+        {/* Time-series chart with detected efforts and time-at-power */}
+        <RideAnalysis activity={activity} profile={profile} />
       </div>
     </div>
   );
