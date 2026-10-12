@@ -36,6 +36,36 @@ export interface StreamSummary {
   ebike_note?: string;
 }
 
+export interface CurvePoint { seconds: number; watts: number; start: number }
+const CURVE_DURATIONS = [1, 2, 3, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 420, 600, 900, 1200, 1800, 2400, 3600, 5400, 7200];
+
+/** Best average power for each duration, and the second of the ride where that best effort started. */
+export function powerCurve(points: MetricStreamPoint[] | undefined): CurvePoint[] {
+  if (!points || points.length < 2) return [];
+  const secs = toSeconds(points);
+  const n = secs.length;
+  const prefix = new Float64Array(n + 1);
+  const cnt = new Int32Array(n + 1);
+  for (let i = 0; i < n; i++) {
+    const v = secs[i]?.w;
+    prefix[i + 1] = prefix[i] + (v ?? 0);
+    cnt[i + 1] = cnt[i] + (v !== undefined ? 1 : 0);
+  }
+  const out: CurvePoint[] = [];
+  for (const d of CURVE_DURATIONS) {
+    if (d > n) break;
+    let best = -1;
+    let at = 0;
+    for (let i = 0; i + d <= n; i++) {
+      if (cnt[i + d] - cnt[i] < d * 0.95) continue; // skip windows with recording gaps
+      const avg = (prefix[i + d] - prefix[i]) / d;
+      if (avg > best) { best = avg; at = i; }
+    }
+    if (best > 0) out.push({ seconds: d, watts: Math.round(best), start: at });
+  }
+  return out;
+}
+
 /** Smoothed watts / HR for charting: a centred moving average of `window` seconds, sampled every `step` seconds. */
 export function smoothedSeries(points: MetricStreamPoint[] | undefined, window: number, step: number) {
   if (!points || points.length < 2) return [];

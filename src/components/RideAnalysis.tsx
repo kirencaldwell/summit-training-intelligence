@@ -1,11 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceArea,
-  BarChart, Bar,
+  BarChart, Bar, ReferenceLine,
 } from 'recharts';
 import type { Activity, AthleteProfile } from '../types';
 import { isEbike } from '../lib/tags';
-import { smoothedSeries, summarizeStreams, type RunInfo } from '../lib/streamSummary';
+import { powerCurve, smoothedSeries, summarizeStreams, type CurvePoint, type RunInfo } from '../lib/streamSummary';
 
 interface RideAnalysisProps {
   activity: Activity;
@@ -41,6 +41,7 @@ const clock = (min: number) => {
   const s = total % 60;
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
 };
+const durationLabel = (sec: number) => (sec < 60 ? `${sec}s` : sec < 3600 ? `${sec / 60}m` : `${sec / 3600}h`);
 const lengthLabel = (min: number) => (min < 1 ? `${Math.round(min * 60)} s` : `${min} min`);
 
 const runText = (r: RunInfo) =>
@@ -84,6 +85,9 @@ export const RideAnalysis: React.FC<RideAnalysisProps> = ({ activity, profile })
     [streams, profile?.ftp, profile?.lthr, profile?.max_hr, activity],
   );
   const step = Math.max(1, Math.round((streams?.length ?? 0) / 1200));
+  const curve = useMemo(() => powerCurve(streams), [streams]);
+  const [picked, setPicked] = useState<CurvePoint | null>(null);
+  const chartRef = useRef<HTMLDivElement>(null);
   const series = useMemo(() => smoothedSeries(streams, smoothing, step), [streams, smoothing, step]);
 
   if (!streams || streams.length === 0 || !summary) return null;
@@ -104,9 +108,15 @@ export const RideAnalysis: React.FC<RideAnalysisProps> = ({ activity, profile })
   surges.forEach((s) => add('surges', s.start_min * 60, s.start_min * 60 + Math.max(s.seconds, 10)));
   hrPeriods.forEach((p) => add('hr', p.start_min * 60, (p.start_min + p.duration_min) * 60));
 
+  const pickEffort = (point: CurvePoint) => {
+    setPicked((prev) => (prev?.seconds === point.seconds ? null : point));
+    chartRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
+  const totalSeconds = series.length ? series[series.length - 1].time : 0;
+
   return (
     <div className="space-y-4">
-      <div>
+      <div ref={chartRef}>
         <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
           <h3 className="text-sm font-semibold text-slate-300">Power & Heart Rate</h3>
           <select
@@ -150,12 +160,84 @@ export const RideAnalysis: React.FC<RideAnalysisProps> = ({ activity, profile })
               {areas.map((a) => (
                 <ReferenceArea key={a.key} yAxisId={hasPower ? 'watts' : 'hr'} x1={a.x1} x2={a.x2} fill={a.fill} fillOpacity={0.2} stroke="none" />
               ))}
+              {picked && (
+                <ReferenceArea
+                  yAxisId={hasPower ? 'watts' : 'hr'}
+                  x1={picked.start}
+                  x2={picked.start + Math.max(picked.seconds, totalSeconds * 0.01)}
+                  fill="#A78BFA"
+                  fillOpacity={0.45}
+                  stroke="#A78BFA"
+                />
+              )}
               {hasPower && <Line yAxisId="watts" type="monotone" dataKey="watts" stroke="#F59E0B" dot={false} strokeWidth={1.5} name="Watts" connectNulls={false} isAnimationActive={false} />}
               {hasHr && <Line yAxisId="hr" type="monotone" dataKey="hr" stroke="#F43F5E" dot={false} strokeWidth={1.5} name="Heart rate" connectNulls={false} isAnimationActive={false} />}
             </LineChart>
           </ResponsiveContainer>
         </div>
       </div>
+
+      {hasPower && curve.length > 1 && (
+        <div>
+          <h3 className="text-sm font-semibold text-slate-300 mb-1">Power Curve</h3>
+          <p className="text-[10px] text-slate-500 mb-2">
+            {picked
+              ? <>Best {durationLabel(picked.seconds)}: <span className="text-violet-300 font-semibold">{picked.watts} W</span>
+                {profile?.ftp ? ` (${Math.round((picked.watts / profile.ftp) * 100)}% FTP)` : ''} at {clock(picked.start / 60)}–{clock((picked.start + picked.seconds) / 60)}, highlighted on the chart above. <button onClick={() => setPicked(null)} className="underline text-slate-400">Clear</button></>
+              : 'Your best average power for each duration in this ride. Click a point to see where that effort happened.'}
+          </p>
+          <div className="w-full h-48 rounded-xl bg-slate-900/60 p-3 border border-white/10">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={curve}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                <XAxis
+                  dataKey="seconds"
+                  type="number"
+                  scale="log"
+                  domain={[1, 'dataMax']}
+                  ticks={curve.filter((c) => [1, 5, 15, 30, 60, 300, 600, 1200, 3600].includes(c.seconds)).map((c) => c.seconds)}
+                  tickFormatter={durationLabel}
+                  stroke="#64748B"
+                  tick={{ fontSize: 10 }}
+                />
+                <YAxis stroke="#F59E0B" tick={{ fontSize: 10 }} unit="W" domain={[0, 'auto']} />
+                <Tooltip
+                  contentStyle={tooltipStyle}
+                  labelFormatter={(sec) => `Best ${durationLabel(Number(sec))}`}
+                  formatter={(value) => [`${value} W`, 'Power']}
+                />
+                {profile?.ftp ? <ReferenceLine y={profile.ftp} stroke="#94A3B8" strokeDasharray="4 4" label={{ value: 'FTP', fill: '#94A3B8', fontSize: 10, position: 'insideTopRight' }} /> : null}
+                <Line
+                  type="monotone"
+                  dataKey="watts"
+                  stroke="#F59E0B"
+                  strokeWidth={2}
+                  isAnimationActive={false}
+                  dot={(props: { cx?: number; cy?: number; payload?: CurvePoint; index?: number }) => {
+                    const { cx, cy, payload, index } = props;
+                    if (cx === undefined || cy === undefined || !payload) return <g key={index} />;
+                    const active = picked?.seconds === payload.seconds;
+                    return (
+                      <circle
+                        key={payload.seconds}
+                        cx={cx}
+                        cy={cy}
+                        r={active ? 6 : 4}
+                        fill={active ? '#A78BFA' : '#F59E0B'}
+                        stroke="#0F172A"
+                        strokeWidth={1.5}
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => pickEffort(payload)}
+                      />
+                    );
+                  }}
+                  activeDot={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
 
       {dist && (
         <div>
