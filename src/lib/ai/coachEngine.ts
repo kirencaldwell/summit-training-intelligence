@@ -3,6 +3,7 @@ import { dataService } from '../supabase';
 import { calculatePMC, calculatePowerCurve, calculatePowerReadiness, resolveTss, tssFromIntensity } from '../trainingMath';
 import { CoachApiError, coachRequestExtras, readCoachError } from '../coachSettings';
 import { isEbike } from '../tags';
+import { summarizeStreams } from '../streamSummary';
 import { parseReadinessReply, type GoalReadinessAssessment } from '../goalReadiness';
 import { ftToM, kgToLb, kmToMi, mToFt, miToKm, roundTo } from '../units';
 import {
@@ -477,6 +478,16 @@ class GeminiCoachEngine {
   }
 
   public async assessActivity(activity: Activity): Promise<string> {
+    // The list view omits the heavy time-series, so load it for the activity being assessed
+    let withStreams = activity;
+    if (!activity.streams_data?.length) {
+      try {
+        const full = await dataService.getActivityById(activity.id);
+        if (full?.streams_data?.length) withStreams = { ...activity, streams_data: full.streams_data };
+      } catch (err) {
+        console.warn('Could not load activity streams for the assessment:', err);
+      }
+    }
     const [profile, activities, goals, sessions] = await Promise.all([
       dataService.getProfile(),
       dataService.getActivities(),
@@ -544,6 +555,12 @@ class GeminiCoachEngine {
         gear_notes: activity.gear_notes,
         tags: activity.tags,
         ebike_motor_assist: isEbike(activity) || undefined,
+        time_series: summarizeStreams(withStreams.streams_data, {
+          ftp: profile.ftp || undefined,
+          lthr: profile.lthr || undefined,
+          maxHr: profile.max_hr || undefined,
+          ebike: isEbike(activity),
+        }),
       },
       training_load: {
         before_activity: pmcBefore ? { ctl: pmcBefore.ctl, atl: pmcBefore.atl, tsb: pmcBefore.tsb } : null,
