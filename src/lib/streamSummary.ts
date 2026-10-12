@@ -51,18 +51,37 @@ export function smoothedSeries(points: MetricStreamPoint[] | undefined, window: 
 
 interface Second { w?: number; hr?: number; speed?: number; alt?: number }
 
-/** Resample to a 1 Hz grid; gaps longer than MAX_GAP_S stay empty so pauses don't smear into efforts. */
+/**
+ * The longest gap between two samples that still counts as one continuous stretch. Saved rides are thinned to ~500
+ * samples, so on a long ride the normal spacing is itself more than MAX_GAP_S (a 2 h ride has a sample every ~14 s):
+ * the limit has to scale with the spacing, or every sample stands alone and the charts come out empty.
+ * Pauses are still gaps: they are far longer than a few normal spacings.
+ */
+export function maxGapSeconds(sortedTimes: number[]): number {
+  const spacings: number[] = [];
+  for (let i = 1; i < sortedTimes.length; i++) {
+    const d = sortedTimes[i] - sortedTimes[i - 1];
+    if (d > 0) spacings.push(d);
+  }
+  if (spacings.length === 0) return MAX_GAP_S;
+  spacings.sort((a, b) => a - b);
+  const median = spacings[Math.floor(spacings.length / 2)];
+  return Math.max(MAX_GAP_S, Math.ceil(median * 2.5));
+}
+
+/** Resample to a 1 Hz grid; gaps longer than the allowed gap stay empty so pauses don't smear into efforts. */
 function toSeconds(points: MetricStreamPoint[]): Second[] {
   const sorted = points
     .filter((p) => typeof p.time === 'number' && p.time >= 0)
     .sort((a, b) => a.time - b.time);
   if (sorted.length < 2) return [];
+  const maxGap = maxGapSeconds(sorted.map((p) => p.time));
   const out: Second[] = new Array(Math.floor(sorted[sorted.length - 1].time) + 1);
   for (let i = 0; i < sorted.length; i++) {
     const p = sorted[i];
     const next = sorted[i + 1];
     const from = Math.floor(p.time);
-    const to = next && next.time - p.time <= MAX_GAP_S ? Math.floor(next.time) : from + 1;
+    const to = next && next.time - p.time <= maxGap ? Math.floor(next.time) : from + 1;
     for (let s = from; s < to && s < out.length; s++) {
       out[s] = {
         w: typeof p.watts === 'number' && p.watts >= 0 ? p.watts : undefined,
