@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
 import {
-  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceArea,
+  ComposedChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceArea,
   BarChart, Bar, ReferenceLine,
 } from 'recharts';
 import type { Activity, AthleteProfile } from '../types';
@@ -73,6 +73,7 @@ const ListSection: React.FC<{ title: string; criteria: string; rows: { at: numbe
 export const RideAnalysis: React.FC<RideAnalysisProps> = ({ activity, profile }) => {
   const streams = activity.streams_data;
   const [smoothing, setSmoothing] = useState(30);
+  const [showElevation, setShowElevation] = useState(true);
   const [shown, setShown] = useState<Record<Overlay, boolean>>({ blocks: true, efforts: false, surges: true, hr: false });
 
   const summary = useMemo(
@@ -94,6 +95,10 @@ export const RideAnalysis: React.FC<RideAnalysisProps> = ({ activity, profile })
   if (!streams || streams.length === 0 || !summary) return null;
   const hasPower = series.some((p) => p.watts !== undefined && p.watts > 0);
   const hasHr = series.some((p) => p.hr !== undefined);
+  const elevations = series.map((p) => p.elevation_ft).filter((v): v is number => v !== undefined);
+  const hasElevation = elevations.length > 10 && Math.max(...elevations) - Math.min(...elevations) >= 15;
+  const elevLow = hasElevation ? Math.min(...elevations) : 0;
+  const elevHigh = hasElevation ? Math.max(...elevations) : 0;
   const blocks = summary.block_structure?.blocks ?? [];
   const efforts = summary.sustained_power_efforts?.efforts ?? [];
   const surges = summary.power_surges?.surges ?? [];
@@ -129,9 +134,18 @@ export const RideAnalysis: React.FC<RideAnalysisProps> = ({ activity, profile })
             {SMOOTHING.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
         </div>
-        {hasPower && (
+        {(hasPower || hasElevation) && (
           <div className="flex flex-wrap gap-1.5 mb-2">
-            {OVERLAYS.map((o) => (
+            {hasElevation && (
+              <button
+                onClick={() => setShowElevation((v) => !v)}
+                aria-pressed={showElevation}
+                className={`rounded-full border px-2.5 py-0.5 text-[11px] transition-all ${showElevation ? 'border-slate-400/50 text-slate-200 bg-white/10' : 'border-white/10 text-slate-500'}`}
+              >
+                Elevation
+              </button>
+            )}
+            {hasPower && OVERLAYS.map((o) => (
               <button
                 key={o.key}
                 onClick={() => setShown((prev) => ({ ...prev, [o.key]: !prev[o.key] }))}
@@ -145,7 +159,7 @@ export const RideAnalysis: React.FC<RideAnalysisProps> = ({ activity, profile })
         )}
         <div className="w-full h-56 rounded-xl bg-slate-900/60 p-3 border border-white/10">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={series}>
+            <ComposedChart data={series}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
               <XAxis
                 dataKey="time"
@@ -157,7 +171,17 @@ export const RideAnalysis: React.FC<RideAnalysisProps> = ({ activity, profile })
               />
               {hasPower && <YAxis yAxisId="watts" stroke="#F59E0B" tick={{ fontSize: 10 }} unit="W" />}
               {hasHr && <YAxis yAxisId="hr" orientation="right" stroke="#F43F5E" tick={{ fontSize: 10 }} unit="bpm" domain={['dataMin - 5', 'dataMax + 5']} />}
-              <Tooltip contentStyle={tooltipStyle} labelFormatter={(sec) => clock(Number(sec) / 60)} />
+              {hasElevation && showElevation && (
+                <YAxis yAxisId="elev" hide width={0} orientation="right" domain={[elevLow, elevLow + (elevHigh - elevLow) * 2.2]} />
+              )}
+              <Tooltip
+                contentStyle={tooltipStyle}
+                labelFormatter={(sec) => clock(Number(sec) / 60)}
+                formatter={(value, name) => [name === 'Elevation' ? `${Number(value).toLocaleString()} ft` : name === 'Watts' ? `${value} W` : `${value} bpm`, name]}
+              />
+              {hasElevation && showElevation && (
+                <Area yAxisId="elev" type="monotone" dataKey="elevation_ft" name="Elevation" stroke="#94A3B8" strokeWidth={1} fill="#94A3B8" fillOpacity={0.15} dot={false} activeDot={false} isAnimationActive={false} connectNulls />
+              )}
               {areas.map((a) => (
                 <ReferenceArea key={a.key} yAxisId={hasPower ? 'watts' : 'hr'} x1={a.x1} x2={a.x2} fill={a.fill} fillOpacity={0.2} stroke="none" />
               ))}
@@ -173,7 +197,7 @@ export const RideAnalysis: React.FC<RideAnalysisProps> = ({ activity, profile })
               )}
               {hasPower && <Line yAxisId="watts" type="monotone" dataKey="watts" stroke="#F59E0B" dot={false} strokeWidth={1.5} name="Watts" connectNulls={false} isAnimationActive={false} />}
               {hasHr && <Line yAxisId="hr" type="monotone" dataKey="hr" stroke="#F43F5E" dot={false} strokeWidth={1.5} name="Heart rate" connectNulls={false} isAnimationActive={false} />}
-            </LineChart>
+            </ComposedChart>
           </ResponsiveContainer>
         </div>
       </div>

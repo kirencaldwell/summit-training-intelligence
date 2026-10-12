@@ -86,9 +86,16 @@ export function smoothedSeries(points: MetricStreamPoint[] | undefined, window: 
   const secs = toSeconds(points);
   const w = window > 1 ? smooth(secs, 'w', window) : secs.map((x) => x?.w);
   const h = window > 1 ? smooth(secs, 'hr', window) : secs.map((x) => x?.hr);
-  const out: { time: number; watts?: number; hr?: number }[] = [];
+  // Altitude is lightly smoothed regardless of the power setting: raw GPS/barometer altitude is jittery
+  const a = smooth(secs, 'alt', Math.max(5, Math.min(window, 30)));
+  const out: { time: number; watts?: number; hr?: number; elevation_ft?: number }[] = [];
   for (let t = 0; t < secs.length; t += step) {
-    out.push({ time: t, watts: w[t] !== undefined ? Math.round(w[t]!) : undefined, hr: h[t] !== undefined ? Math.round(h[t]!) : undefined });
+    out.push({
+      time: t,
+      watts: w[t] !== undefined ? Math.round(w[t]!) : undefined,
+      hr: h[t] !== undefined ? Math.round(h[t]!) : undefined,
+      elevation_ft: a[t] !== undefined ? Math.round(a[t]! * M_TO_FT) : undefined,
+    });
   }
   return out;
 }
@@ -150,7 +157,7 @@ function avgOver(secs: Second[], from: number, to: number, key: 'w' | 'hr' | 'sp
 }
 
 /** Centred moving average per second (undefined where the window has no data). */
-function smooth(secs: Second[], key: 'w' | 'hr', window: number): (number | undefined)[] {
+function smooth(secs: Second[], key: 'w' | 'hr' | 'alt', window: number): (number | undefined)[] {
   const out: (number | undefined)[] = new Array(secs.length);
   let sum = 0;
   let count = 0;
