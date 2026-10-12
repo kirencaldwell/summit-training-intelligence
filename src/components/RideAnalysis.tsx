@@ -5,7 +5,7 @@ import {
 } from 'recharts';
 import type { Activity, AthleteProfile } from '../types';
 import { isEbike } from '../lib/tags';
-import { powerCurve, smoothedSeries, summarizeStreams, type CurvePoint, type RunInfo } from '../lib/streamSummary';
+import { powerCurve, sampleSpacingSeconds, smoothedSeries, summarizeStreams, type CurvePoint, type RunInfo } from '../lib/streamSummary';
 
 interface RideAnalysisProps {
   activity: Activity;
@@ -86,6 +86,7 @@ export const RideAnalysis: React.FC<RideAnalysisProps> = ({ activity, profile })
   );
   const step = Math.max(1, Math.round((streams?.length ?? 0) / 1200));
   const curve = useMemo(() => powerCurve(streams), [streams]);
+  const spacing = useMemo(() => sampleSpacingSeconds(streams), [streams]);
   const [picked, setPicked] = useState<CurvePoint | null>(null);
   const chartRef = useRef<HTMLDivElement>(null);
   const series = useMemo(() => smoothedSeries(streams, smoothing, step), [streams, smoothing, step]);
@@ -185,6 +186,7 @@ export const RideAnalysis: React.FC<RideAnalysisProps> = ({ activity, profile })
               ? <>Best {durationLabel(picked.seconds)}: <span className="text-violet-300 font-semibold">{picked.watts} W</span>
                 {profile?.ftp ? ` (${Math.round((picked.watts / profile.ftp) * 100)}% FTP)` : ''} at {clock(picked.start / 60)}–{clock((picked.start + picked.seconds) / 60)}, highlighted on the chart above. <button onClick={() => setPicked(null)} className="underline text-slate-400">Clear</button></>
               : 'Your best average power for each duration in this ride. Click a point to see where that effort happened.'}
+            {spacing > 1.5 ? ` Rides are saved with about 500 samples (one every ~${Math.round(spacing)} s here), so efforts shorter than ${Math.round(spacing * 2)} s can't be shown.` : ''}
           </p>
           <div className="w-full h-48 rounded-xl bg-slate-900/60 p-3 border border-white/10">
             <ResponsiveContainer width="100%" height="100%">

@@ -39,6 +39,17 @@ export interface StreamSummary {
 export interface CurvePoint { seconds: number; watts: number; start: number }
 const CURVE_DURATIONS = [1, 2, 3, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 420, 600, 900, 1200, 1800, 2400, 3600, 5400, 7200];
 
+/** Median seconds between recorded samples; saved rides are thinned to ~500 samples, so this grows with ride length. */
+export function sampleSpacingSeconds(points: MetricStreamPoint[] | undefined): number {
+  if (!points || points.length < 2) return 1;
+  const times = points.map((p) => p.time).filter((t) => typeof t === 'number').sort((a, b) => a - b);
+  const gaps: number[] = [];
+  for (let i = 1; i < times.length; i++) if (times[i] > times[i - 1]) gaps.push(times[i] - times[i - 1]);
+  if (gaps.length === 0) return 1;
+  gaps.sort((a, b) => a - b);
+  return gaps[Math.floor(gaps.length / 2)];
+}
+
 /** Best average power for each duration, and the second of the ride where that best effort started. */
 export function powerCurve(points: MetricStreamPoint[] | undefined): CurvePoint[] {
   if (!points || points.length < 2) return [];
@@ -52,8 +63,11 @@ export function powerCurve(points: MetricStreamPoint[] | undefined): CurvePoint[
     cnt[i + 1] = cnt[i] + (v !== undefined ? 1 : 0);
   }
   const out: CurvePoint[] = [];
+  // Windows shorter than a couple of sample spacings would just be single samples, not real averages
+  const minDuration = sampleSpacingSeconds(points) * 2;
   for (const d of CURVE_DURATIONS) {
     if (d > n) break;
+    if (d < minDuration) continue;
     let best = -1;
     let at = 0;
     for (let i = 0; i + d <= n; i++) {
