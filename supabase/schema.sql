@@ -184,6 +184,10 @@ CREATE TABLE IF NOT EXISTS public.training_sessions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Activities linked to a planned session when the athlete marks it complete
+ALTER TABLE public.training_sessions
+  ADD COLUMN IF NOT EXISTS completed_activity_ids JSONB NOT NULL DEFAULT '[]'::JSONB;
+
 -- One row per athlete holding the AI coach chat, so it follows them across devices
 CREATE TABLE IF NOT EXISTS public.coach_chats (
   user_id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,

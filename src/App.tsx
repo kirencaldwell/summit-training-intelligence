@@ -390,6 +390,17 @@ export function App() {
     setTrainingSessions((previous) => previous.map((session) => session.id === id ? updated : session));
   };
 
+  const handleCompleteTrainingSession = async (id: string, activityIds: string[]) => {
+    const { session, synced } = await dataService.completeTrainingSession(id, activityIds);
+    setTrainingSessions((previous) => previous.map((s) => (s.id === id ? session : s)));
+    return { synced };
+  };
+
+  const handleReopenTrainingSession = async (id: string) => {
+    const session = await dataService.reopenTrainingSession(id);
+    setTrainingSessions((previous) => previous.map((s) => (s.id === id ? session : s)));
+  };
+
   // Delete sessions from the dashboard. Each is removed from the screen only once the database has dropped it.
   const handleDeleteTrainingSessions = async (ids: string[]) => {
     const deleted: string[] = [];
@@ -716,6 +727,8 @@ export function App() {
             pmcData={pmcData}
             trainingSessions={upcomingSessions}
             onDeleteTrainingSessions={handleDeleteTrainingSessions}
+            onCompleteTrainingSession={handleCompleteTrainingSession}
+            onReopenTrainingSession={handleReopenTrainingSession}
             onAssessGoalReadiness={handleAssessGoalReadiness}
             onOpenActivity={handleOpenActivity}
             onNavigateTab={setActiveTab}
