@@ -5,6 +5,7 @@ import { CoachApiError, coachRequestExtras, readCoachError } from '../coachSetti
 import { isEbike } from '../tags';
 import { summarizeStreams } from '../streamSummary';
 import { intensityCharacter, sameDayTotals } from '../intensityCharacter';
+import { evaluatePlanChecks, parsePlanChecks, type PlanCheck } from '../planChecks';
 import { parseReadinessReply, type GoalReadinessAssessment } from '../goalReadiness';
 import { ftToM, kgToLb, kmToMi, mToFt, miToKm, roundTo } from '../units';
 import {
@@ -29,6 +30,45 @@ async function postCoach(body: Record<string, unknown>): Promise<string> {
   if (!res.ok) throw await readCoachError(res);
   const { text } = await res.json();
   return text ?? '';
+}
+
+// Plan checks are generated once per planned session (a cheap model reads the plan text) and kept on this device
+const PLAN_CHECKS_CACHE_KEY = 'summit_plan_checks_v1';
+const PLAN_CHECKS_CACHE_MAX = 150;
+
+function planTextHash(s: TrainingSession): string {
+  const text = [s.title, s.focus, s.details, s.duration_minutes, s.target_tss ?? ''].join('\u0001');
+  let h = 5381;
+  for (let i = 0; i < text.length; i++) h = ((h * 33) ^ text.charCodeAt(i)) >>> 0;
+  return `${h.toString(36)}.${text.length}`;
+}
+
+function readPlanChecksCache(): Record<string, PlanCheck[]> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PLAN_CHECKS_CACHE_KEY) ?? '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch { return {}; }
+}
+
+/** The measurable checks for one planned session: from this device's cache, else asked of the cheap model. */
+async function planChecksFor(session: TrainingSession, ftp?: number): Promise<PlanCheck[]> {
+  const key = planTextHash(session);
+  const cache = readPlanChecksCache();
+  if (Array.isArray(cache[key])) return parsePlanChecks(cache[key]);   // re-validated: the cache is only data too
+  const text = await postCoach({
+    mode: 'plan_checks',
+    message: 'List the measurable checks for this planned session.',
+    context: {
+      title: session.title, focus: session.focus, details: session.details,
+      duration_minutes: session.duration_minutes, target_tss: session.target_tss, athlete_ftp_watts: ftp || undefined,
+    },
+  });
+  const checks = parsePlanChecks(text);
+  try {
+    const entries = Object.entries({ ...cache, [key]: checks });
+    localStorage.setItem(PLAN_CHECKS_CACHE_KEY, JSON.stringify(Object.fromEntries(entries.slice(-PLAN_CHECKS_CACHE_MAX))));
+  } catch { /* storage full or unavailable: ask again next time */ }
+  return checks;
 }
 
 const kmToMiRounded = (km?: number) => (km ? roundTo(kmToMi(km), 1) : undefined);
@@ -528,6 +568,27 @@ class GeminiCoachEngine {
       tss: Math.round(resolveTss(a, loadProfile).tss),
     });
 
+    // Stage 2: what the planned session asked for, measured on this ride's recorded data
+    const planCheckResults: { session: string; session_date: string; checks: ReturnType<typeof evaluatePlanChecks> }[] = [];
+    try {
+      const localDate = new Date(activity.start_date).toLocaleDateString('en-CA');
+      const planned = sessions
+        .filter((s) => (s.status === 'ACCEPTED' || s.status === 'COMPLETED') && s.session_date === localDate && s.sport_type === activity.sport_type)
+        .slice(0, 2);
+      for (const session of planned) {
+        const checks = await planChecksFor(session, profile.ftp);
+        if (!checks.length) continue;
+        planCheckResults.push({
+          session: session.title,
+          session_date: session.session_date,
+          checks: evaluatePlanChecks(withStreams.streams_data, checks, { ftp: profile.ftp || undefined, lthr: profile.lthr || undefined }),
+        });
+      }
+    } catch (err) {
+      // Optional extra: the assessment is still written without it
+      console.warn('Could not run the plan checks:', err);
+    }
+
     const context = {
       today: new Date().toISOString().slice(0, 10),
       profile: {
@@ -550,6 +611,7 @@ class GeminiCoachEngine {
         avg_vam_ft_per_hour: mToFtRounded(activity.avg_vam_mh),
         time_in_hr_zones_seconds: activity.time_in_hr_zones,
         time_in_power_zones_seconds: activity.time_in_power_zones,
+        plan_check_results: planCheckResults.length ? planCheckResults : undefined,
         intensity_character: intensityCharacter(activity, { ftp: profile.ftp || undefined, lthr: profile.lthr || undefined }),
         // Plans are usually written per day, so a session split over several rides (commute there and back) is compared as one
         same_day_same_sport: sameDayTotals(activity, withActivity, (a) => resolveTss(a, loadProfile).tss),

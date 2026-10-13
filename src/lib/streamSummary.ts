@@ -194,7 +194,7 @@ export function smoothedSeries(points: MetricStreamPoint[] | undefined, window: 
   return out;
 }
 
-interface Second { w?: number; hr?: number; speed?: number; alt?: number; cad?: number }
+export interface Second { w?: number; hr?: number; speed?: number; alt?: number; cad?: number }
 
 /**
  * The longest gap between two samples that still counts as one continuous stretch. Saved rides are thinned to ~500
@@ -215,7 +215,7 @@ export function maxGapSeconds(sortedTimes: number[]): number {
 }
 
 /** Resample to a 1 Hz grid; gaps longer than the allowed gap stay empty so pauses don't smear into efforts. */
-function toSeconds(points: MetricStreamPoint[]): Second[] {
+export function toSeconds(points: MetricStreamPoint[]): Second[] {
   const sorted = points
     .filter((p) => typeof p.time === 'number' && p.time >= 0)
     .sort((a, b) => a.time - b.time);
@@ -252,7 +252,7 @@ function avgOver(secs: Second[], from: number, to: number, key: 'w' | 'hr' | 'sp
 }
 
 /** Centred moving average per second (undefined where the window has no data). */
-function smooth(secs: Second[], key: 'w' | 'hr' | 'alt', window: number): (number | undefined)[] {
+export function smooth(secs: Second[], key: 'w' | 'hr' | 'alt', window: number): (number | undefined)[] {
   const out: (number | undefined)[] = new Array(secs.length);
   let sum = 0;
   let count = 0;
@@ -272,7 +272,7 @@ function smooth(secs: Second[], key: 'w' | 'hr' | 'alt', window: number): (numbe
 }
 
 /** Contiguous runs where pred is true, allowing short dips below the line to be bridged. */
-function findRuns(values: (number | undefined)[], pred: (v: number) => boolean, minSeconds: number, bridge = 20) {
+export function findRuns(values: (number | undefined)[], pred: (v: number) => boolean, minSeconds: number, bridge = 20) {
   const runs: { start: number; end: number }[] = [];
   let start = -1;
   let lastTrue = -1;
