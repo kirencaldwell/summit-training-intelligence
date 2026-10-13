@@ -25,6 +25,7 @@ const ACTIVITY_LIST_COLUMNS =
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const STORAGE_KEYS = {
+  SESSION_LINKS: 'summit_session_links',
   PROFILE: 'summit_athlete_profile',
   ACTIVITIES: 'summit_activities_list',
   GOALS: 'summit_goals_list',
@@ -441,9 +442,80 @@ class DataService {
         .eq('user_id', profile.id)
         .order('session_date', { ascending: true });
       if (error) throw new Error(`Training sessions could not be loaded: ${error.message}`);
-      return (data || []) as TrainingSession[];
+      const links = this.readSessionLinks();
+      // Rows from a database without the link column take the links remembered on this device
+      return ((data || []) as TrainingSession[]).map((session) =>
+        session.completed_activity_ids === undefined && links[session.id]
+          ? { ...session, completed_activity_ids: links[session.id] }
+          : session
+      );
     }
     return this.localTrainingSessions;
+  }
+
+  // Fallback store for session-to-activity links when the database has no completed_activity_ids column yet
+  private linkColumnMissing = false;
+  private readSessionLinks(): Record<string, string[]> {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEYS.SESSION_LINKS) || '{}');
+    } catch {
+      return {};
+    }
+  }
+  private writeSessionLinks(id: string, ids: string[]) {
+    try {
+      const links = this.readSessionLinks();
+      if (ids.length) links[id] = ids; else delete links[id];
+      localStorage.setItem(STORAGE_KEYS.SESSION_LINKS, JSON.stringify(links));
+    } catch {
+      // Storage unavailable: the links just won't survive a reload
+    }
+  }
+
+  /**
+   * Mark a planned session complete and link the activities that did it. `synced` is false when the database
+   * could not store the links (the SQL has not been run yet): the session is still completed, and the links are
+   * kept on this device only.
+   */
+  public async completeTrainingSession(id: string, activityIds: string[]): Promise<{ session: TrainingSession; synced: boolean }> {
+    return this.setSessionCompletion(id, 'COMPLETED', activityIds);
+  }
+
+  public async reopenTrainingSession(id: string): Promise<TrainingSession> {
+    return (await this.setSessionCompletion(id, 'ACCEPTED', [])).session;
+  }
+
+  private async setSessionCompletion(id: string, status: TrainingSessionStatus, activityIds: string[]): Promise<{ session: TrainingSession; synced: boolean }> {
+    if (this.mode === 'supabase' && supabase) {
+      const profile = await this.getAuthenticatedProfile();
+      if (!this.linkColumnMissing) {
+        const { data, error } = await supabase
+          .from('training_sessions')
+          .update({ status, completed_activity_ids: activityIds })
+          .eq('id', id)
+          .eq('user_id', profile.id)
+          .select('*')
+          .single();
+        if (!error && data) {
+          this.writeSessionLinks(id, []);
+          return { session: data as TrainingSession, synced: true };
+        }
+        if (!error?.message?.includes('completed_activity_ids')) {
+          throw new Error(`Training session update failed: ${error?.message || 'Session not found'}`);
+        }
+        this.linkColumnMissing = true;
+      }
+      const session = await this.updateTrainingSessionStatus(id, status);
+      this.writeSessionLinks(id, activityIds);
+      return { session: { ...session, completed_activity_ids: activityIds }, synced: activityIds.length === 0 };
+    }
+
+    const index = this.localTrainingSessions.findIndex((session) => session.id === id);
+    if (index < 0) throw new Error('Training session not found.');
+    const updated = { ...this.localTrainingSessions[index], status, completed_activity_ids: activityIds };
+    this.localTrainingSessions[index] = updated;
+    this.saveLocalState();
+    return { session: updated, synced: true };
   }
 
   public async replaceProposedTrainingSessions(
@@ -530,8 +602,11 @@ class DataService {
     if (this.mode === 'supabase' && supabase) {
       const profile = await this.getAuthenticatedProfile();
       const results: TrainingSession[] = [];
-      for (const session of sessions) {
+      for (const original of sessions) {
+        let session = original;
         const isExistingUUID = UUID_PATTERN.test(session.id || '');
+        // Without the column in the database, sending it would fail the whole save
+        if (this.linkColumnMissing) session = { ...session, completed_activity_ids: undefined };
 
         if (isExistingUUID) {
           const { id, ...rest } = session;

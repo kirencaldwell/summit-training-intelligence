@@ -501,6 +501,7 @@ class GeminiCoachEngine {
       plan: {
         accepted_sessions_last_28_days: past28.length,
         of_which_marked_completed: past28.filter((s) => s.status === 'COMPLETED').length,
+        of_which_completed_with_linked_activities: past28.filter((s) => s.status === 'COMPLETED' && (s.completed_activity_ids?.length ?? 0) > 0).length,
         upcoming_14_days: upcoming,
       },
       data_quality: {
@@ -572,9 +573,14 @@ class GeminiCoachEngine {
     const planCheckResults: { session: string; session_date: string; checks: ReturnType<typeof evaluatePlanChecks> }[] = [];
     try {
       const localDate = new Date(activity.start_date).toLocaleDateString('en-CA');
-      const planned = sessions
-        .filter((s) => (s.status === 'ACCEPTED' || s.status === 'COMPLETED') && s.session_date === localDate && s.sport_type === activity.sport_type)
-        .slice(0, 2);
+      const isPlanned = (s: TrainingSession) => s.status === 'ACCEPTED' || s.status === 'COMPLETED';
+      // Sessions the athlete linked to this activity win; otherwise guess by day and sport, unless the session was linked to other activities
+      const linked = sessions.filter((s) => isPlanned(s) && s.completed_activity_ids?.includes(activity.id));
+      const planned = linked.length
+        ? linked.slice(0, 3)
+        : sessions
+          .filter((s) => isPlanned(s) && s.session_date === localDate && s.sport_type === activity.sport_type && !(s.completed_activity_ids?.length))
+          .slice(0, 2);
       for (const session of planned) {
         const checks = await planChecksFor(session, profile.ftp);
         if (!checks.length) continue;
@@ -659,6 +665,7 @@ class GeminiCoachEngine {
           details: s.details,
           target_tss: s.target_tss,
           status: s.status,
+          ...(s.completed_activity_ids?.includes(activity.id) ? { this_activity_was_linked_to_it_by_the_athlete: true } : {}),
         })),
       previous_activities_28_days: withActivity
         .filter((a) => a.id !== activity.id && new Date(a.start_date).getTime() < startMs && new Date(a.start_date).getTime() >= startMs - 28 * dayMs)

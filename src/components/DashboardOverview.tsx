@@ -1,10 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import type { Activity, Goal, AthleteProfile, PMCDayPoint, TrainingSession } from '../types';
-import { Zap, Calendar, ArrowUpRight, TrendingUp, Sparkles, ChevronRight, Activity as ActivityIcon, CalendarDays, Clock3, Trash2 } from 'lucide-react';
+import { Zap, Calendar, ArrowUpRight, TrendingUp, Sparkles, ChevronRight, Activity as ActivityIcon, CalendarDays, Clock3, Trash2, Check, RotateCcw } from 'lucide-react';
 import { PerformanceManagementChart } from './PerformanceManagementChart';
 import { formatFeetFromMeters, formatMilesFromKm, formatMilesFromMeters } from '../lib/units';
 import { calculatePMC, resolveTss } from '../lib/trainingMath';
 import { DEFAULT_PMC_PRESET, PMC_PRESETS, describePmcRange, selectPmcRange, type PmcPreset } from '../lib/pmcRange';
+import { SessionCompleteModal } from './SessionCompleteModal';
 import { GoalReadinessPanel } from './GoalReadinessPanel';
 import type { GoalReadinessAssessment } from '../lib/goalReadiness';
 
@@ -18,6 +19,9 @@ interface DashboardOverviewProps {
   onNavigateTab: (tab: 'dashboard' | 'goals' | 'activities' | 'power' | 'heart-rate' | 'coach') => void;
   onOpenProfile?: () => void;
   onDeleteTrainingSessions?: (ids: string[]) => Promise<void>;
+  /** Marks a session complete and links the activities that did it; synced is false when the links could only be kept on this device */
+  onCompleteTrainingSession?: (id: string, activityIds: string[]) => Promise<{ synced: boolean }>;
+  onReopenTrainingSession?: (id: string) => Promise<void>;
   onAssessGoalReadiness?: (goalId: string) => Promise<{ assessment: GoalReadinessAssessment; synced: boolean }>;
 }
 
@@ -31,8 +35,12 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onNavigateTab,
   onOpenProfile,
   onDeleteTrainingSessions,
+  onCompleteTrainingSession,
+  onReopenTrainingSession,
   onAssessGoalReadiness,
 }) => {
+  const [completing, setCompleting] = useState<TrainingSession | null>(null);
+  const [sessionNotice, setSessionNotice] = useState('');
   // Deleting asks for a second click: either one session (by id) or everything not yet completed
   const [confirmDelete, setConfirmDelete] = useState<string | 'all' | null>(null);
   const [deletingIds, setDeletingIds] = useState<string[]>([]);
@@ -266,6 +274,22 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </div>
         </div>
 
+        {completing && onCompleteTrainingSession && (
+          <SessionCompleteModal
+            session={completing}
+            activities={activities}
+            sessions={trainingSessions}
+            onCancel={() => setCompleting(null)}
+            onConfirm={async (ids) => {
+              const { synced } = await onCompleteTrainingSession(completing.id, ids);
+              setCompleting(null);
+              setSessionNotice(synced ? '' : 'Marked complete. The activity links are saved on this device only until the database is updated (run the latest supabase/schema.sql).');
+            }}
+          />
+        )}
+        {sessionNotice && (
+          <p role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">{sessionNotice}</p>
+        )}
         {deleteError && (
           <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{deleteError}</p>
         )}
@@ -292,8 +316,50 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                   {session.target_tss != null && <span className="ml-2 text-amber-300">{session.target_tss} TSS</span>}
                 </p>
                 <p className="mt-2 text-xs leading-relaxed text-slate-400">{session.details}</p>
+                {session.status === 'COMPLETED' && (session.completed_activity_ids?.length ?? 0) > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {session.completed_activity_ids!.map((id) => {
+                      const linked = activities.find((a) => a.id === id);
+                      return linked ? (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => onOpenActivity(linked)}
+                          className="max-w-full truncate rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] text-emerald-200 hover:bg-emerald-500/20"
+                          title="Open this activity"
+                        >
+                          {linked.title}
+                        </button>
+                      ) : null;
+                    })}
+                  </div>
+                )}
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                  <span>
+                    {session.status === 'COMPLETED' ? (
+                      onReopenTrainingSession && (
+                        <button
+                          type="button"
+                          onClick={() => void onReopenTrainingSession(session.id)}
+                          className="min-h-9 inline-flex items-center gap-1.5 px-2 text-xs font-semibold text-slate-400 hover:text-white"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" /> Mark not done
+                        </button>
+                      )
+                    ) : (
+                      onCompleteTrainingSession && (
+                        <button
+                          type="button"
+                          onClick={() => setCompleting(session)}
+                          className="min-h-9 inline-flex items-center gap-1.5 px-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20"
+                        >
+                          <Check className="w-3.5 h-3.5" /> Mark complete
+                        </button>
+                      )
+                    )}
+                  </span>
                 {onDeleteTrainingSessions && (
-                  <div className="mt-3 flex justify-end">
+                  <div className="flex justify-end">
                     {confirmDelete === session.id ? (
                       <span className="inline-flex items-center gap-2 text-xs">
                         <span className="text-rose-300">Delete this session?</span>
@@ -322,6 +388,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                     )}
                   </div>
                 )}
+                </div>
               </article>
             ))}
           </div>

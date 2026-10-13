@@ -151,6 +151,8 @@ export interface TrainingSession {
   details: string;
   target_tss?: number;
   status: TrainingSessionStatus;
+  /** Activities the athlete linked when marking the session complete */
+  completed_activity_ids?: string[];
 }
 
 export interface PMCDayPoint {
