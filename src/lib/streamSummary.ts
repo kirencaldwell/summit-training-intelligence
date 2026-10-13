@@ -14,12 +14,18 @@ const MAX_RIDE_SECONDS = 4 * 24 * 3600;
 const maxOf = (xs: number[]) => xs.reduce((m, x) => (x > m ? x : m), -Infinity);
 const MAX_TIMELINE_POINTS = 48;
 const MAX_LISTED = 6;
+const SHORT_EFFORT_FTP = 1.0;      // short hard efforts: at or above FTP...
+const SHORT_EFFORT_AVG = 1.8;      // ...or, with no FTP, 1.8x the ride's average pedalling power
+const SHORT_EFFORT_MIN_S = 10;
+const SHORT_EFFORT_MAX_S = 120;
+const MAX_SHORT_EFFORTS = 12;
 const round = (n: number, d = 0) => { const f = 10 ** d; return Math.round(n * f) / f; };
 const KMH_TO_MPH = 0.621371;
 const M_TO_FT = 3.28084;
 
 export interface RunInfo { start_min: number; duration_min: number; avg_watts?: number; percent_ftp?: number; avg_hr?: number; avg_mph?: number }
 export interface BlockInfo extends RunInfo { role: 'hard' | 'easy' | 'step_up' | 'step_down' }
+export interface ShortEffortInfo { start_min: number; seconds: number; avg_watts: number; peak_5s_watts: number; percent_ftp?: number; avg_hr?: number }
 export interface SurgeInfo { start_min: number; seconds: number; peak_5s_watts: number }
 export interface DistributionBin { watts: string; percent_ftp?: string; minutes: number; percent_of_ride: number }
 export interface StreamSummary {
@@ -36,6 +42,8 @@ export interface StreamSummary {
   block_structure?: { criteria: string; blocks: BlockInfo[]; trend?: string };
   sustained_power_efforts?: { criteria: string; efforts: RunInfo[] };
   power_surges?: { criteria: string; surges: SurgeInfo[] };
+  /** Hard efforts of 10 s to 2 min (sprints, short intervals): too short for sustained_power_efforts, too long and too low to show up as surges */
+  short_hard_efforts?: { criteria: string; count: number; efforts: ShortEffortInfo[] };
   high_heart_rate_periods?: { criteria: string; periods: RunInfo[] };
   ebike_note?: string;
 }
@@ -503,6 +511,28 @@ export function summarizeStreams(points: MetricStreamPoint[] | undefined, opts: 
     out.power_surges = {
       criteria: `5s power at or above ${round(surgeLine)} W${ftp ? ' (150% of FTP)' : ' (2.5x the ride average)'} for 5+ seconds`,
       surges,
+    };
+
+    // A planned 30 s sprint is neither a surge (150% of FTP for 5 s: only the very top of a sprint clears that, and the
+    // run is then far shorter than the sprint) nor a block (45 s+) nor a sustained effort (3 min+), so it needs its own pass
+    const effortLine5 = ftp ? ftp * SHORT_EFFORT_FTP : avgW * SHORT_EFFORT_AVG;
+    const shortRuns = findRuns(w5, (v) => v >= effortLine5, SHORT_EFFORT_MIN_S, 5).filter((r) => r.end - r.start <= SHORT_EFFORT_MAX_S);
+    const shortEfforts: ShortEffortInfo[] = shortRuns.map((r) => {
+      const watts = avgOver(secs, r.start, r.end, 'w') ?? 0;
+      const hr = avgOver(secs, r.start, r.end, 'hr');
+      return {
+        start_min: min(r.start),
+        seconds: r.end - r.start,
+        avg_watts: round(watts),
+        peak_5s_watts: round(maxOf(w5.slice(r.start, r.end).filter((v): v is number => v !== undefined))),
+        ...(ftp ? { percent_ftp: round((watts / ftp) * 100) } : {}),
+        ...(hr !== undefined ? { avg_hr: round(hr) } : {}),
+      };
+    });
+    out.short_hard_efforts = {
+      criteria: `5s power at or above ${round(effortLine5)} W${ftp ? ` (${round(SHORT_EFFORT_FTP * 100)}% of FTP)` : ` (${SHORT_EFFORT_AVG}x the ride average)`} for ${SHORT_EFFORT_MIN_S}-${SHORT_EFFORT_MAX_S} seconds; short dips of up to 5 s are bridged. Durations are time above that power, so a sprint's ramp-up and fade can make a 30 s sprint read a few seconds shorter. Listed in ride order.`,
+      count: shortEfforts.length,
+      efforts: shortEfforts.slice(0, MAX_SHORT_EFFORTS),
     };
   }
 
