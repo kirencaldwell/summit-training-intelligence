@@ -4,6 +4,7 @@ import { calculatePMC, calculatePowerCurve, calculatePowerReadiness, resolveTss,
 import { CoachApiError, coachRequestExtras, readCoachError } from '../coachSettings';
 import { isEbike } from '../tags';
 import { summarizeStreams } from '../streamSummary';
+import { intensityCharacter, sameDayTotals } from '../intensityCharacter';
 import { parseReadinessReply, type GoalReadinessAssessment } from '../goalReadiness';
 import { ftToM, kgToLb, kmToMi, mToFt, miToKm, roundTo } from '../units';
 import {
@@ -549,6 +550,9 @@ class GeminiCoachEngine {
         avg_vam_ft_per_hour: mToFtRounded(activity.avg_vam_mh),
         time_in_hr_zones_seconds: activity.time_in_hr_zones,
         time_in_power_zones_seconds: activity.time_in_power_zones,
+        intensity_character: intensityCharacter(activity, { ftp: profile.ftp || undefined, lthr: profile.lthr || undefined }),
+        // Plans are usually written per day, so a session split over several rides (commute there and back) is compared as one
+        same_day_same_sport: sameDayTotals(activity, withActivity, (a) => resolveTss(a, loadProfile).tss),
         pack_weight_lb: activity.pack_weight_kg ? roundTo(kgToLb(activity.pack_weight_kg), 1) : undefined,
         perceived_exertion: activity.perceived_exertion,
         knee_discomfort_level: activity.knee_discomfort_level,
