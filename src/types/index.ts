@@ -153,6 +153,9 @@ export interface TrainingSession {
   status: TrainingSessionStatus;
   /** Activities the athlete linked when marking the session complete */
   completed_activity_ids?: string[];
+  /** AI coach assessment of the completed session, written from the linked activities */
+  coach_assessment?: string;
+  coach_assessment_at?: string;
 }
 
 export interface PMCDayPoint {

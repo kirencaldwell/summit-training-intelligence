@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import type { Activity, Goal, AthleteProfile, PMCDayPoint, TrainingSession } from '../types';
-import { Zap, Calendar, ArrowUpRight, TrendingUp, Sparkles, ChevronRight, Activity as ActivityIcon, CalendarDays, Clock3, Trash2, Check, RotateCcw } from 'lucide-react';
+import { Zap, Calendar, ArrowUpRight, TrendingUp, Sparkles, ChevronRight, Activity as ActivityIcon, CalendarDays, Clock3, Trash2, Check, RotateCcw, Bot, RefreshCw, Link2 } from 'lucide-react';
 import { PerformanceManagementChart } from './PerformanceManagementChart';
 import { formatFeetFromMeters, formatMilesFromKm, formatMilesFromMeters } from '../lib/units';
 import { calculatePMC, resolveTss } from '../lib/trainingMath';
 import { DEFAULT_PMC_PRESET, PMC_PRESETS, describePmcRange, selectPmcRange, type PmcPreset } from '../lib/pmcRange';
 import { SessionCompleteModal } from './SessionCompleteModal';
+import { AssessmentText } from './ActivityDetailModal';
 import { GoalReadinessPanel } from './GoalReadinessPanel';
 import type { GoalReadinessAssessment } from '../lib/goalReadiness';
 
@@ -22,6 +23,8 @@ interface DashboardOverviewProps {
   /** Marks a session complete and links the activities that did it; synced is false when the links could only be kept on this device */
   onCompleteTrainingSession?: (id: string, activityIds: string[]) => Promise<{ synced: boolean }>;
   onReopenTrainingSession?: (id: string) => Promise<void>;
+  /** Asks the coach to assess a completed session from its linked activities; synced is false when it could only be kept on this device */
+  onAssessTrainingSession?: (id: string) => Promise<{ synced: boolean }>;
   onAssessGoalReadiness?: (goalId: string) => Promise<{ assessment: GoalReadinessAssessment; synced: boolean }>;
 }
 
@@ -37,10 +40,27 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onDeleteTrainingSessions,
   onCompleteTrainingSession,
   onReopenTrainingSession,
+  onAssessTrainingSession,
   onAssessGoalReadiness,
 }) => {
   const [completing, setCompleting] = useState<TrainingSession | null>(null);
   const [sessionNotice, setSessionNotice] = useState('');
+  const [assessingSessionId, setAssessingSessionId] = useState<string | null>(null);
+  const [assessErrors, setAssessErrors] = useState<Record<string, string>>({});
+
+  const assessSession = async (id: string) => {
+    if (!onAssessTrainingSession) return;
+    setAssessingSessionId(id);
+    setAssessErrors((prev) => ({ ...prev, [id]: '' }));
+    try {
+      const { synced } = await onAssessTrainingSession(id);
+      setSessionNotice(synced ? '' : 'The assessment is saved on this device only until the database is updated (run the latest supabase/schema.sql).');
+    } catch (err) {
+      setAssessErrors((prev) => ({ ...prev, [id]: err instanceof Error ? err.message : 'The assessment could not be generated.' }));
+    } finally {
+      setAssessingSessionId(null);
+    }
+  };
   // Deleting asks for a second click: either one session (by id) or everything not yet completed
   const [confirmDelete, setConfirmDelete] = useState<string | 'all' | null>(null);
   const [deletingIds, setDeletingIds] = useState<string[]>([]);
@@ -334,18 +354,56 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                     })}
                   </div>
                 )}
+                {session.status === 'COMPLETED' && (session.completed_activity_ids?.length ?? 0) === 0 && onAssessTrainingSession && (
+                  <p className="mt-3 text-[11px] text-slate-500">Link the activities that did this session (Edit links) to get a coach assessment.</p>
+                )}
+                {assessErrors[session.id] && <p role="alert" className="mt-2 text-xs text-rose-400">{assessErrors[session.id]}</p>}
+                {session.status === 'COMPLETED' && session.coach_assessment && (
+                  <details open className="mt-3 rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-3">
+                    <summary className="cursor-pointer text-xs font-semibold text-cyan-300 flex items-center gap-1.5">
+                      <Bot className="w-3.5 h-3.5" /> Coach assessment
+                      {session.coach_assessment_at && (
+                        <span className="font-normal text-slate-500"> · {new Date(session.coach_assessment_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
+                      )}
+                    </summary>
+                    <div className="mt-2"><AssessmentText text={session.coach_assessment} /></div>
+                  </details>
+                )}
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                  <span>
+                  <span className="flex flex-wrap items-center gap-1">
                     {session.status === 'COMPLETED' ? (
-                      onReopenTrainingSession && (
-                        <button
-                          type="button"
-                          onClick={() => void onReopenTrainingSession(session.id)}
-                          className="min-h-9 inline-flex items-center gap-1.5 px-2 text-xs font-semibold text-slate-400 hover:text-white"
-                        >
-                          <RotateCcw className="w-3.5 h-3.5" /> Mark not done
-                        </button>
-                      )
+                      <>
+                        {onAssessTrainingSession && (
+                          <button
+                            type="button"
+                            disabled={assessingSessionId === session.id || (session.completed_activity_ids?.length ?? 0) === 0}
+                            onClick={() => void assessSession(session.id)}
+                            title={(session.completed_activity_ids?.length ?? 0) === 0 ? 'Link the activities that did this session to enable the assessment' : 'Ask the coach to assess this session from its linked activities'}
+                            className="min-h-9 inline-flex items-center gap-1.5 px-3 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            {session.coach_assessment ? <RefreshCw className={`w-3.5 h-3.5 ${assessingSessionId === session.id ? 'animate-spin' : ''}`} /> : <Bot className="w-3.5 h-3.5" />}
+                            {assessingSessionId === session.id ? 'Assessing…' : session.coach_assessment ? 'Regenerate assessment' : 'Generate assessment'}
+                          </button>
+                        )}
+                        {onCompleteTrainingSession && (
+                          <button
+                            type="button"
+                            onClick={() => setCompleting(session)}
+                            className="min-h-9 inline-flex items-center gap-1.5 px-2 text-xs font-semibold text-slate-400 hover:text-white"
+                          >
+                            <Link2 className="w-3.5 h-3.5" /> Edit links
+                          </button>
+                        )}
+                        {onReopenTrainingSession && (
+                          <button
+                            type="button"
+                            onClick={() => void onReopenTrainingSession(session.id)}
+                            className="min-h-9 inline-flex items-center gap-1.5 px-2 text-xs font-semibold text-slate-400 hover:text-white"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" /> Mark not done
+                          </button>
+                        )}
+                      </>
                     ) : (
                       onCompleteTrainingSession && (
                         <button

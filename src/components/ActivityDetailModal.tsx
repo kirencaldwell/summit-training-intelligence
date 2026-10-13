@@ -239,7 +239,7 @@ const ActivityEditor: React.FC<{
 };
 
 /** Minimal markdown for the coach text: **bold** inline, "- " bullets, blank-line paragraphs. */
-const AssessmentText: React.FC<{ text: string }> = ({ text }) => {
+export const AssessmentText: React.FC<{ text: string }> = ({ text }) => {
   const inline = (line: string) =>
     line.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
       part.startsWith('**') && part.endsWith('**') && part.length > 4

@@ -26,6 +26,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 
 const STORAGE_KEYS = {
   SESSION_LINKS: 'summit_session_links',
+  SESSION_ASSESSMENTS: 'summit_session_assessments',
   PROFILE: 'summit_athlete_profile',
   ACTIVITIES: 'summit_activities_list',
   GOALS: 'summit_goals_list',
@@ -443,12 +444,18 @@ class DataService {
         .order('session_date', { ascending: true });
       if (error) throw new Error(`Training sessions could not be loaded: ${error.message}`);
       const links = this.readSessionLinks();
-      // Rows from a database without the link column take the links remembered on this device
-      return ((data || []) as TrainingSession[]).map((session) =>
-        session.completed_activity_ids === undefined && links[session.id]
-          ? { ...session, completed_activity_ids: links[session.id] }
-          : session
-      );
+      const assessments = this.readSessionAssessments();
+      // Rows from a database without the new columns take what was remembered on this device
+      return ((data || []) as TrainingSession[]).map((session) => {
+        let merged = session;
+        if (session.completed_activity_ids === undefined && links[session.id]) {
+          merged = { ...merged, completed_activity_ids: links[session.id] };
+        }
+        if (session.coach_assessment === undefined && assessments[session.id]) {
+          merged = { ...merged, coach_assessment: assessments[session.id].text, coach_assessment_at: assessments[session.id].at };
+        }
+        return merged;
+      });
     }
     return this.localTrainingSessions;
   }
@@ -470,6 +477,57 @@ class DataService {
     } catch {
       // Storage unavailable: the links just won't survive a reload
     }
+  }
+
+  private assessmentColumnMissing = false;
+  private readSessionAssessments(): Record<string, { text: string; at: string }> {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEYS.SESSION_ASSESSMENTS) || '{}');
+    } catch {
+      return {};
+    }
+  }
+
+  /**
+   * Save the coach's assessment of a completed session. `synced` is false when the database has no column for it yet
+   * (the SQL has not been run): the assessment is then kept on this device only.
+   */
+  public async saveSessionAssessment(id: string, text: string): Promise<{ session: TrainingSession; synced: boolean }> {
+    const at = new Date().toISOString();
+    if (this.mode === 'supabase' && supabase) {
+      const profile = await this.getAuthenticatedProfile();
+      if (!this.assessmentColumnMissing) {
+        const { data, error } = await supabase
+          .from('training_sessions')
+          .update({ coach_assessment: text, coach_assessment_at: at })
+          .eq('id', id)
+          .eq('user_id', profile.id)
+          .select('*')
+          .single();
+        if (!error && data) return { session: data as TrainingSession, synced: true };
+        if (!error?.message?.includes('coach_assessment')) {
+          throw new Error(`The assessment could not be saved: ${error?.message || 'Session not found'}`);
+        }
+        this.assessmentColumnMissing = true;
+      }
+      try {
+        const saved = this.readSessionAssessments();
+        saved[id] = { text, at };
+        localStorage.setItem(STORAGE_KEYS.SESSION_ASSESSMENTS, JSON.stringify(saved));
+      } catch {
+        // Storage unavailable: the assessment just won't survive a reload
+      }
+      const current = (await this.getTrainingSessions()).find((s) => s.id === id);
+      if (!current) throw new Error('Training session not found.');
+      return { session: { ...current, coach_assessment: text, coach_assessment_at: at }, synced: false };
+    }
+
+    const index = this.localTrainingSessions.findIndex((session) => session.id === id);
+    if (index < 0) throw new Error('Training session not found.');
+    const updated = { ...this.localTrainingSessions[index], coach_assessment: text, coach_assessment_at: at };
+    this.localTrainingSessions[index] = updated;
+    this.saveLocalState();
+    return { session: updated, synced: true };
   }
 
   /**
@@ -605,8 +663,8 @@ class DataService {
       for (const original of sessions) {
         let session = original;
         const isExistingUUID = UUID_PATTERN.test(session.id || '');
-        // Without the column in the database, sending it would fail the whole save
-        if (this.linkColumnMissing) session = { ...session, completed_activity_ids: undefined };
+        // Links and assessments have their own save methods; sending them here would fail the whole save on a database without the columns
+        session = { ...session, completed_activity_ids: undefined, coach_assessment: undefined, coach_assessment_at: undefined };
 
         if (isExistingUUID) {
           const { id, ...rest } = session;
