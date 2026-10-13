@@ -1,4 +1,4 @@
-import type { Activity, AICoachMessage, AICoachToolCall, AthleteProfile, Goal, ProposedGoalAction, ProposedPlanAction, TrainingSession } from '../../types';
+import type { Activity, AICoachMessage, AICoachToolCall, AthleteProfile, Goal, MetricStreamPoint, ProposedGoalAction, ProposedPlanAction, TrainingSession } from '../../types';
 import { dataService } from '../supabase';
 import { calculatePMC, calculatePowerCurve, calculatePowerReadiness, resolveTss, tssFromIntensity } from '../trainingMath';
 import { CoachApiError, coachRequestExtras, readCoachError } from '../coachSettings';
@@ -95,6 +95,52 @@ function activityUnitsForAI(a: Activity) {
   return {
     distance_mi: roundTo(kmToMi(a.distance_meters / 1000), 1),
     elevation_gain_ft: Math.round(mToFt(a.total_elevation_gain_m)),
+  };
+}
+
+/** Everything the coach is told about one activity: summary numbers, intensity character and the condensed time-series. */
+function activityBlock(
+  a: Activity,
+  streams: MetricStreamPoint[] | undefined,
+  profile: AthleteProfile,
+  all: Activity[],
+  loadProfile: { ftp?: number; lthr?: number; weight_kg?: number },
+  planCheckResults?: unknown[],
+) {
+  return {
+    date: a.start_date.slice(0, 10),
+    title: a.title,
+    sport_type: a.sport_type,
+    duration_minutes: Math.round(a.duration_seconds / 60),
+    ...activityUnitsForAI(a),
+    tss: Math.round(resolveTss(a, loadProfile).tss),
+    moving_time_minutes: Math.round(a.moving_time_seconds / 60),
+    avg_power: a.avg_power,
+    max_power: a.max_power,
+    normalized_power: a.normalized_power,
+    intensity_factor: a.intensity_factor,
+    avg_hr: a.avg_hr,
+    max_hr: a.max_hr,
+    avg_cadence: a.avg_cadence,
+    avg_vam_ft_per_hour: mToFtRounded(a.avg_vam_mh),
+    time_in_hr_zones_seconds: a.time_in_hr_zones,
+    time_in_power_zones_seconds: a.time_in_power_zones,
+    plan_check_results: planCheckResults && planCheckResults.length ? planCheckResults : undefined,
+    intensity_character: intensityCharacter(a, { ftp: profile.ftp || undefined, lthr: profile.lthr || undefined }),
+    // Plans are usually written per day, so a session split over several rides (commute there and back) is compared as one
+    same_day_same_sport: sameDayTotals(a, all, (x) => resolveTss(x, loadProfile).tss),
+    pack_weight_lb: a.pack_weight_kg ? roundTo(kgToLb(a.pack_weight_kg), 1) : undefined,
+    perceived_exertion: a.perceived_exertion,
+    knee_discomfort_level: a.knee_discomfort_level,
+    gear_notes: a.gear_notes,
+    tags: a.tags,
+    ebike_motor_assist: isEbike(a) || undefined,
+    time_series: summarizeStreams(streams, {
+      ftp: profile.ftp || undefined,
+      lthr: profile.lthr || undefined,
+      maxHr: profile.max_hr || undefined,
+      ebike: isEbike(a),
+    }),
   };
 }
 
@@ -604,36 +650,7 @@ class GeminiCoachEngine {
         weight_lb: profile.weight_kg ? roundTo(kgToLb(profile.weight_kg), 1) : null,
         notes: profile.notes || undefined,
       },
-      activity: {
-        ...compact(activity),
-        moving_time_minutes: Math.round(activity.moving_time_seconds / 60),
-        avg_power: activity.avg_power,
-        max_power: activity.max_power,
-        normalized_power: activity.normalized_power,
-        intensity_factor: activity.intensity_factor,
-        avg_hr: activity.avg_hr,
-        max_hr: activity.max_hr,
-        avg_cadence: activity.avg_cadence,
-        avg_vam_ft_per_hour: mToFtRounded(activity.avg_vam_mh),
-        time_in_hr_zones_seconds: activity.time_in_hr_zones,
-        time_in_power_zones_seconds: activity.time_in_power_zones,
-        plan_check_results: planCheckResults.length ? planCheckResults : undefined,
-        intensity_character: intensityCharacter(activity, { ftp: profile.ftp || undefined, lthr: profile.lthr || undefined }),
-        // Plans are usually written per day, so a session split over several rides (commute there and back) is compared as one
-        same_day_same_sport: sameDayTotals(activity, withActivity, (a) => resolveTss(a, loadProfile).tss),
-        pack_weight_lb: activity.pack_weight_kg ? roundTo(kgToLb(activity.pack_weight_kg), 1) : undefined,
-        perceived_exertion: activity.perceived_exertion,
-        knee_discomfort_level: activity.knee_discomfort_level,
-        gear_notes: activity.gear_notes,
-        tags: activity.tags,
-        ebike_motor_assist: isEbike(activity) || undefined,
-        time_series: summarizeStreams(withStreams.streams_data, {
-          ftp: profile.ftp || undefined,
-          lthr: profile.lthr || undefined,
-          maxHr: profile.max_hr || undefined,
-          ebike: isEbike(activity),
-        }),
-      },
+      activity: activityBlock(activity, withStreams.streams_data, profile, withActivity, loadProfile, planCheckResults),
       training_load: {
         before_activity: pmcBefore ? { ctl: pmcBefore.ctl, atl: pmcBefore.atl, tsb: pmcBefore.tsb } : null,
         after_activity: pmcAfter ? { ctl: pmcAfter.ctl, atl: pmcAfter.atl, tsb: pmcAfter.tsb, day_tss: pmcAfter.tss } : null,
@@ -676,6 +693,126 @@ class GeminiCoachEngine {
     const text = await postCoach({
       mode: 'activity_assessment',
       message: 'Write the coach assessment for this new activity.',
+      context,
+    });
+    if (!text) throw new Error('The coach returned an empty assessment.');
+    return String(text).trim();
+  }
+
+  /**
+   * Assess a completed planned session from the activities the athlete linked to it. Each activity is described
+   * like a single-activity assessment, the plan's measurable checks are run on each one, and the coach sees the
+   * combined totals against what was planned.
+   */
+  public async assessSession(session: TrainingSession): Promise<string> {
+    const linkedIds = session.completed_activity_ids ?? [];
+    if (linkedIds.length === 0) throw new Error('Link at least one activity to this session first.');
+    const [profile, activities, goals, sessions] = await Promise.all([
+      dataService.getProfile(),
+      dataService.getActivities(),
+      dataService.getGoals(),
+      dataService.getTrainingSessions(),
+    ]);
+    const linked = linkedIds
+      .map((id) => activities.find((a) => a.id === id))
+      .filter((a): a is Activity => Boolean(a))
+      .sort((a, b) => a.start_date.localeCompare(b.start_date));
+    if (linked.length === 0) throw new Error('The activities linked to this session could not be found.');
+
+    // The list view omits the heavy time-series, so load it for each linked activity
+    const streams = new Map<string, MetricStreamPoint[] | undefined>();
+    for (const a of linked) {
+      let points = a.streams_data;
+      if (!points?.length) {
+        try {
+          points = (await dataService.getActivityById(a.id))?.streams_data;
+        } catch (err) {
+          console.warn('Could not load activity streams for the session assessment:', err);
+        }
+      }
+      streams.set(a.id, points);
+    }
+
+    const dayMs = 24 * 3600 * 1000;
+    const loadProfile = { ftp: profile.ftp, lthr: profile.lthr, weight_kg: profile.weight_kg };
+    const pmc = calculatePMC(activities, 120, loadProfile);
+    const lastDate = linked[linked.length - 1].start_date.slice(0, 10);
+    const pmcAfter = pmc.find((p) => p.date === lastDate);
+    const sessionMs = new Date(`${session.session_date}T12:00:00Z`).getTime();
+
+    // The plan's measurable checks, run on each linked activity
+    let checks: PlanCheck[] = [];
+    try {
+      checks = await planChecksFor(session, profile.ftp);
+    } catch (err) {
+      console.warn('Could not build the plan checks:', err);
+    }
+
+    const totals = linked.reduce(
+      (t, a) => ({
+        minutes: t.minutes + Math.round(a.duration_seconds / 60),
+        tss: t.tss + Math.round(resolveTss(a, loadProfile).tss),
+      }),
+      { minutes: 0, tss: 0 },
+    );
+
+    const context = {
+      today: new Date().toISOString().slice(0, 10),
+      profile: {
+        ftp: profile.ftp || null,
+        lthr: profile.lthr || null,
+        max_hr: profile.max_hr || null,
+        weight_lb: profile.weight_kg ? roundTo(kgToLb(profile.weight_kg), 1) : null,
+        notes: profile.notes || undefined,
+      },
+      planned_session: {
+        date: session.session_date,
+        title: session.title,
+        sport_type: session.sport_type,
+        planned_duration_minutes: session.duration_minutes,
+        focus: session.focus,
+        details: session.details,
+        planned_tss: session.target_tss,
+      },
+      linked_activities: linked.map((a) => ({
+        ...activityBlock(
+          a,
+          streams.get(a.id),
+          profile,
+          activities,
+          loadProfile,
+          checks.length
+            ? [{
+                session: session.title,
+                session_date: session.session_date,
+                checks: evaluatePlanChecks(streams.get(a.id), checks, { ftp: profile.ftp || undefined, lthr: profile.lthr || undefined }),
+              }]
+            : undefined,
+        ),
+      })),
+      combined_actual: { activities: linked.length, duration_minutes: totals.minutes, tss: totals.tss },
+      training_load_after: pmcAfter ? { ctl: pmcAfter.ctl, atl: pmcAfter.atl, tsb: pmcAfter.tsb, day_tss: pmcAfter.tss } : null,
+      active_goals: goals
+        .filter((g) => g.status === 'ACTIVE')
+        .map((g) => ({
+          name: g.name,
+          sport_type: g.sport_type,
+          target_date: g.target_date,
+          objective_summary: g.objective_summary,
+          target_distance_mi: kmToMiRounded(g.target_distance_km),
+          target_elevation_ft: mToFtRounded(g.target_elevation_m),
+          target_power_watts: g.target_power_watts,
+          periodization_phases: g.periodization_phases,
+        })),
+      other_sessions_that_week: sessions
+        .filter((s) => s.id !== session.id && (s.status === 'ACCEPTED' || s.status === 'COMPLETED')
+          && Math.abs(new Date(`${s.session_date}T12:00:00Z`).getTime() - sessionMs) <= 4 * dayMs)
+        .map((s) => ({ date: s.session_date, title: s.title, sport_type: s.sport_type, duration_minutes: s.duration_minutes, target_tss: s.target_tss, status: s.status })),
+    };
+
+    const text = await postCoach({
+      mode: 'session_assessment',
+      message: 'Write the coach assessment of this completed planned session.',
       context,
     });
     if (!text) throw new Error('The coach returned an empty assessment.');

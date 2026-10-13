@@ -396,6 +396,15 @@ export function App() {
     return { synced };
   };
 
+  const handleAssessTrainingSession = async (id: string) => {
+    const session = trainingSessions.find((s) => s.id === id);
+    if (!session) throw new Error('Training session not found.');
+    const text = await coachEngine.assessSession(session);
+    const { session: saved, synced } = await dataService.saveSessionAssessment(id, text);
+    setTrainingSessions((previous) => previous.map((s) => (s.id === id ? saved : s)));
+    return { synced };
+  };
+
   const handleReopenTrainingSession = async (id: string) => {
     const session = await dataService.reopenTrainingSession(id);
     setTrainingSessions((previous) => previous.map((s) => (s.id === id ? session : s)));
@@ -729,6 +738,7 @@ export function App() {
             onDeleteTrainingSessions={handleDeleteTrainingSessions}
             onCompleteTrainingSession={handleCompleteTrainingSession}
             onReopenTrainingSession={handleReopenTrainingSession}
+            onAssessTrainingSession={handleAssessTrainingSession}
             onAssessGoalReadiness={handleAssessGoalReadiness}
             onOpenActivity={handleOpenActivity}
             onNavigateTab={setActiveTab}

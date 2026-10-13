@@ -4,7 +4,7 @@
  * The client sends its pre-fetched training context; Gemini synthesizes the response.
  *
  * Usage: POST /api/coach
- * Body: { message: string, context?: CoachContext, fullData?: FullAthleteData, history?: Turn[], mode?: 'activity_assessment' }
+ * Body: { message: string, context?: CoachContext, fullData?: FullAthleteData, history?: Turn[], mode?: 'activity_assessment' | 'session_assessment' }
  * With `fullData`, a cheaper Gemini model first plans a filter over it so only
  * relevant data reaches the main model.
  */
@@ -154,20 +154,41 @@ async function completeUnbounded(engine: Engine, req: CompleteRequest): Promise<
   return claudeText(response);
 }
 
+const WITHIN_THE_RIDE = `**Within the ride** — the activity's time_series (when present) is a condensed view of the recorded data: a coarse timeline, best power for key durations, sustained_power_efforts, short_hard_efforts, power_surges, high_heart_rate_periods, block_structure and power_distribution (time spent in each power band, sized to the ride; use it to say how the ride's effort was spread: mostly easy with a few hard bursts, a steady middle, or polarized). block_structure is judged against the ride itself rather than FTP, so it catches intervals that are well below threshold or that step up in difficulty; check it for structured sets (reps, rest, progression) even when sustained_power_efforts is empty. short_hard_efforts lists the 10 s to 2 min hard efforts (sprints, short intervals) with their duration, average and peak watts, and the count; power_surges only lists the very highest peaks and understates how long a sprint lasted, so use short_hard_efforts for the effort's real length. When the plan prescribes sprints or short efforts (for example 3-4 sprints of 30 s), check plan_check_results first and then short_hard_efforts, and say how many were found and how they compare (count, duration, power); never say planned sprints are missing when they appear there. Look for intervals, sustained efforts, short hard efforts, power surges and periods of high heart rate, and describe what happened and when (minutes from the start, duration, watts or % FTP, HR). Say whether the ride was steady or structured, whether efforts looked like deliberate intervals or terrain-driven, whether HR drifted upward at steady power, and how this changes the picture given by the averages. If the lists are empty, say no notable efforts, short hard efforts, surges or high-HR periods were found. If time_series is missing, say the ride has no recorded time-series. Never invent efforts that are not in time_series.`;
+const HOW_HARD_IT_WAS = `**How hard it really was** — judge the ride's overall intensity from average power (% of FTP), average heart rate (% of LTHR) and the time spent in each power/HR zone, using the activity's intensity_character as a guide. Do NOT call a ride hard, or "not recovery", on normalized power or IF alone: when intensity_character shows a high variability index (about 1.2 or more) with most time in zones 1-2, the ride was easy with brief surges, and NP/IF overstate it. Keep two questions apart: how hard the ride was overall, and whether it stayed inside the plan's limits (a few seconds over a power cap during a surge does not make an easy ride a hard one, though it is worth a mention).`;
+const EBIKE_RULE = `E-bike rides: if the activity is flagged ebike_motor_assist, the motor inflates speed, power and climb-rate figures. Judge its fitness impact from heart rate and the athlete's notes instead, and say that you are doing so.`;
+const UNITS_RULE = `Units: the athlete uses imperial units. All distances, elevations, weights and speeds in the context are already imperial (distance_mi, elevation_gain_ft, weight_lb, pack_weight_lb, avg_vam_ft_per_hour). Write miles, feet, pounds and mph; never convert to metric.`;
+
 const ASSESSMENT_PROMPT = `You are Summit Intelligence, an elite endurance coach. The athlete just added a new activity. Write the coach's assessment of it, grounded ONLY in the JSON context provided (athlete profile, the activity, training load, active goals, and accepted/completed training sessions).
 
 Cover, in this order, using short markdown sections:
 **How it fits the plan** — A session flagged this_activity_was_linked_to_it_by_the_athlete is one the athlete says this activity did: judge the activity against that session directly. plan_check_results (when present) holds the measurable parts of the planned session, already measured on the recorded data by software: for each check, the plan's own words (label), a status and the numbers found. Treat them as facts: report what was found against what was asked (counts, durations, watts, share of time), and when a check says not_found, say that no matching effort was detected, not that it was skipped. A not_found check marked optional is neutral. Checks cover this ride only, so when same_day_same_sport shows several rides the rest of the session may be in another ride. A status like needs_ftp, no_power_data or no_time_series means that check could not be measured: say so. Compare against the accepted/completed sessions around that date and against the active goals and their phases. Plans are written per day: when same_day_same_sport shows more than one ride, compare the planned session with the COMBINED duration and TSS of that day's rides (a planned 60-minute commute is both legs), and say which leg this activity is. Treat optional parts of a session (for example "optional sprints if the legs feel good") as allowed: efforts that fit them are on plan, not a deviation. Say plainly whether it matched a planned session (and how closely: sport, duration, TSS, intensity), replaced one, or was unplanned. If there are no accepted sessions or no goals, say so; do not invent a plan or a goal.
-**Within the ride** — the activity's time_series (when present) is a condensed view of the recorded data: a coarse timeline, best power for key durations, sustained_power_efforts, short_hard_efforts, power_surges, high_heart_rate_periods, block_structure and power_distribution (time spent in each power band, sized to the ride; use it to say how the ride's effort was spread: mostly easy with a few hard bursts, a steady middle, or polarized). block_structure is judged against the ride itself rather than FTP, so it catches intervals that are well below threshold or that step up in difficulty; check it for structured sets (reps, rest, progression) even when sustained_power_efforts is empty. short_hard_efforts lists the 10 s to 2 min hard efforts (sprints, short intervals) with their duration, average and peak watts, and the count; power_surges only lists the very highest peaks and understates how long a sprint lasted, so use short_hard_efforts for the effort's real length. When the plan prescribes sprints or short efforts (for example 3-4 sprints of 30 s), check plan_check_results first and then short_hard_efforts, and say how many were found and how they compare (count, duration, power); never say planned sprints are missing when they appear there. Look for intervals, sustained efforts, short hard efforts, power surges and periods of high heart rate, and describe what happened and when (minutes from the start, duration, watts or % FTP, HR). Say whether the ride was steady or structured, whether efforts looked like deliberate intervals or terrain-driven, whether HR drifted upward at steady power, and how this changes the picture given by the averages. If the lists are empty, say no notable efforts, short hard efforts, surges or high-HR periods were found. If time_series is missing, say the ride has no recorded time-series. Never invent efforts that are not in time_series.
-**How hard it really was** — judge the ride's overall intensity from average power (% of FTP), average heart rate (% of LTHR) and the time spent in each power/HR zone, using the activity's intensity_character as a guide. Do NOT call a ride hard, or "not recovery", on normalized power or IF alone: when intensity_character shows a high variability index (about 1.2 or more) with most time in zones 1-2, the ride was easy with brief surges, and NP/IF overstate it. Keep two questions apart: how hard the ride was overall, and whether it stayed inside the plan's limits (a few seconds over a power cap during a surge does not make an easy ride a hard one, though it is worth a mention).
+${WITHIN_THE_RIDE}
+${HOW_HARD_IT_WAS}
 **What stands out** — call out specific numbers from this activity (duration, TSS, IF, NP, HR, time in zones, VAM, elevation, pack weight, perceived exertion, discomfort ratings) and, for each, why it matters for fitness: what adaptation it drives (aerobic base, threshold, VO2, muscular endurance, climbing specific) and what it costs in fatigue. Use the CTL/ATL/TSB before and after to explain the load impact.
 **Next steps** — 1 to 3 concrete suggestions for the next days given the load and the plan. Respect anything relevant in the athlete's profile notes (injuries, limitations, preferences).
 
 Rules: be specific and quantitative, never generic; only reference data that is present, and state when something needed for a judgment is missing (for example no power data, no thresholds set). Keep it under 350 words. Do not output JSON or proposal blocks.
 
-E-bike rides: if the activity is flagged ebike_motor_assist, the motor inflates speed, power and climb-rate figures. Judge its fitness impact from heart rate and the athlete's notes instead, and say that you are doing so.
+${EBIKE_RULE}
 
-Units: the athlete uses imperial units. All distances, elevations, weights and speeds in the context are already imperial (distance_mi, elevation_gain_ft, weight_lb, pack_weight_lb, avg_vam_ft_per_hour). Write miles, feet, pounds and mph; never convert to metric.`;
+${UNITS_RULE}`;
+
+const SESSION_ASSESSMENT_PROMPT = `You are Summit Intelligence, an elite endurance coach. The athlete finished a planned training session and linked the activities that did it. Write the coach's assessment of the SESSION, grounded ONLY in the JSON context provided: planned_session (what was asked), linked_activities (what was actually done, each described in detail), combined_actual (their totals), the athlete profile, training load, active goals and the neighbouring sessions.
+
+Cover, in this order, using short markdown sections:
+**Did it match the plan** — compare the planned session (sport, planned duration and TSS, focus and details) with combined_actual and say plainly how close it was, and which linked activity covered which part (for example the ride, then the hike). plan_check_results inside each linked activity holds the measurable parts of the plan, already measured on that activity's recorded data by software: treat them as facts and report what was found against what was asked. Because a session can be split over several activities, a check that is not_found in one activity may be met by another: read them together and say so. A status like needs_ftp, no_power_data or no_time_series means that check could not be measured: say so. Treat optional parts of a session as allowed, not as deviations. Do not invent a plan or details that are not in planned_session.
+${WITHIN_THE_RIDE}
+${HOW_HARD_IT_WAS}
+**What stands out** — call out specific numbers across the linked activities and, for each, why it matters for fitness: what adaptation it drives and what it costs in fatigue. Use training_load_after (CTL/ATL/TSB) to explain the load impact.
+**Next steps** — 1 to 3 concrete suggestions for the next days given the load, the other sessions that week and the goals. Respect anything relevant in the athlete's profile notes (injuries, limitations, preferences).
+
+Rules: be specific and quantitative, never generic; only reference data that is present, and state when something needed for a judgment is missing. Where the activity-level instructions above say "the ride" or "this ride", they apply to each linked activity in turn. Keep it under 450 words. Do not output JSON or proposal blocks.
+
+${EBIKE_RULE}
+
+${UNITS_RULE}`;
+
 
 const PLAN_CHECKS_PROMPT = `You turn one planned training session into a short list of measurable checks that software will run on the recorded ride data. You never see the ride. Output ONLY a JSON object, no prose and no markdown: { "checks": [ ... ] }
 
@@ -589,6 +610,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         tier: 'filter',
         system: PLAN_CHECKS_PROMPT,
         user: `<planned_session>\n${JSON.stringify(context, null, 2)}\n</planned_session>\n\n${message}`,
+      });
+      return res.status(200).json({ text });
+    }
+
+    // Assessment of a completed planned session from its linked activities (same single-shot shape)
+    if (mode === 'session_assessment') {
+      if (!context) return res.status(400).json({ error: 'Missing required field: context' });
+      const text = await complete(engine, {
+        tier: 'main',
+        system: SESSION_ASSESSMENT_PROMPT,
+        user: `<session_context>\n${JSON.stringify(context, null, 2)}\n</session_context>\n\n${message}`,
       });
       return res.status(200).json({ text });
     }
