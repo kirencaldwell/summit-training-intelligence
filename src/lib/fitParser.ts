@@ -8,6 +8,7 @@ import { EBIKE_TAG } from './tags';
 import { lookupStravaMeta, stravaFileKey, stravaMetaToPatch, type StravaMetaIndex } from './stravaCsv';
 import type { Activity, MetricStreamPoint, SportType } from '../types';
 import { classifySkiFromTrack } from './munter';
+import { recordedGain } from './elevation';
 import {
   calculateNormalizedPower,
   calculateIntensityFactor,
@@ -62,18 +63,7 @@ function mapFitSport(sport?: string, subSport?: string): SportType {
 /** Total climb from altitude samples (meters), ignoring sub-3m wobble. Fallback for files with no session ascent. */
 function ascentFromAltitude(samples: unknown[]): number {
   const alts = samples.filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
-  if (alts.length < 2) return 0;
-  let gain = 0;
-  let anchor = alts[0];
-  for (const alt of alts) {
-    if (alt - anchor >= 3) {
-      gain += alt - anchor;
-      anchor = alt;
-    } else if (alt < anchor) {
-      anchor = alt;
-    }
-  }
-  return gain;
+  return alts.length < 2 ? 0 : recordedGain(alts);
 }
 
 // ─── Parse a single File object → Activity ─────────────────────────────────
@@ -333,15 +323,17 @@ export async function parseGpxFile(file: File): Promise<Activity> {
   const durationSeconds = Math.max(0, timedSamples[timedSamples.length - 1].time);
 
   let distanceMeters = 0;
-  let elevationGain = 0;
   for (let index = 1; index < timedSamples.length; index++) {
     const previous = timedSamples[index - 1];
     const current = timedSamples[index];
     distanceMeters += distanceBetweenMeters(previous.lat, previous.lng, current.lat, current.lng);
-    if (previous.elevation !== undefined && current.elevation !== undefined) {
-      elevationGain += Math.max(0, current.elevation - previous.elevation);
-    }
   }
+  // Summing every positive altitude change adds up the GPS jitter on each sample and can inflate the climb by 40% or more
+  const sampleSeconds = timedSamples.length > 1 ? durationSeconds / (timedSamples.length - 1) : 1;
+  const elevationGain = recordedGain(
+    timedSamples.flatMap((sample) => (sample.elevation === undefined ? [] : [sample.elevation])),
+    sampleSeconds > 0 ? sampleSeconds : 1,
+  );
 
   const watts = timedSamples.flatMap((sample) => sample.watts === undefined ? [] : [sample.watts]);
   const heartRates = timedSamples.flatMap((sample) => sample.hr === undefined ? [] : [sample.hr]);
