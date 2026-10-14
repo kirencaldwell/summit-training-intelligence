@@ -1,5 +1,6 @@
 import type { MetricStreamPoint, SportType } from '../types';
 import { maxGapSeconds } from './streamSummary';
+import { hysteresisGain } from './elevation';
 
 /** The sports the Munter travel parameters make sense for (how fast you climb, descend and cover flat ground on foot or skis). */
 export const MUNTER_SPORTS: SportType[] = ['weighted_hiking', 'skimo', 'backcountry_skiing'];
@@ -155,7 +156,6 @@ export function estimateMunter(points: MetricStreamPoint[] | undefined): MunterP
     cur.dz += zb - za;
     moving += dt;
     totalKm += km;
-    if (zb > za) totalGain += zb - za;
     if (cur.seconds >= BLOCK_SECONDS) {
       blocks.push(cur);
       cur = { seconds: 0, km: 0, dz: 0, stop: 0 };
@@ -164,6 +164,9 @@ export function estimateMunter(points: MetricStreamPoint[] | undefined): MunterP
   closeRun();
   if (cur.seconds >= BLOCK_SECONDS / 2) blocks.push(cur);
   if (moving < 20 * 60 || blocks.length < 10) return undefined;
+
+  // Total climb with the noise filtered out: summing every small rise of a GPS altitude inflates it
+  totalGain = hysteresisGain(alt.filter((v): v is number => v !== undefined), 5);
 
   const sum = { up: { s: 0, stop: 0, dz: 0 }, down: { s: 0, stop: 0, dz: 0 }, flat: { s: 0, stop: 0, km: 0 } };
   for (const b of blocks) {

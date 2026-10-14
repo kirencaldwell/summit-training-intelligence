@@ -10,11 +10,13 @@ import { formatFeetFromMeters, formatFtPerHourFromMph, formatMilesFromMeters } f
 import { RideAnalysis } from './RideAnalysis';
 import { estimateMunter, isMunterSport } from '../lib/munter';
 import { ClimbRateChart } from './ClimbRateChart';
+import { ElevationCheckRow, type ElevationChange } from './ElevationCheck';
 
 interface ActivityDetailModalProps {
   activity: Activity | null;
   onClose: () => void;
   onAssess?: (activity: Activity) => void;
+  onApplyElevation?: (changes: ElevationChange[]) => Promise<void>;
   isAssessing?: boolean;
   assessmentError?: string;
   onUpdate?: (
@@ -276,6 +278,7 @@ const ActivityDetailContent: React.FC<Omit<ActivityDetailModalProps, 'activity'>
   activity,
   onClose,
   onAssess,
+  onApplyElevation,
   isAssessing = false,
   assessmentError,
   onUpdate,
@@ -468,6 +471,8 @@ const ActivityDetailContent: React.FC<Omit<ActivityDetailModalProps, 'activity'>
           )}
           {estimateError && <p role="alert" className="text-xs text-rose-400">{estimateError}</p>}
         </div>
+
+        <ElevationCheckRow key={`${activity.id}-${activity.total_elevation_gain_m}`} activity={activity} onApply={onApplyElevation} />
 
         {/* AI Coach Assessment (saved with the activity) */}
         <div className="rounded-xl border border-cyan-500/25 bg-cyan-500/5 p-4 space-y-3">

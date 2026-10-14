@@ -4,7 +4,7 @@ import type { AICoachMessage, Activity, AthleteProfile, Goal, PMCDayPoint, Power
 import { dataService, isSupabaseConfigured, supabase } from './lib/supabase';
 import type { GoalReadinessAssessment } from './lib/goalReadiness';
 import { installIntensityModel } from './lib/intensityModel';
-import { calculatePMC, calculatePowerCurve, canImproveWithAi, hasPowerCurveData } from './lib/trainingMath';
+import { calculatePMC, calculatePowerCurve, calculateVAM, canImproveWithAi, hasPowerCurveData } from './lib/trainingMath';
 import { addDaysToDateOnly, getCurrentTrainingWeekStartDate, getNextTrainingWeekStartDate } from './lib/trainingSessions';
 import { Navbar } from './components/Navbar';
 import { DashboardOverview } from './components/DashboardOverview';
@@ -12,6 +12,7 @@ import { ActivityList } from './components/ActivityList';
 import { PowerCurveChart } from './components/PowerCurveChart';
 import { PerformancePage, type PerformanceView } from './components/PerformancePage';
 import { TravelPaceView } from './components/TravelPaceView';
+import { ElevationCheckPanel, type ElevationChange } from './components/ElevationCheck';
 import { HeartRateDistributionPage } from './components/HeartRateDistributionPage';
 import { AICoachPanel, INITIAL_COACH_MESSAGES } from './components/AICoachPanel';
 import { ActivityDetailModal } from './components/ActivityDetailModal';
@@ -360,6 +361,27 @@ export function App() {
     const byId = new Map(updated.map((a) => [a.id, a]));
     setActivities((prev) => prev.map((a) => (byId.has(a.id) ? { ...a, ...byId.get(a.id)! , streams_data: a.streams_data } : a)));
     setSelectedActivity((prev) => (prev && byId.has(prev.id) ? { ...prev, ...byId.get(prev.id)!, streams_data: prev.streams_data } : prev));
+  };
+
+  // Adopt terrain-model elevation gains (the VAM follows from the gain)
+  const handleApplyElevation = async (changes: ElevationChange[]) => {
+    const applied = new Map<string, { gain: number; vam?: number }>();
+    try {
+      for (const change of changes) {
+        const activity = activities.find((a) => a.id === change.id);
+        if (!activity) continue;
+        const gain = Math.round(change.gain_m);
+        const seconds = activity.moving_time_seconds || activity.duration_seconds;
+        const vam = seconds > 0 ? calculateVAM(gain, seconds) || undefined : undefined;
+        await dataService.updateActivity(change.id, { total_elevation_gain_m: gain, avg_vam_mh: vam });
+        applied.set(change.id, { gain, vam });
+      }
+    } finally {
+      // Whatever was saved is shown, even if a later one failed
+      const patch = (a: Activity) => (applied.has(a.id) ? { ...a, total_elevation_gain_m: applied.get(a.id)!.gain, avg_vam_mh: applied.get(a.id)!.vam } : a);
+      setActivities((prev) => prev.map(patch));
+      setSelectedActivity((prev) => (prev ? patch(prev) : prev));
+    }
   };
 
   const handleDeleteActivity = async (activity: Activity) => {
@@ -775,6 +797,7 @@ export function App() {
               </span>
             </div>
 
+            <ElevationCheckPanel activities={activities} onApply={handleApplyElevation} />
             <ActivityList
               activities={activities}
               profile={profile}
@@ -874,6 +897,7 @@ export function App() {
         activity={selectedActivity}
         onClose={() => setSelectedActivity(null)}
         onAssess={handleAssessActivity}
+        onApplyElevation={handleApplyElevation}
         onUpdate={handleUpdateActivity}
         allTags={collectTags(activities)}
         isAssessing={selectedActivity ? assessingIds.includes(selectedActivity.id) : false}
