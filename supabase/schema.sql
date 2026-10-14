@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS public.activities (
   strava_activity_id BIGINT UNIQUE,
   title TEXT NOT NULL,
   sport_type TEXT NOT NULL CHECK (
-    sport_type IN ('cycling', 'zwift', 'skimo', 'backcountry_skiing', 'scrambling', 'weighted_hiking')
+    sport_type IN ('cycling', 'zwift', 'skimo', 'backcountry_skiing', 'resort_skiing', 'scrambling', 'weighted_hiking')
   ),
   start_date TIMESTAMPTZ NOT NULL,
   duration_seconds INTEGER NOT NULL,
@@ -172,7 +172,7 @@ CREATE TABLE IF NOT EXISTS public.training_sessions (
   session_date DATE NOT NULL,
   title TEXT NOT NULL,
   sport_type TEXT NOT NULL CHECK (
-    sport_type IN ('cycling', 'zwift', 'skimo', 'backcountry_skiing', 'scrambling', 'weighted_hiking')
+    sport_type IN ('cycling', 'zwift', 'skimo', 'backcountry_skiing', 'resort_skiing', 'scrambling', 'weighted_hiking')
   ),
   duration_minutes INTEGER NOT NULL CHECK (duration_minutes > 0),
   focus TEXT NOT NULL,
@@ -193,6 +193,17 @@ ALTER TABLE public.training_sessions
 -- Munter travel parameters (climb / descent / flat pace) estimated per hiking or ski activity
 ALTER TABLE public.activities
   ADD COLUMN IF NOT EXISTS munter JSONB;
+
+-- Resort (lift-served) skiing is its own sport, separate from backcountry skiing. Existing databases need the
+-- allowed list widened; this is safe to run more than once.
+ALTER TABLE public.activities DROP CONSTRAINT IF EXISTS activities_sport_type_check;
+ALTER TABLE public.activities ADD CONSTRAINT activities_sport_type_check CHECK (
+  sport_type IN ('cycling', 'zwift', 'skimo', 'backcountry_skiing', 'resort_skiing', 'scrambling', 'weighted_hiking')
+);
+ALTER TABLE public.training_sessions DROP CONSTRAINT IF EXISTS training_sessions_sport_type_check;
+ALTER TABLE public.training_sessions ADD CONSTRAINT training_sessions_sport_type_check CHECK (
+  sport_type IN ('cycling', 'zwift', 'skimo', 'backcountry_skiing', 'resort_skiing', 'scrambling', 'weighted_hiking')
+);
 
 -- One row per athlete holding the AI coach chat, so it follows them across devices
 CREATE TABLE IF NOT EXISTS public.coach_chats (

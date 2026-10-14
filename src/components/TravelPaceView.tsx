@@ -6,12 +6,14 @@ import {
 } from 'recharts';
 import type { Activity, SportType } from '../types';
 import { dataService } from '../lib/supabase';
-import { MUNTER_SPORTS, MUNTER_VERSION, estimateMunter, spread, type MunterParams, type Spread } from '../lib/munter';
+import { LIFT_ASCENT_MH_HIGH, MUNTER_SPORTS, MUNTER_VERSION, estimateMunter, spread, type MunterParams, type Spread } from '../lib/munter';
 import { kmhToMph, mToFt } from '../lib/units';
 
 interface TravelPaceViewProps {
   activities: Activity[];
   onOpenActivity: (activity: Activity) => void;
+  /** Changes an activity's sport (used to move lift-served ski days out of backcountry skiing) */
+  onChangeSport?: (id: string, sport: SportType) => Promise<void>;
 }
 
 type ParamKey = 'ascent' | 'descent' | 'flat' | 'units' | 'best30' | 'stopped' | 'breaks';
@@ -106,7 +108,16 @@ function niceWidth(range: number) {
 
 const tooltipStyle = { backgroundColor: 'rgba(15, 23, 42, 0.95)', borderColor: 'rgba(255, 255, 255, 0.15)', borderRadius: '0.5rem', fontSize: '11px' };
 
-export const TravelPaceView: React.FC<TravelPaceViewProps> = ({ activities, onOpenActivity }) => {
+export const TravelPaceView: React.FC<TravelPaceViewProps> = ({ activities, onOpenActivity, onChangeSport }) => {
+  const [movingIds, setMovingIds] = useState<string[]>([]);
+  const [moveError, setMoveError] = useState('');
+  const [keptIds, setKeptIds] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('summit_ski_kept_backcountry') || '[]');
+    } catch {
+      return [];
+    }
+  });
   const [params, setParams] = useState<Record<string, MunterParams>>({});
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
@@ -202,6 +213,37 @@ export const TravelPaceView: React.FC<TravelPaceViewProps> = ({ activities, onOp
 
   const times = rows.map((r) => new Date(r.activity.start_date).getTime());
   const spanDays = times.length ? (Math.max(...times) - Math.min(...times)) / 86400000 : 0;
+  // 'Backcountry skiing' days that climb at lift speed were almost certainly lift-served (older imports labelled all skiing backcountry)
+  const liftLike = rows.filter(
+    (r) => r.activity.sport_type === 'backcountry_skiing'
+      && (r.p.ascent_mh ?? 0) >= LIFT_ASCENT_MH_HIGH
+      && !keptIds.includes(r.activity.id),
+  );
+  const moveToResort = async (ids: string[]) => {
+    if (!onChangeSport) return;
+    setMoveError('');
+    setMovingIds(ids);
+    try {
+      for (const id of ids) await onChangeSport(id, 'resort_skiing');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '';
+      setMoveError(/check constraint|sport_type/i.test(message)
+        ? 'The database does not allow Resort skiing yet. Run the latest supabase/schema.sql (the sport list change), then try again.'
+        : message || 'The sport could not be changed.');
+    } finally {
+      setMovingIds([]);
+    }
+  };
+  const keepAsBackcountry = (id: string) => {
+    const next = [...keptIds, id];
+    setKeptIds(next);
+    try {
+      localStorage.setItem('summit_ski_kept_backcountry', JSON.stringify(next));
+    } catch {
+      // Not remembered across reloads
+    }
+  };
+
   const analyzing = progress !== null;
 
   return (
@@ -221,6 +263,40 @@ export const TravelPaceView: React.FC<TravelPaceViewProps> = ({ activities, onOp
           <div className="mt-2 h-2 rounded-full bg-white/10 overflow-hidden">
             <div className="h-full rounded-full bg-emerald-400 transition-all" style={{ width: `${(progress!.done / Math.max(1, progress!.total)) * 100}%` }} />
           </div>
+        </div>
+      )}
+      {liftLike.length > 0 && onChangeSport && (
+        <div className="rounded-xl border border-pink-500/30 bg-pink-500/5 p-4 space-y-3">
+          <div>
+            <p className="text-sm font-semibold text-pink-200">{liftLike.length} {liftLike.length === 1 ? 'activity looks' : 'activities look'} lift-served</p>
+            <p className="text-xs text-slate-400">
+              These are labelled Backcountry skiing but climb at {Math.round(mToFt(LIFT_ASCENT_MH_HIGH)).toLocaleString()} ft/h or more, much faster than skinning (typically 1,000–2,600 ft/h). They are pulling your backcountry pace up. Move them to Resort skiing?
+            </p>
+          </div>
+          <ul className="space-y-1.5">
+            {liftLike.map(({ activity, p }) => (
+              <li key={activity.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                <button onClick={() => onOpenActivity(activity)} className="min-w-0 flex-1 truncate text-left text-slate-200 hover:underline">{activity.title}</button>
+                <span className="tabular-nums text-slate-400">{new Date(activity.start_date).toLocaleDateString([], { month: 'short', day: 'numeric', year: '2-digit' })} · climbs {Math.round(mToFt(p.ascent_mh!)).toLocaleString()} ft/h</span>
+                <button
+                  disabled={movingIds.includes(activity.id)}
+                  onClick={() => void moveToResort([activity.id])}
+                  className="min-h-8 px-2.5 rounded-md border border-pink-500/40 text-pink-200 hover:bg-pink-500/10 disabled:opacity-50"
+                >
+                  Move to Resort
+                </button>
+                <button onClick={() => keepAsBackcountry(activity.id)} className="min-h-8 px-2 text-slate-500 hover:text-white">Keep as backcountry</button>
+              </li>
+            ))}
+          </ul>
+          <button
+            disabled={movingIds.length > 0}
+            onClick={() => void moveToResort(liftLike.map((r) => r.activity.id))}
+            className="min-h-9 px-3 rounded-lg bg-pink-500/20 border border-pink-500/40 text-xs font-semibold text-pink-100 hover:bg-pink-500/30 disabled:opacity-50"
+          >
+            {movingIds.length > 0 ? 'Moving…' : `Move all ${liftLike.length} to Resort skiing`}
+          </button>
+          {moveError && <p role="alert" className="text-xs text-rose-300">{moveError}</p>}
         </div>
       )}
       {error && <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{error}</p>}

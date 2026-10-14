@@ -7,6 +7,7 @@ import FitParser from 'fit-file-parser';
 import { EBIKE_TAG } from './tags';
 import { lookupStravaMeta, stravaFileKey, stravaMetaToPatch, type StravaMetaIndex } from './stravaCsv';
 import type { Activity, MetricStreamPoint, SportType } from '../types';
+import { classifySkiFromTrack } from './munter';
 import {
   calculateNormalizedPower,
   calculateIntensityFactor,
@@ -25,6 +26,17 @@ function isEbikeFit(sport?: string, subSport?: string): boolean {
   return (sport || '').toLowerCase().includes('e_bik') || (subSport || '').toLowerCase().includes('e_bike');
 }
 
+/** FIT sport names for skiing: 'alpine_skiing', 'cross_country_skiing' (older files and some devices just say 'skiing'). */
+const isFitSkiing = (s: string) => s === 'skiing' || s.endsWith('_skiing');
+
+/** Whether the file itself did not say which kind of skiing it was, so the recorded track should decide. */
+function fitSkiIsAmbiguous(sport?: string, subSport?: string): boolean {
+  const s = (sport || '').toLowerCase();
+  const ss = (subSport || '').toLowerCase();
+  if (!(isFitSkiing(s) || s === 'snowboarding')) return false;
+  return !(ss.includes('backcountry') || ss.includes('resort') || ss.includes('skimo') || ss.includes('mountaineering') || s.includes('cross_country') || ss.includes('cross_country'));
+}
+
 function mapFitSport(sport?: string, subSport?: string): SportType {
   const s = (sport || '').toLowerCase();
   const ss = (subSport || '').toLowerCase();
@@ -33,8 +45,13 @@ function mapFitSport(sport?: string, subSport?: string): SportType {
   // E-bike rides are road/trail cycling with motor assist (they get an "e-bike" tag on import)
   if (s.includes('e_bik') || ss.includes('e_bike')) return 'cycling';
   if (s === 'cycling' || s === 'biking') return 'cycling';
-  if (s === 'skiing' && (ss.includes('skimo') || ss.includes('mountaineering'))) return 'skimo';
-  if (s === 'skiing' || ss.includes('backcountry') || ss.includes('cross_country')) return 'backcountry_skiing';
+  if (isFitSkiing(s) && (ss.includes('skimo') || ss.includes('mountaineering'))) return 'skimo';
+  // Devices that set the sub-sport say which kind of skiing it was
+  if (ss.includes('backcountry')) return 'backcountry_skiing';
+  if (ss.includes('resort')) return 'resort_skiing';
+  if (s.includes('cross_country') || ss.includes('cross_country')) return 'backcountry_skiing';
+  // Alpine skiing and snowboarding with no sub-sport: lift-served unless the track says otherwise (see refineFitSkiSport)
+  if (isFitSkiing(s) || s === 'snowboarding') return 'resort_skiing';
   if (s === 'hiking' || ss.includes('hiking')) return 'weighted_hiking';
   if (s === 'mountaineering' || ss.includes('scramble') || ss.includes('rock_climbing')) return 'scrambling';
 
@@ -96,7 +113,7 @@ export async function parseFitFile(file: File): Promise<Activity> {
         const records: any[] = session.laps?.flatMap((l: any) => l.records || []) || data.records || [];
 
         // ── Sport type ────────────────────────────────────────────────────
-        const sportType = mapFitSport(session.sport, session.sub_sport);
+        const baseSportType = mapFitSport(session.sport, session.sub_sport);
 
         // ── Date ──────────────────────────────────────────────────────────
         const startDate: string =
@@ -199,6 +216,11 @@ export async function parseFitFile(file: File): Promise<Activity> {
             lng: r.position_long,
           }));
 
+        // Skiing the file does not classify: lift-served or self-propelled, from how fast the climbing is
+        const sportType: SportType = fitSkiIsAmbiguous(session.sport, session.sub_sport)
+          ? classifySkiFromTrack(streamPoints) ?? baseSportType
+          : baseSportType;
+
         // ── Activity title ────────────────────────────────────────────────
         const sportLabel = sportType.replace('_', ' ');
         const dateStr = new Date(startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -251,6 +273,8 @@ function mapGpxSport(typeText: string | undefined, hasPower: boolean): SportType
   if (type.includes('virtual')) return 'zwift';
   if (type.includes('cycl') || type.includes('ride') || type.includes('bike')) return 'cycling';
   if (type.includes('skimo') || type.includes('ski mount')) return 'skimo';
+  if (type.includes('backcountry') || type.includes('touring')) return 'backcountry_skiing';
+  if (type.includes('alpine') || type.includes('resort') || type.includes('downhill') || type.includes('snowboard')) return 'resort_skiing';
   if (type.includes('ski') || type.includes('snow')) return 'backcountry_skiing';
   if (type.includes('scrambl') || type.includes('climb') || type.includes('mountain')) return 'scrambling';
   if (type.includes('hik') || type.includes('walk') || type.includes('run')) return 'weighted_hiking';
@@ -347,7 +371,7 @@ export async function parseGpxFile(file: File): Promise<Activity> {
   const track = Array.from(xml.getElementsByTagName('*')).find((element) => element.localName === 'trk');
   const trackName = track ? findDescendantText(track, 'name') : undefined;
   const typeText = track ? findDescendantText(track, 'type') : undefined;
-  const sportType = mapGpxSport(typeText, watts.length > 0);
+  const gpxSport = mapGpxSport(typeText, watts.length > 0);
   const startDate = hasTimestamps
     ? new Date(startTimestamp).toISOString()
     : new Date().toISOString();
@@ -355,6 +379,12 @@ export async function parseGpxFile(file: File): Promise<Activity> {
   const averageHr = heartRates.length > 0
     ? Math.round(heartRates.reduce((sum, value) => sum + value, 0) / heartRates.length)
     : undefined;
+
+  // A plain 'ski' track says nothing about lifts: let the recorded climbing decide, else keep the default
+  const typeLower = (typeText || '').toLowerCase();
+  const sportType: SportType = gpxSport === 'backcountry_skiing' && !typeLower.includes('backcountry') && !typeLower.includes('touring')
+    ? classifySkiFromTrack(streamPoints) ?? gpxSport
+    : gpxSport;
 
   return {
     id: crypto.randomUUID(),

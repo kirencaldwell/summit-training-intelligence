@@ -244,6 +244,7 @@ const BASE_INTENSITY: Record<string, number> = {
   zwift: 0.6,
   skimo: 0.72,
   backcountry_skiing: 0.55,
+  resort_skiing: 0.35,
   scrambling: 0.7,
   weighted_hiking: 0.58,
 };

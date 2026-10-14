@@ -927,7 +927,7 @@ User replanning instructions / adjustments: "${customInstructions}"
 Return ONLY a valid JSON array of TrainingSession objects with these exact fields:
 { id, week_start_date, session_date, title, sport_type, duration_minutes, focus, details, target_tss, status }
 - week_start_date and session_date must be ISO date strings (YYYY-MM-DD)
-- sport_type must be one of: cycling, zwift, skimo, backcountry_skiing, scrambling, weighted_hiking
+- sport_type must be one of: cycling, zwift, skimo, backcountry_skiing, resort_skiing, scrambling, weighted_hiking
 - status must be "PROPOSED"
 - Dates are flexible and open for replanning; plan 4-5 sessions across the week balancing training load with recovery
 - Consider the athlete's current fitness, fatigue, injuries, and upcoming goals
@@ -936,7 +936,7 @@ Return only the JSON array, no markdown, no explanation.`
 Return ONLY a valid JSON array of TrainingSession objects with these exact fields:
 { id, week_start_date, session_date, title, sport_type, duration_minutes, focus, details, target_tss, status }
 - week_start_date and session_date must be ISO date strings (YYYY-MM-DD) for next week (starting ${nextMonday})
-- sport_type must be one of: cycling, zwift, skimo, backcountry_skiing, scrambling, weighted_hiking
+- sport_type must be one of: cycling, zwift, skimo, backcountry_skiing, resort_skiing, scrambling, weighted_hiking
 - status must be "PROPOSED"
 - Dates are flexible; plan 4-5 sessions across the week balancing training load with recovery
 - Consider the athlete's current fitness, fatigue, injuries, and upcoming goals
