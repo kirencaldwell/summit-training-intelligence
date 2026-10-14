@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Activity, Mountain, ShieldCheck, Zap, User, Upload, Sparkles, LogOut, MoreHorizontal, HeartPulse } from 'lucide-react';
+import { Activity, Mountain, ShieldCheck, Gauge, User, Upload, Sparkles, LogOut, MoreHorizontal } from 'lucide-react';
 import type { AthleteProfile } from '../types';
 
 interface NavbarProps {
   profile: AthleteProfile;
-  activeTab: 'dashboard' | 'goals' | 'activities' | 'power' | 'heart-rate' | 'coach';
-  setActiveTab: (tab: 'dashboard' | 'goals' | 'activities' | 'power' | 'heart-rate' | 'coach') => void;
+  activeTab: 'dashboard' | 'goals' | 'activities' | 'performance' | 'coach';
+  setActiveTab: (tab: 'dashboard' | 'goals' | 'activities' | 'performance' | 'coach') => void;
   dataMode: 'local' | 'supabase';
   onSyncStrava: () => void;
   onOpenProfile: () => void;
@@ -75,8 +75,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'dashboard' as const, label: 'Home', icon: Activity },
     { id: 'goals' as const, label: 'Goals', icon: Sparkles },
     { id: 'activities' as const, label: 'Activities', icon: Mountain },
-    { id: 'power' as const, label: 'Power', icon: Zap },
-    { id: 'heart-rate' as const, label: 'HR Zones', icon: HeartPulse },
+    { id: 'performance' as const, label: 'Performance', icon: Gauge },
     { id: 'coach' as const, label: 'Coach', icon: ShieldCheck },
   ];
 
@@ -120,18 +119,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
 
             <button
-              onClick={() => setActiveTab('heart-rate')}
-              className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                activeTab === 'heart-rate'
-                  ? 'bg-gradient-to-r from-rose-500/20 to-orange-500/20 text-rose-300 border border-rose-500/30 shadow-sm'
-                  : 'text-slate-400 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <HeartPulse className="w-4 h-4 text-rose-400" />
-              <span>Heart Rate</span>
-            </button>
-
-            <button
               onClick={() => setActiveTab('goals')}
               className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all ${
                 activeTab === 'goals'
@@ -156,15 +143,15 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
 
             <button
-              onClick={() => setActiveTab('power')}
+              onClick={() => setActiveTab('performance')}
               className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                activeTab === 'power'
+                activeTab === 'performance'
                   ? 'bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-300 border border-cyan-500/30 shadow-sm'
                   : 'text-slate-400 hover:text-white hover:bg-white/5'
               }`}
             >
-              <Zap className="w-4 h-4" />
-              <span>Power & Analytics</span>
+              <Gauge className="w-4 h-4" />
+              <span>Performance</span>
             </button>
 
             <button

@@ -17,7 +17,7 @@ interface DashboardOverviewProps {
   pmcData: PMCDayPoint[];
   trainingSessions: TrainingSession[];
   onOpenActivity: (activity: Activity) => void;
-  onNavigateTab: (tab: 'dashboard' | 'goals' | 'activities' | 'power' | 'heart-rate' | 'coach') => void;
+  onNavigateTab: (tab: 'dashboard' | 'goals' | 'activities' | 'performance' | 'coach') => void;
   onOpenProfile?: () => void;
   onDeleteTrainingSessions?: (ids: string[]) => Promise<void>;
   /** Marks a session complete and links the activities that did it; synced is false when the links could only be kept on this device */

@@ -190,6 +190,10 @@ ALTER TABLE public.training_sessions
   ADD COLUMN IF NOT EXISTS coach_assessment TEXT,
   ADD COLUMN IF NOT EXISTS coach_assessment_at TIMESTAMPTZ;
 
+-- Munter travel parameters (climb / descent / flat pace) estimated per hiking or ski activity
+ALTER TABLE public.activities
+  ADD COLUMN IF NOT EXISTS munter JSONB;
+
 -- One row per athlete holding the AI coach chat, so it follows them across devices
 CREATE TABLE IF NOT EXISTS public.coach_chats (
   user_id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
