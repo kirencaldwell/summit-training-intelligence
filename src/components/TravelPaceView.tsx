@@ -375,6 +375,7 @@ export const TravelPaceView: React.FC<TravelPaceViewProps> = ({ activities, onOp
 
               <section className="glass-panel rounded-2xl border border-white/10 p-4 space-y-2">
                 <h2 className="text-sm font-bold text-white">{meta.label} over time</h2>
+                <p className="text-[11px] text-slate-500">Click a point to open that activity.</p>
                 <div className="h-56">
                   <ResponsiveContainer width="100%" height="100%">
                     <ScatterChart>
@@ -410,9 +411,20 @@ export const TravelPaceView: React.FC<TravelPaceViewProps> = ({ activities, onOp
                         <Scatter
                           key={sport}
                           name={SPORT_META[sport]!.label}
-                          data={items.map((i) => ({ t: new Date(i.activity.start_date).getTime(), value: i.value, title: i.activity.title }))}
+                          data={items.map((i) => ({ t: new Date(i.activity.start_date).getTime(), value: i.value, title: i.activity.title, activity: i.activity }))}
                           fill={SPORT_META[sport]!.color}
                           isAnimationActive={false}
+                          shape={(props: unknown) => {
+                            const { cx, cy, fill, payload } = props as { cx?: number; cy?: number; fill?: string; payload?: { activity: Activity; title: string } };
+                            if (cx === undefined || cy === undefined || !payload) return <g />;
+                            return (
+                              <g style={{ cursor: 'pointer' }} onClick={() => onOpenActivity(payload.activity)}>
+                                {/* A larger invisible target makes small dots easy to hit */}
+                                <circle cx={cx} cy={cy} r={12} fill="transparent" />
+                                <circle cx={cx} cy={cy} r={5} fill={fill} stroke="#0F172A" strokeWidth={1.5} />
+                              </g>
+                            );
+                          }}
                         />
                       ))}
                     </ScatterChart>
