@@ -2,7 +2,7 @@ import type { Activity } from '../types';
 
 function sportFamily(sportType: string): string {
   if (sportType === 'cycling' || sportType === 'zwift') return 'cycling';
-  if (sportType === 'skimo' || sportType === 'backcountry_skiing') return 'skiing';
+  if (sportType === 'skimo' || sportType === 'backcountry_skiing' || sportType === 'resort_skiing') return 'skiing';
   return sportType;
 }
 

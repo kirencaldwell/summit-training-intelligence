@@ -9,6 +9,7 @@ const SPORTS: { key: SportType; label: string; color: string }[] = [
   { key: 'zwift', label: 'Zwift / Indoor', color: '#2DD4BF' },
   { key: 'skimo', label: 'Skimo', color: '#38BDF8' },
   { key: 'backcountry_skiing', label: 'Backcountry Ski', color: '#60A5FA' },
+  { key: 'resort_skiing', label: 'Resort Ski', color: '#F472B6' },
   { key: 'scrambling', label: 'Scrambling', color: '#A78BFA' },
   { key: 'weighted_hiking', label: 'Weighted Hike', color: '#FBBF24' },
 ];

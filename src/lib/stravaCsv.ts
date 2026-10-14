@@ -111,7 +111,10 @@ export function mapStravaType(type: string): { sport?: SportType; ebike: boolean
   if (t === 'virtualride') return { sport: 'zwift', ebike: false };
   if (t.includes('ride') || t.includes('bike') || t === 'handcycle' || t === 'velomobile') return { sport: 'cycling', ebike };
   if (t.includes('skimo') || t.includes('skimountaineering')) return { sport: 'skimo', ebike: false };
-  if (t.includes('ski') || t === 'snowboard') return { sport: 'backcountry_skiing', ebike: false };
+  // Strava and Intervals.icu name the kind: AlpineSki and Snowboard are lift-served, BackcountrySki is self-propelled
+  if (t === 'alpineski' || t === 'snowboard') return { sport: 'resort_skiing', ebike: false };
+  if (t === 'backcountryski') return { sport: 'backcountry_skiing', ebike: false };
+  if (t.includes('ski')) return { sport: 'backcountry_skiing', ebike: false };
   if (t.includes('climb') || t === 'mountaineering') return { sport: 'scrambling', ebike: false };
   if (t === 'hike' || t === 'walk' || t === 'run' || t === 'trailrun' || t === 'snowshoe' || t === 'virtualrun') {
     return { sport: 'weighted_hiking', ebike: false };

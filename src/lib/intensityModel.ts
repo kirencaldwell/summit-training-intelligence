@@ -33,7 +33,7 @@ const LAMBDAS = [0.3, 1, 3, 10, 30, 100];
 /** Beyond this many standard deviations from the training data a feature is "outside what the model has seen". */
 const MAX_Z = 4;
 
-const SPORTS = ['cycling', 'zwift', 'skimo', 'backcountry_skiing', 'scrambling', 'weighted_hiking'] as const;
+const SPORTS = ['cycling', 'zwift', 'skimo', 'backcountry_skiing', 'resort_skiing', 'scrambling', 'weighted_hiking'] as const;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const hoursOf = (a: Activity) => (a.moving_time_seconds || a.duration_seconds || 0) / 3600;

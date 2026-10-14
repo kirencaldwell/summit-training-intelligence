@@ -201,7 +201,8 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
       case 'cycling':
       case 'zwift': return Bike;
       case 'skimo':
-      case 'backcountry_skiing': return Mountain;
+      case 'backcountry_skiing':
+      case 'resort_skiing': return Mountain;
       case 'scrambling': return Compass;
       case 'weighted_hiking': return Footprints;
       default: return Sparkles;
@@ -214,6 +215,7 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
       case 'zwift': return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
       case 'skimo': return 'bg-sky-500/10 text-sky-400 border-sky-500/30';
       case 'backcountry_skiing': return 'bg-blue-500/10 text-blue-400 border-blue-500/30';
+      case 'resort_skiing': return 'bg-pink-500/10 text-pink-400 border-pink-500/30';
       case 'scrambling': return 'bg-purple-500/10 text-purple-400 border-purple-500/30';
       case 'weighted_hiking': return 'bg-amber-500/10 text-amber-400 border-amber-500/30';
       default: return 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30';
@@ -526,6 +528,7 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
                     <option value="cycling">Road Cycling / Zwift</option>
                     <option value="skimo">Ski Mountaineering (Skimo)</option>
                     <option value="backcountry_skiing">Backcountry Skiing</option>
+                    <option value="resort_skiing">Resort Skiing</option>
                     <option value="scrambling">Peak Scrambling</option>
                     <option value="weighted_hiking">Weighted Hiking</option>
                     <option value="general">General Endurance</option>

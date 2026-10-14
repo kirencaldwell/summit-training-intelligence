@@ -34,6 +34,7 @@ const SPORT_OPTIONS: { value: SportType; label: string }[] = [
   { value: 'zwift', label: 'Zwift / Indoor' },
   { value: 'skimo', label: 'Skimo' },
   { value: 'backcountry_skiing', label: 'Backcountry Skiing' },
+  { value: 'resort_skiing', label: 'Resort Skiing' },
   { value: 'scrambling', label: 'Peak Scramble' },
   { value: 'weighted_hiking', label: 'Weighted Hike' },
 ];

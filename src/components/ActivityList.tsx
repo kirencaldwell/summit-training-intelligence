@@ -81,6 +81,7 @@ export const ActivityList: React.FC<ActivityListProps> = ({
     { key: 'cycling', label: 'Road / Zwift', icon: Bike },
     { key: 'skimo', label: 'Skimo', icon: Mountain },
     { key: 'backcountry_skiing', label: 'Backcountry Ski', icon: Mountain },
+    { key: 'resort_skiing', label: 'Resort Ski', icon: Mountain },
     { key: 'scrambling', label: 'Peak Scramble', icon: Compass },
     { key: 'weighted_hiking', label: 'Weighted Hike', icon: Footprints },
   ];
@@ -125,6 +126,7 @@ export const ActivityList: React.FC<ActivityListProps> = ({
       case 'zwift': return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
       case 'skimo': return 'bg-sky-500/10 text-sky-400 border-sky-500/30';
       case 'backcountry_skiing': return 'bg-blue-500/10 text-blue-400 border-blue-500/30';
+      case 'resort_skiing': return 'bg-pink-500/10 text-pink-400 border-pink-500/30';
       case 'scrambling': return 'bg-purple-500/10 text-purple-400 border-purple-500/30';
       case 'weighted_hiking': return 'bg-amber-500/10 text-amber-400 border-amber-500/30';
     }

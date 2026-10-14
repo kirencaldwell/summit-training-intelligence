@@ -231,3 +231,18 @@ export function spread(values: number[]): Spread | undefined {
   };
   return { n: xs.length, min: xs[0], p25: at(0.25), median: at(0.5), p75: at(0.75), max: xs[xs.length - 1] };
 }
+
+/**
+ * Tell backcountry skiing from lift-served skiing by how fast the climbing is. Skinning uphill is slow
+ * (typically 300-800 m of height an hour); a chairlift or gondola climbs several times faster than that.
+ * Returns undefined when the track does not settle it (no real climbing, or in between).
+ */
+export function classifySkiFromTrack(points: MetricStreamPoint[] | undefined): 'backcountry_skiing' | 'resort_skiing' | undefined {
+  const m = estimateMunter(points);
+  if (!m || m.ascent_mh === undefined) return undefined;
+  if (m.ascent_mh <= LIFT_ASCENT_MH_LOW) return 'backcountry_skiing';
+  if (m.ascent_mh >= LIFT_ASCENT_MH_HIGH) return 'resort_skiing';
+  return undefined;
+}
+export const LIFT_ASCENT_MH_LOW = 1100;
+export const LIFT_ASCENT_MH_HIGH = 1500;

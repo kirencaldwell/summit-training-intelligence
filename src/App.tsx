@@ -768,7 +768,7 @@ export function App() {
             <div className="flex items-center justify-between border-b border-white/10 pb-4">
               <div>
                 <h1 className="text-2xl font-extrabold text-white tracking-tight">Multi-Sport Activity Database</h1>
-                <p className="text-xs text-slate-400">Road Cycling, Zwift, Skimo, Backcountry Skiing, Peak Scrambling & Weighted Hikes</p>
+                <p className="text-xs text-slate-400">Road Cycling, Zwift, Skimo, Backcountry & Resort Skiing, Peak Scrambling & Weighted Hikes</p>
               </div>
               <span className="text-xs font-mono text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-3 py-1 rounded-full">
                 {activities.length} Recorded Sessions
@@ -846,7 +846,7 @@ export function App() {
             </div>
           </div>
             }
-            travel={<TravelPaceView activities={activities} onOpenActivity={handleOpenActivity} />}
+            travel={<TravelPaceView activities={activities} onOpenActivity={handleOpenActivity} onChangeSport={(id, sport) => handleUpdateActivity(id, { sport_type: sport })} />}
           />
         )}
 
