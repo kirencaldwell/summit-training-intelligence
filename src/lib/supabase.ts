@@ -1,4 +1,5 @@
 import { createClient, type User } from '@supabase/supabase-js';
+import type { MunterParams } from './munter';
 import type { Activity, AICoachMessage, AthleteProfile, Goal, TrainingSession, TrainingSessionStatus } from '../types';
 import { addDaysToDateOnly } from './trainingSessions';
 import { readStoredMessages } from './coachChatSync';
@@ -25,6 +26,7 @@ const ACTIVITY_LIST_COLUMNS =
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const STORAGE_KEYS = {
+  MUNTER: 'summit_munter_params',
   SESSION_LINKS: 'summit_session_links',
   SESSION_ASSESSMENTS: 'summit_session_assessments',
   PROFILE: 'summit_athlete_profile',
@@ -432,6 +434,63 @@ class DataService {
       .from('integration_settings')
       .upsert({ user_id: profile.id, ...settings, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
     if (error) throw new Error(`Connection settings could not be saved: ${error.message}`);
+  }
+
+  // ── Munter travel parameters (kept per activity, kept out of the Activity objects so a database without the column can't break saves) ──
+  private munterColumnMissing = false;
+  private readMunterCache(): Record<string, MunterParams> {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEYS.MUNTER) || '{}');
+    } catch {
+      return {};
+    }
+  }
+  private writeMunterCache(id: string, params: MunterParams) {
+    try {
+      const all = this.readMunterCache();
+      all[id] = params;
+      localStorage.setItem(STORAGE_KEYS.MUNTER, JSON.stringify(all));
+    } catch {
+      // Storage unavailable: the estimate is recomputed next time
+    }
+  }
+
+  /** Stored Munter parameters by activity id. */
+  public async getMunterParams(): Promise<Record<string, MunterParams>> {
+    const cached = this.readMunterCache();
+    if (this.mode === 'supabase' && supabase && !this.munterColumnMissing) {
+      const profile = await this.getAuthenticatedProfile();
+      const { data, error } = await supabase
+        .from('activities')
+        .select('id, munter')
+        .eq('user_id', profile.id)
+        .not('munter', 'is', null);
+      if (!error) {
+        const fromDb: Record<string, MunterParams> = {};
+        for (const row of (data || []) as { id: string; munter: MunterParams }[]) fromDb[row.id] = row.munter;
+        return { ...cached, ...fromDb };
+      }
+      if (!error.message?.includes('munter')) throw new Error(`Travel parameters could not be loaded: ${error.message}`);
+      this.munterColumnMissing = true;
+    }
+    return cached;
+  }
+
+  /** Save one activity's Munter parameters. `synced` is false when they could only be kept on this device (no database column yet). */
+  public async saveMunterParams(id: string, params: MunterParams): Promise<{ synced: boolean }> {
+    if (this.mode === 'supabase' && supabase) {
+      if (!this.munterColumnMissing) {
+        const profile = await this.getAuthenticatedProfile();
+        const { error } = await supabase.from('activities').update({ munter: params }).eq('id', id).eq('user_id', profile.id);
+        if (!error) return { synced: true };
+        if (!error.message?.includes('munter')) throw new Error(`Travel parameters could not be saved: ${error.message}`);
+        this.munterColumnMissing = true;
+      }
+      this.writeMunterCache(id, params);
+      return { synced: false };
+    }
+    this.writeMunterCache(id, params);
+    return { synced: true };
   }
 
   public async getTrainingSessions(): Promise<TrainingSession[]> {

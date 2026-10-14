@@ -1,13 +1,14 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { X, Calendar, Clock, Navigation, Mountain, Zap, Heart, ShieldAlert, Bot, RefreshCw, Pencil, Check, Tag } from 'lucide-react';
 import type { Activity, AthleteProfile, SportType } from '../types';
 import { EBIKE_TAG, MAX_TAG_LENGTH, MAX_TAGS_PER_ACTIVITY, isEbike, isEbikeTag, normalizeTags } from '../lib/tags';
 import { describeTssSource, resolveTss } from '../lib/trainingMath';
 import { tssRange } from '../lib/intensityModel';
-import { kgToLb, lbToKg, roundTo } from '../lib/units';
+import { kgToLb, kmhToMph, lbToKg, mToFt, roundTo } from '../lib/units';
 import { RouteMapViewer } from './RouteMapViewer';
 import { formatFeetFromMeters, formatFtPerHourFromMph, formatMilesFromMeters } from '../lib/units';
 import { RideAnalysis } from './RideAnalysis';
+import { estimateMunter, isMunterSport } from '../lib/munter';
 
 interface ActivityDetailModalProps {
   activity: Activity | null;
@@ -286,6 +287,10 @@ const ActivityDetailContent: React.FC<Omit<ActivityDetailModalProps, 'activity'>
   const [isEditing, setIsEditing] = useState(false);
 
   const durationMin = Math.round(activity.duration_seconds / 60);
+  const munter = useMemo(
+    () => (isMunterSport(activity.sport_type) ? estimateMunter(activity.streams_data) : undefined),
+    [activity.sport_type, activity.streams_data],
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
@@ -502,6 +507,31 @@ const ActivityDetailContent: React.FC<Omit<ActivityDetailModalProps, 'activity'>
           <h3 className="text-sm font-semibold text-slate-300 mb-2">GPS Route & Map Overview</h3>
           <RouteMapViewer streamPoints={activity.streams_data} title={activity.title} />
         </div>
+
+        {/* Munter travel parameters for hiking and ski activities */}
+        {munter && munter.moving_minutes > 0 && (
+          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+            <h3 className="text-sm font-semibold text-emerald-300">Travel pace (Munter)</h3>
+            <p className="text-[11px] text-slate-500 mb-3">
+              From the recorded track: {munter.moving_minutes} min moving
+              {munter.stopped_minutes ? `, ${munter.stopped_minutes} min stopped (${munter.stopped_percent}%)` : ''}. “No breaks” counts moving time only.
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {([
+                ['Ascent', munter.ascent_mh_with_breaks, munter.ascent_mh, (v: number) => `${Math.round(mToFt(v)).toLocaleString()} ft/h`],
+                ['Descent', munter.descent_mh_with_breaks, munter.descent_mh, (v: number) => `${Math.round(mToFt(v)).toLocaleString()} ft/h`],
+                ['Flat speed', munter.flat_kmh_with_breaks, munter.flat_kmh, (v: number) => `${roundTo(kmhToMph(v), 1)} mph`],
+                ['Effort units / h', munter.effort_units_per_hour_with_breaks, munter.effort_units_per_hour, (v: number) => `${v}`],
+              ] as [string, number | undefined, number | undefined, (v: number) => string][]).map(([label, withBreaks, noBreaks, show]) => (
+                <div key={label}>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wide">{label}</p>
+                  <p className="text-sm font-bold text-white tabular-nums">{withBreaks !== undefined ? show(withBreaks) : '–'}</p>
+                  <p className="text-[11px] text-slate-400 tabular-nums">no breaks: {noBreaks !== undefined ? show(noBreaks) : '–'}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Time-series chart with detected efforts and time-at-power */}
         <RideAnalysis activity={activity} profile={profile} />

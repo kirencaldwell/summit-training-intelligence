@@ -10,6 +10,8 @@ import { Navbar } from './components/Navbar';
 import { DashboardOverview } from './components/DashboardOverview';
 import { ActivityList } from './components/ActivityList';
 import { PowerCurveChart } from './components/PowerCurveChart';
+import { PerformancePage, type PerformanceView } from './components/PerformancePage';
+import { TravelPaceView } from './components/TravelPaceView';
 import { HeartRateDistributionPage } from './components/HeartRateDistributionPage';
 import { AICoachPanel, INITIAL_COACH_MESSAGES } from './components/AICoachPanel';
 import { ActivityDetailModal } from './components/ActivityDetailModal';
@@ -69,7 +71,8 @@ export function App() {
 
   useEffect(() => { removeLegacyImporterKeys(); }, []);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'goals' | 'activities' | 'power' | 'heart-rate' | 'coach'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'goals' | 'activities' | 'performance' | 'coach'>('dashboard');
+  const [performanceView, setPerformanceView] = useState<PerformanceView>('heart-rate');
   const [powerCurveYear, setPowerCurveYear] = useState<'all' | number>('all');
   const [dataMode] = useState<'local' | 'supabase'>(dataService.getMode());
   
@@ -785,7 +788,12 @@ export function App() {
           </div>
         )}
 
-        {activeTab === 'power' && (
+        {activeTab === 'performance' && (
+          <PerformancePage
+            view={performanceView}
+            onViewChange={setPerformanceView}
+            heartRate={<HeartRateDistributionPage activities={activities} profile={profile} onOpenProfile={() => setIsProfileModalOpen(true)} />}
+            power={
           <div className="space-y-6">
             <div className="border-b border-white/10 pb-4">
               <h1 className="text-2xl font-extrabold text-white tracking-tight">Power Duration Curve & Peak Analytics</h1>
@@ -837,10 +845,9 @@ export function App() {
               ))}
             </div>
           </div>
-        )}
-
-        {activeTab === 'heart-rate' && (
-          <HeartRateDistributionPage activities={activities} profile={profile} onOpenProfile={() => setIsProfileModalOpen(true)} />
+            }
+            travel={<TravelPaceView activities={activities} onOpenActivity={handleOpenActivity} />}
+          />
         )}
 
         {activeTab === 'coach' && (
