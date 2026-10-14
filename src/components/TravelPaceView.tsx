@@ -91,7 +91,7 @@ const SPORT_META: Partial<Record<SportType, { label: string; color: string }>> =
 
 const fmt = (v: number, decimals: number) => v.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 
-/** Bins of a round width, about 8-14 of them, covering the data. */
+/** Bins of a round width covering the data. */
 function histogram(values: number[], lo: number, hi: number, binWidth: number) {
   const start = Math.floor(lo / binWidth) * binWidth;
   const count = Math.max(1, Math.ceil((hi - start) / binWidth) + (hi % binWidth === 0 ? 1 : 0));
@@ -100,7 +100,7 @@ function histogram(values: number[], lo: number, hi: number, binWidth: number) {
   return bins;
 }
 function niceWidth(range: number) {
-  const raw = range / 10;
+  const raw = range / 20; // about 20 bins (round widths give 10 to 40)
   const mag = 10 ** Math.floor(Math.log10(raw || 1));
   const norm = raw / mag;
   return (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;

@@ -246,3 +246,62 @@ export function classifySkiFromTrack(points: MetricStreamPoint[] | undefined): '
 }
 export const LIFT_ASCENT_MH_LOW = 1100;
 export const LIFT_ASCENT_MH_HIGH = 1500;
+
+export interface ClimbPoint {
+  /** Seconds from the start, the middle of the window */
+  time: number;
+  /** Vertical speed over the window, m/h on moving time: positive climbing, negative descending. Undefined while mostly stopped */
+  rate_mh?: number;
+  /** Smoothed altitude, metres */
+  elevation_m?: number;
+}
+
+/**
+ * Vertical speed through the activity: the height gained or lost over a sliding window, divided by the time
+ * actually spent moving in it, so breaks do not drag the rate down. A window that is mostly stopped has no rate.
+ */
+export function climbRateSeries(points: MetricStreamPoint[] | undefined, windowSeconds = 300, stepSeconds = 30): ClimbPoint[] {
+  if (!points || points.length < 10) return [];
+  const pts = points
+    .filter((p) => typeof p.time === 'number' && Number.isFinite(p.time) && p.time >= 0)
+    .sort((a, b) => a.time - b.time);
+  if (pts.length < 10 || pts[pts.length - 1].time > 4 * 24 * 3600) return [];
+  const maxGap = maxGapSeconds(pts.map((p) => p.time));
+  const alt = smoothAltitude(pts, 45);
+
+  // Cumulative moving seconds at each sample
+  const moving: number[] = new Array(pts.length).fill(0);
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    const dt = b.time - a.time;
+    let isMoving = false;
+    if (dt > 0 && dt <= maxGap) {
+      let km: number | undefined;
+      if (typeof a.speed === 'number' && typeof b.speed === 'number') km = (((a.speed + b.speed) / 2) * dt) / 3600;
+      else if ([a.lat, a.lng, b.lat, b.lng].every((v) => typeof v === 'number')) km = haversineKm(a.lat!, a.lng!, b.lat!, b.lng!);
+      isMoving = km !== undefined && (km / dt) * 3600 >= MOVING_KMH;
+    }
+    moving[i] = moving[i - 1] + (isMoving ? dt : 0);
+  }
+
+  const out: ClimbPoint[] = [];
+  const half = windowSeconds / 2;
+  const start = pts[0].time + half;
+  const end = pts[pts.length - 1].time - half;
+  let lo = 0;
+  let hi = 0;
+  let mid = 0;
+  for (let t = start; t <= end; t += stepSeconds) {
+    while (lo < pts.length - 1 && pts[lo + 1].time <= t - half) lo++;
+    while (hi < pts.length - 1 && pts[hi + 1].time <= t + half) hi++;
+    while (mid < pts.length - 1 && pts[mid + 1].time <= t) mid++;
+    const za = alt[lo];
+    const zb = alt[hi];
+    const spent = moving[hi] - moving[lo];
+    const point: ClimbPoint = { time: Math.round(t), elevation_m: alt[mid] };
+    if (za !== undefined && zb !== undefined && spent >= windowSeconds * 0.4) point.rate_mh = Math.round((zb - za) / (spent / 3600));
+    out.push(point);
+  }
+  return out;
+}

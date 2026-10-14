@@ -9,6 +9,7 @@ import { RouteMapViewer } from './RouteMapViewer';
 import { formatFeetFromMeters, formatFtPerHourFromMph, formatMilesFromMeters } from '../lib/units';
 import { RideAnalysis } from './RideAnalysis';
 import { estimateMunter, isMunterSport } from '../lib/munter';
+import { ClimbRateChart } from './ClimbRateChart';
 
 interface ActivityDetailModalProps {
   activity: Activity | null;
@@ -533,6 +534,8 @@ const ActivityDetailContent: React.FC<Omit<ActivityDetailModalProps, 'activity'>
             </div>
           </div>
         )}
+
+        {isMunterSport(activity.sport_type) && <ClimbRateChart points={activity.streams_data} munter={munter} />}
 
         {/* Time-series chart with detected efforts and time-at-power */}
         <RideAnalysis activity={activity} profile={profile} />
