@@ -1,4 +1,5 @@
 import type { Activity, ZoneDistribution } from '../types';
+import { getLocalDateString } from './trainingSessions';
 
 /**
  * Plain numbers that say how hard a ride really was, for the coach. NP and IF alone mislead on rides made of easy
@@ -65,8 +66,10 @@ export function sameDayTotals<T extends Pick<Activity, 'id' | 'start_date' | 'sp
   all: T[],
   tssOf: (a: T) => number,
 ) {
-  const day = activity.start_date.slice(0, 10);
-  const group = all.filter((a) => a.sport_type === activity.sport_type && a.start_date.slice(0, 10) === day);
+  // The athlete's local day: a morning and an evening ride in the same day must not split across UTC dates
+  const localDay = (a: T) => getLocalDateString(new Date(a.start_date));
+  const day = localDay(activity);
+  const group = all.filter((a) => a.sport_type === activity.sport_type && localDay(a) === day);
   if (!group.some((a) => a.id === activity.id)) group.push(activity);
   return {
     rides: group.length,

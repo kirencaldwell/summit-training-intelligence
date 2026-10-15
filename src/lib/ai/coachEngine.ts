@@ -108,7 +108,8 @@ function activityBlock(
   planCheckResults?: unknown[],
 ) {
   return {
-    date: a.start_date.slice(0, 10),
+    // The athlete's local date: a UTC date puts an evening ride on the next day and mismatches the plan
+    date: getLocalDateString(new Date(a.start_date)),
     title: a.title,
     sport_type: a.sport_type,
     duration_minutes: Math.round(a.duration_seconds / 60),
@@ -583,8 +584,8 @@ class GeminiCoachEngine {
       dataService.getTrainingSessions(),
     ]);
 
-    const dateOf = (iso: string) => iso.slice(0, 10);
-    const activityDate = dateOf(activity.start_date);
+    // Training-load days are keyed by UTC date (as calculatePMC builds them); dates shown to the coach are local
+    const activityDate = activity.start_date.slice(0, 10);
     const dayMs = 24 * 3600 * 1000;
     const startMs = new Date(activity.start_date).getTime();
 
@@ -607,7 +608,7 @@ class GeminiCoachEngine {
       );
 
     const compact = (a: Activity) => ({
-      date: dateOf(a.start_date),
+      date: getLocalDateString(new Date(a.start_date)),
       title: a.title,
       sport_type: a.sport_type,
       duration_minutes: Math.round(a.duration_seconds / 60),
@@ -642,7 +643,7 @@ class GeminiCoachEngine {
     }
 
     const context = {
-      today: new Date().toISOString().slice(0, 10),
+      today: getLocalDateString(),
       profile: {
         ftp: profile.ftp || null,
         lthr: profile.lthr || null,
@@ -757,7 +758,7 @@ class GeminiCoachEngine {
     );
 
     const context = {
-      today: new Date().toISOString().slice(0, 10),
+      today: getLocalDateString(),
       profile: {
         ftp: profile.ftp || null,
         lthr: profile.lthr || null,
@@ -853,7 +854,7 @@ class GeminiCoachEngine {
         sport_type: activity.sport_type,
         tags: activity.tags,
         ebike_motor_assist: isEbike(activity) || undefined,
-        date: activity.start_date.slice(0, 10),
+        date: getLocalDateString(new Date(activity.start_date)),
         moving_hours: roundTo(hours, 2),
         distance_mi: roundTo(miles, 1),
         elevation_gain_ft: Math.round(feet),
