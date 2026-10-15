@@ -73,7 +73,8 @@ export interface PlanCheckResult {
   label: string;
   kind: PlanCheck['kind'];
   /** met / partly_met / not_found for efforts and intervals; within_cap / brief_excursions / exceeded for caps;
-   *  within_limit / exceeded (or met / not_met) for zone time; or why it could not be measured */
+   *  within_limit / exceeded (or met / not_met) for zone time; for intervals with no full repetition, shorter_than_planned
+   *  or below_target_power when a shortened or easier version of the set was done; or why it could not be measured */
   status: string;
   optional?: boolean;
   /** How the check was measured, e.g. the power line used */
@@ -81,6 +82,10 @@ export interface PlanCheckResult {
   found?: number;
   expected?: number;
   efforts?: { start_min: number; seconds: number; avg_watts: number; peak_5s_watts?: number; percent_of_target?: number }[];
+  /** Intervals only: efforts at the target power that were shorter than planned (a shortened set, e.g. 3 x 5 min for 3 x 15 min) */
+  shorter_efforts?: { start_min: number; minutes: number; avg_watts: number; percent_of_target: number }[];
+  /** Intervals only: efforts of the planned length that stayed below the target power */
+  lower_power_efforts?: { start_min: number; minutes: number; avg_watts: number; percent_of_target: number }[];
   notes?: string[];
   stats?: Record<string, number | string>;
 }
@@ -148,14 +153,48 @@ export function evaluatePlanChecks(
       const minS = Math.round(c.minutes * 60 * 0.8);
       const runs = findRuns(w30, (v) => v >= floor, minS, 20);
       const found = runs.length;
+      const describe = (r: { start: number; end: number }) => {
+        const avg = avgW(secs, r.start, r.end);
+        return { start_min: minutes(r.start), minutes: minutes(r.end - r.start), avg_watts: round(avg), percent_of_target: round((avg / target) * 100) };
+      };
+      const overlaps = (r: { start: number; end: number }, others: { start: number; end: number }[]) =>
+        others.some((o) => r.start < o.end && o.start < r.end);
+      // Near misses, so a shortened or easier version of the set is reported as what it was, not as "no intervals"
+      let shorter: ReturnType<typeof describe>[] = [];
+      let lower: ReturnType<typeof describe>[] = [];
+      if (found < c.reps) {
+        const shortMin = Math.max(60, Math.round(c.minutes * 60 * 0.2));
+        shorter = findRuns(w30, (v) => v >= floor, shortMin, 20)
+          .filter((r) => r.end - r.start < minS && !overlaps(r, runs))
+          .map(describe);
+        lower = findRuns(w30, (v) => v >= target * 0.8, minS, 20)
+          .filter((r) => !overlaps(r, runs))
+          .map(describe);
+      }
+      const status = found >= c.reps ? 'met'
+        : found > 0 ? 'partly_met'
+        : shorter.length > 0 ? 'shorter_than_planned'
+        : lower.length > 0 ? 'below_target_power'
+        : 'not_found';
+      const notes: string[] = [];
+      if (shorter.length) {
+        const lens = shorter.map((e) => e.minutes);
+        notes.push(`${shorter.length} effort(s) held the target power (${round(Math.min(...shorter.map((e) => e.avg_watts)))}-${round(Math.max(...shorter.map((e) => e.avg_watts)))} W) but for ${Math.min(...lens)}-${Math.max(...lens)} min, shorter than the ${round(minS / 60, 1)}+ min a ${c.minutes} min interval needs`);
+      }
+      if (lower.length) {
+        notes.push(`${lower.length} effort(s) lasted the planned length but averaged ${Math.min(...lower.map((e) => e.percent_of_target))}-${Math.max(...lower.map((e) => e.percent_of_target))}% of the target power`);
+      }
       return {
-        ...base, status: found >= c.reps ? 'met' : found > 0 ? 'partly_met' : 'not_found',
+        ...base, status,
         measured_as: `30 s-smoothed power at or above ${round(floor)} W (${c.tolerance_percent}% under the ${round(target)} W target) for ${round(minS / 60, 1)}+ minutes`,
         found, expected: c.reps,
         efforts: runs.map((r) => {
           const avg = avgW(secs, r.start, r.end);
           return { start_min: minutes(r.start), seconds: r.end - r.start, avg_watts: round(avg), percent_of_target: round((avg / target) * 100) };
         }),
+        ...(shorter.length ? { shorter_efforts: shorter } : {}),
+        ...(lower.length ? { lower_power_efforts: lower } : {}),
+        ...(notes.length ? { notes } : {}),
       };
     }
 
