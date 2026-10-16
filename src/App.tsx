@@ -12,6 +12,8 @@ import { ActivityList } from './components/ActivityList';
 import { PowerCurveChart } from './components/PowerCurveChart';
 import { PerformancePage, type PerformanceView } from './components/PerformancePage';
 import { TravelPaceView } from './components/TravelPaceView';
+import { TrainingWeekSection, type AppTab } from './components/TrainingWeekSection';
+import { LongTermPlan } from './components/LongTermPlan';
 import { ElevationCheckPanel, type ElevationChange } from './components/ElevationCheck';
 import { HeartRateDistributionPage } from './components/HeartRateDistributionPage';
 import { AICoachPanel, INITIAL_COACH_MESSAGES } from './components/AICoachPanel';
@@ -72,7 +74,7 @@ export function App() {
 
   useEffect(() => { removeLegacyImporterKeys(); }, []);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'goals' | 'activities' | 'performance' | 'coach'>('dashboard');
+  const [activeTab, setActiveTab] = useState<AppTab>('dashboard');
   const [performanceView, setPerformanceView] = useState<PerformanceView>('heart-rate');
   const [powerCurveYear, setPowerCurveYear] = useState<'all' | number>('all');
   const [dataMode] = useState<'local' | 'supabase'>(dataService.getMode());
@@ -739,7 +741,7 @@ export function App() {
       />
 
       {/* Main Content Body */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8 pb-28 md:pb-8 space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8 pb-28 xl:pb-8 space-y-6">
         {syncNotice && (
           <div
             role="status"
@@ -760,15 +762,44 @@ export function App() {
             activities={activities}
             pmcData={pmcData}
             trainingSessions={upcomingSessions}
-            onDeleteTrainingSessions={handleDeleteTrainingSessions}
-            onCompleteTrainingSession={handleCompleteTrainingSession}
-            onReopenTrainingSession={handleReopenTrainingSession}
-            onAssessTrainingSession={handleAssessTrainingSession}
             onAssessGoalReadiness={handleAssessGoalReadiness}
             onOpenActivity={handleOpenActivity}
             onNavigateTab={setActiveTab}
             onOpenProfile={() => setIsProfileModalOpen(true)}
           />
+        )}
+
+        {activeTab === 'training' && (
+          <div className="space-y-8">
+            <header className="border-b border-white/10 pb-4">
+              <h1 className="text-2xl font-extrabold text-white tracking-tight">Training</h1>
+              <p className="text-xs text-slate-400">This week's sessions and the long-term plan toward your goals.</p>
+            </header>
+            <TrainingWeekSection
+              trainingSessions={upcomingSessions}
+              activities={activities}
+              onOpenActivity={handleOpenActivity}
+              onNavigateTab={setActiveTab}
+              onDeleteTrainingSessions={handleDeleteTrainingSessions}
+              onCompleteTrainingSession={handleCompleteTrainingSession}
+              onReopenTrainingSession={handleReopenTrainingSession}
+              onAssessTrainingSession={handleAssessTrainingSession}
+            />
+            <section className="space-y-3">
+              <div>
+                <h2 className="text-lg font-bold text-white">Long-term plan</h2>
+                <p className="text-xs text-slate-400 mt-1">The phases and milestones leading to each active goal. Edit them on the Goals tab, or ask the coach to replan.</p>
+              </div>
+              <LongTermPlan
+                goals={goals}
+                currentCtl={pmcData[pmcData.length - 1]?.ctl}
+                onPlanWithCoach={(goal) => {
+                  setCoachFocus({ goalId: goal.id, prompt: `Plan the training phases and milestones leading up to "${goal.name}".` });
+                  setActiveTab('coach');
+                }}
+              />
+            </section>
+          </div>
         )}
 
         {activeTab === 'goals' && (

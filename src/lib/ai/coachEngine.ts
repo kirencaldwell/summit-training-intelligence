@@ -133,6 +133,8 @@ function activityBlock(
     pack_weight_lb: a.pack_weight_kg ? roundTo(kgToLb(a.pack_weight_kg), 1) : undefined,
     perceived_exertion: a.perceived_exertion,
     knee_discomfort_level: a.knee_discomfort_level,
+    // The athlete's own description of the activity (how it went, what they did, what went wrong)
+    athlete_notes: a.effort_notes?.trim() || undefined,
     gear_notes: a.gear_notes,
     tags: a.tags,
     ebike_motor_assist: isEbike(a) || undefined,
