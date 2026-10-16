@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Activity, Mountain, ShieldCheck, Gauge, User, Upload, Sparkles, LogOut, MoreHorizontal } from 'lucide-react';
+import { Activity, Mountain, ShieldCheck, Gauge, CalendarDays, User, Upload, Sparkles, LogOut, MoreHorizontal } from 'lucide-react';
 import type { AthleteProfile } from '../types';
+import type { AppTab } from './TrainingWeekSection';
 
 interface NavbarProps {
   profile: AthleteProfile;
-  activeTab: 'dashboard' | 'goals' | 'activities' | 'performance' | 'coach';
-  setActiveTab: (tab: 'dashboard' | 'goals' | 'activities' | 'performance' | 'coach') => void;
+  activeTab: AppTab;
+  setActiveTab: (tab: AppTab) => void;
   dataMode: 'local' | 'supabase';
   onSyncStrava: () => void;
   onOpenProfile: () => void;
@@ -75,6 +76,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'dashboard' as const, label: 'Home', icon: Activity },
     { id: 'goals' as const, label: 'Goals', icon: Sparkles },
     { id: 'activities' as const, label: 'Activities', icon: Mountain },
+    { id: 'training' as const, label: 'Training', icon: CalendarDays },
     { id: 'performance' as const, label: 'Performance', icon: Gauge },
     { id: 'coach' as const, label: 'Coach', icon: ShieldCheck },
   ];
@@ -83,7 +85,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     <>
     <header className="sticky top-0 z-40 w-full glass-panel border-b border-white/10 bg-summit-dark/80 backdrop-blur-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between min-h-14 md:h-16">
+        <div className="flex items-center justify-between min-h-14 xl:h-16">
           {/* Logo */}
           <button type="button" className="flex items-center space-x-2 sm:space-x-3 text-left" onClick={() => setActiveTab('dashboard')} aria-label="Summit home">
             <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-cyan-500 via-blue-600 to-amber-400 p-[2px] shadow-lg shadow-cyan-500/20">
@@ -105,7 +107,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
 
           {/* Navigation Tabs */}
-          <nav className="hidden md:flex items-center space-x-1 bg-slate-900/60 p-1.5 rounded-xl border border-white/5">
+          <nav className="hidden xl:flex items-center space-x-1 bg-slate-900/60 p-1.5 rounded-xl border border-white/5">
             <button
               onClick={() => setActiveTab('dashboard')}
               className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all ${
@@ -127,7 +129,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               }`}
             >
               <Sparkles className="w-4 h-4 text-cyan-400" />
-              <span>Goals & Objectives</span>
+              <span>Goals</span>
             </button>
 
             <button
@@ -140,6 +142,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <Mountain className="w-4 h-4" />
               <span>Activities</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('training')}
+              className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                activeTab === 'training'
+                  ? 'bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-300 border border-cyan-500/30 shadow-sm'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <CalendarDays className="w-4 h-4" />
+              <span>Training</span>
             </button>
 
             <button
@@ -172,7 +186,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </nav>
 
           {/* Controls & Athlete Badge */}
-          <div className="hidden md:flex items-center space-x-2 lg:space-x-3">
+          <div className="hidden xl:flex items-center space-x-2 lg:space-x-3">
             {/* Import Data Button */}
             <button
               onClick={onSyncStrava}
@@ -224,7 +238,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
 
-        <div className="md:hidden flex items-center justify-end gap-2 pb-2">
+        <div className="xl:hidden flex items-center justify-end gap-2 pb-2">
           <div className="relative" ref={mobileMenuRef}>
             <button
               type="button"
@@ -253,7 +267,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         {isMobileMenuOpen && (
-          <div className="md:hidden grid grid-cols-2 gap-2 pb-3">
+          <div className="xl:hidden grid grid-cols-2 gap-2 pb-3">
             <button type="button" onClick={() => { onSyncStrava(); setIsMobileMenuOpen(false); }} className="min-h-11 flex items-center justify-center gap-2 rounded-lg border border-cyan-500/25 bg-cyan-500/10 px-3 text-xs font-semibold text-cyan-200">
               <Upload className="w-4 h-4" />
               Import data
@@ -269,7 +283,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       </header>
 
-      <nav aria-label="Primary navigation" className="md:hidden fixed bottom-0 inset-x-0 z-50 grid grid-cols-6 border-t border-white/10 bg-slate-950/95 px-1 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl">
+      <nav aria-label="Primary navigation" className="xl:hidden fixed bottom-0 inset-x-0 z-50 grid grid-cols-6 border-t border-white/10 bg-slate-950/95 px-1 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl">
         {tabs.map(({ id, label, icon: Icon }) => {
           const selected = activeTab === id;
           return (
