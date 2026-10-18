@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import type { Activity, TrainingSession } from '../types';
 import { Sparkles, CalendarDays, Clock3, Trash2, Check, RotateCcw, Bot, RefreshCw, Link2 } from 'lucide-react';
 import { SessionCompleteModal } from './SessionCompleteModal';
+import { getLocalDateString, getWeekStartDate } from '../lib/trainingSessions';
 import { AssessmentText } from './ActivityDetailModal';
 
 export type AppTab = 'dashboard' | 'goals' | 'activities' | 'training' | 'performance' | 'coach';
@@ -17,6 +18,10 @@ export interface TrainingWeekSectionProps {
   onReopenTrainingSession?: (id: string) => Promise<void>;
   /** Asks the coach to assess a completed session from its linked activities; synced is false when it could only be kept on this device */
   onAssessTrainingSession?: (id: string) => Promise<{ synced: boolean }>;
+  /** 'plan' (default): the open sessions with the plan header and actions. 'log': one past week's sessions inside the training log */
+  variant?: 'plan' | 'log';
+  /** Every session, so the activity picker can flag activities already linked elsewhere */
+  allSessions?: TrainingSession[];
 }
 
 /** The accepted sessions of the current and coming weeks: mark complete, link activities, assess, delete. */
@@ -29,7 +34,10 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
   onCompleteTrainingSession,
   onReopenTrainingSession,
   onAssessTrainingSession,
+  variant = 'plan',
+  allSessions,
 }) => {
+  const today = getLocalDateString();
   const [completing, setCompleting] = useState<TrainingSession | null>(null);
   const [sessionNotice, setSessionNotice] = useState('');
   const [assessingSessionId, setAssessingSessionId] = useState<string | null>(null);
@@ -69,13 +77,14 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
   };
 
   return (
-      <section className="border-b border-white/10 pb-6 space-y-3">
+      <section className={variant === 'plan' ? 'border-b border-white/10 pb-6 space-y-3' : 'space-y-3'}>
+        {variant === 'plan' && (
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
           <div>
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <CalendarDays className="w-4 h-4 text-cyan-400" /> Upcoming Training Sessions
+              <CalendarDays className="w-4 h-4 text-cyan-400" /> This week
             </h2>
-            <p className="text-xs text-slate-400 mt-1">Scheduled & accepted workouts from your AI Coach</p>
+            <p className="text-xs text-slate-400 mt-1">Sessions still to do. Completed ones move to the training log below.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {onDeleteTrainingSessions && pendingSessions.length > 0 && (
@@ -120,12 +129,13 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
             </button>
           </div>
         </div>
+        )}
 
         {completing && onCompleteTrainingSession && (
           <SessionCompleteModal
             session={completing}
             activities={activities}
-            sessions={trainingSessions}
+            sessions={allSessions ?? trainingSessions}
             onCancel={() => setCompleting(null)}
             onConfirm={async (ids) => {
               const { synced } = await onCompleteTrainingSession(completing.id, ids);
@@ -154,8 +164,8 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
                     <h3 className="mt-1 text-sm font-bold text-white">{session.title}</h3>
                     <p className="mt-1 text-xs text-slate-400">{session.focus}</p>
                   </div>
-                  <span className={`shrink-0 text-[10px] font-semibold ${session.status === 'COMPLETED' ? 'text-emerald-300' : 'text-cyan-300'}`}>
-                    {session.status === 'COMPLETED' ? 'Completed' : 'Accepted'}
+                  <span className={`shrink-0 text-[10px] font-semibold ${session.status === 'COMPLETED' ? 'text-emerald-300' : session.session_date < today ? 'text-amber-300' : 'text-cyan-300'}`}>
+                    {session.status === 'COMPLETED' ? 'Completed' : session.session_date < today ? (variant === 'log' && session.session_date < getWeekStartDate(today) ? 'Missed' : 'Not done yet') : 'Planned'}
                   </span>
                 </div>
                 <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-300">
@@ -279,7 +289,9 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
           </div>
         ) : (
           <div className="rounded-lg border border-dashed border-white/10 px-4 py-5 text-sm text-slate-400">
-            No accepted sessions yet. Generate a weekly plan in the AI Coach and accept sessions individually.
+            {variant === 'plan'
+              ? 'Nothing left to do this week. Generate the next week in the AI Coach, or see what you did in the training log below.'
+              : 'No planned sessions this week.'}
           </div>
         )}
       </section>

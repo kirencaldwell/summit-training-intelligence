@@ -14,6 +14,7 @@ import { PerformancePage, type PerformanceView } from './components/PerformanceP
 import { TravelPaceView } from './components/TravelPaceView';
 import { TrainingWeekSection, type AppTab } from './components/TrainingWeekSection';
 import { LongTermPlan } from './components/LongTermPlan';
+import { TrainingLog } from './components/TrainingLog';
 import { ElevationCheckPanel, type ElevationChange } from './components/ElevationCheck';
 import { HeartRateDistributionPage } from './components/HeartRateDistributionPage';
 import { AICoachPanel, INITIAL_COACH_MESSAGES } from './components/AICoachPanel';
@@ -773,14 +774,26 @@ export function App() {
           <div className="space-y-8">
             <header className="border-b border-white/10 pb-4">
               <h1 className="text-2xl font-extrabold text-white tracking-tight">Training</h1>
-              <p className="text-xs text-slate-400">This week's sessions and the long-term plan toward your goals.</p>
+              <p className="text-xs text-slate-400">What's left this week, the log of what you've done, and the long-term plan toward your goals.</p>
             </header>
             <TrainingWeekSection
-              trainingSessions={upcomingSessions}
+              trainingSessions={upcomingSessions.filter((session) => session.status !== 'COMPLETED')}
+              allSessions={trainingSessions}
               activities={activities}
               onOpenActivity={handleOpenActivity}
               onNavigateTab={setActiveTab}
               onDeleteTrainingSessions={handleDeleteTrainingSessions}
+              onCompleteTrainingSession={handleCompleteTrainingSession}
+              onReopenTrainingSession={handleReopenTrainingSession}
+              onAssessTrainingSession={handleAssessTrainingSession}
+            />
+            <TrainingLog
+              sessions={trainingSessions}
+              goals={goals}
+              profile={profile}
+              activities={activities}
+              onOpenActivity={handleOpenActivity}
+              onNavigateTab={setActiveTab}
               onCompleteTrainingSession={handleCompleteTrainingSession}
               onReopenTrainingSession={handleReopenTrainingSession}
               onAssessTrainingSession={handleAssessTrainingSession}
