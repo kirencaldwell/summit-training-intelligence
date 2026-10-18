@@ -3,6 +3,7 @@ import type { Activity, AthleteProfile, SportType } from '../types';
 import { formatFeetFromMeters, formatMilesFromMeters } from '../lib/units';
 import { collectTags } from '../lib/tags';
 import { ActivityTotals } from './ActivityTotals';
+import { RouteThumb } from './RouteThumb';
 import { canImproveWithAi, resolveTss, type TssSource } from '../lib/trainingMath';
 import type { GroupScore, ModelSummary } from '../lib/intensityModel';
 import { Mountain, Bike, Compass, Footprints, ShieldAlert, Zap, Calendar, Search, Trash2, Tag, X } from 'lucide-react';
@@ -25,6 +26,8 @@ interface ActivityListProps {
   bulkEstimate?: BulkEstimateState;
   onBulkEstimate?: () => void;
   onCancelBulkEstimate?: () => void;
+  /** Saves a route outline worked out for an older activity that had none */
+  onRoutePreview?: (id: string, outline: string) => void;
 }
 
 export const ActivityList: React.FC<ActivityListProps> = ({
@@ -32,6 +35,7 @@ export const ActivityList: React.FC<ActivityListProps> = ({
   profile,
   intensityModel,
   onSelectActivity,
+  onRoutePreview,
   onDeleteActivity,
   bulkEstimate,
   onBulkEstimate,
@@ -316,6 +320,7 @@ export const ActivityList: React.FC<ActivityListProps> = ({
               className="glass-panel-interactive rounded-2xl p-4 sm:p-5 cursor-pointer flex flex-col justify-between space-y-4"
             >
               <div>
+                <div className="mb-3 empty:hidden"><RouteThumb activity={act} onResolved={onRoutePreview} /></div>
                 {/* Header Badge */}
                 <div className="flex items-center justify-between mb-2">
                   <span className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border ${getSportBadgeColor(act.sport_type)}`}>
