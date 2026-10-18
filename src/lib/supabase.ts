@@ -1,5 +1,6 @@
 import { createClient, type User } from '@supabase/supabase-js';
 import type { MunterParams } from './munter';
+import { routeOutline } from './routePreview';
 import type { Activity, AICoachMessage, AthleteProfile, Goal, TrainingSession, TrainingSessionStatus } from '../types';
 import { addDaysToDateOnly } from './trainingSessions';
 import { readStoredMessages } from './coachChatSync';
@@ -250,7 +251,11 @@ class DataService {
     return possibleMatches.find((activity) => isDuplicateActivity(candidate, activity));
   }
 
-  public async addActivity(newActivity: Activity): Promise<Activity> {
+  public async addActivity(incoming: Activity): Promise<Activity> {
+    // A small route outline for the activity cards, so the list never needs the full track
+    const newActivity = incoming.map_summary_polyline == null && incoming.streams_data?.length
+      ? { ...incoming, map_summary_polyline: routeOutline(incoming.streams_data) }
+      : incoming;
     if (this.mode === 'supabase' && supabase) {
       const profile = await this.getAuthenticatedProfile();
       const activityToInsert = { ...newActivity, user_id: profile.id };

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import type { User } from '@supabase/supabase-js';
 import type { AICoachMessage, Activity, AthleteProfile, Goal, PMCDayPoint, PowerCurvePoint, ProposedPlanAction, TrainingSession, TrainingSessionStatus } from './types';
 import { dataService, isSupabaseConfigured, supabase } from './lib/supabase';
@@ -386,6 +386,12 @@ export function App() {
       setSelectedActivity((prev) => (prev ? patch(prev) : prev));
     }
   };
+
+  // Keep a route outline worked out for an older activity, so its card draws instantly next time
+  const handleRoutePreview = useCallback((id: string, outline: string) => {
+    setActivities((prev) => prev.map((a) => (a.id === id ? { ...a, map_summary_polyline: outline } : a)));
+    dataService.updateActivity(id, { map_summary_polyline: outline }).catch((err) => console.warn('Could not save the route preview:', err));
+  }, []);
 
   const handleDeleteActivity = async (activity: Activity) => {
     await dataService.deleteActivity(activity.id);
@@ -851,6 +857,7 @@ export function App() {
               bulkEstimate={bulkEstimate}
               onBulkEstimate={() => void handleBulkEstimate()}
               onCancelBulkEstimate={handleCancelBulkEstimate}
+              onRoutePreview={handleRoutePreview}
             />
           </div>
         )}
