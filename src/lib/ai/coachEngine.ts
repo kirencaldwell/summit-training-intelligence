@@ -6,6 +6,7 @@ import { isEbike } from '../tags';
 import { summarizeStreams } from '../streamSummary';
 import { intensityCharacter, sameDayTotals } from '../intensityCharacter';
 import { evaluatePlanChecks, parsePlanChecks, type PlanCheck } from '../planChecks';
+import { buildWeekSummaries, goalProgress } from '../trainingLog';
 import { parseReadinessReply, type GoalReadinessAssessment } from '../goalReadiness';
 import { ftToM, kgToLb, kmToMi, mToFt, miToKm, roundTo } from '../units';
 import {
@@ -329,7 +330,34 @@ async function gatherAthleteContext(focusGoalId?: string) {
 
   const focusGoal = focusGoalId && goal?.id === focusGoalId ? goalForAI(goal) : undefined;
 
-  return { statusData, recentActivities, milestoneData, trainingSessions, allActivities, goals: goals.map(goalForAI), focusGoal };
+  // Plan vs execution over the last weeks, and each active goal's progress against its plan, for weekly planning
+  const longPmc = calculatePMC(activities, 400, loadProfile);
+  const trainingLog = buildWeekSummaries(trainingSessions, activities, longPmc, loadProfile).slice(0, 4).map((w) => ({
+    week: `${w.weekStart} to ${w.weekEnd}${w.isCurrent ? ' (current, in progress)' : ''}`,
+    planned_sessions: w.planned.map((s) => ({ date: s.session_date, title: s.title, sport_type: s.sport_type, duration_minutes: s.duration_minutes, target_tss: s.target_tss, done: s.status === 'COMPLETED' })),
+    missed: w.missed.length,
+    planned_tss: w.plannedTss,
+    actual_tss: w.actualTss,
+    planned_hours: roundTo(w.plannedMinutes / 60, 1),
+    actual_hours: roundTo(w.actualMinutes / 60, 1),
+    unplanned_activities: w.unplanned.map((a) => ({ date: getLocalDateString(new Date(a.start_date)), title: a.title, sport_type: a.sport_type })),
+    ctl_start: w.ctlStart !== undefined ? roundTo(w.ctlStart, 1) : null,
+    ctl_end: w.ctlEnd !== undefined ? roundTo(w.ctlEnd, 1) : null,
+  }));
+  const goalProgressData = goals.filter((g) => g.status === 'ACTIVE').map((g) => {
+    const p = goalProgress(g, longPmc);
+    return {
+      goal: g.name,
+      status: p.status,
+      ctl_now: p.actualCtl !== undefined ? roundTo(p.actualCtl, 1) : null,
+      ctl_expected_by_plan_today: p.expectedCtl !== undefined ? roundTo(p.expectedCtl, 1) : null,
+      next_target: p.nextTarget ?? null,
+      ctl_gain_needed_per_week: p.neededRampPerWeek !== undefined ? roundTo(p.neededRampPerWeek, 1) : null,
+      ctl_gain_per_week_last_4_weeks: p.recentRampPerWeek !== undefined ? roundTo(p.recentRampPerWeek, 1) : null,
+    };
+  });
+
+  return { statusData, recentActivities, milestoneData, trainingSessions, allActivities, goals: goals.map(goalForAI), focusGoal, trainingLog, goalProgressData };
 }
 
 /** Returns the next Monday as a YYYY-MM-DD string (the dashboard's "upcoming week") */
@@ -921,7 +949,7 @@ class GeminiCoachEngine {
     _occupiedDates: string[] = [],
     customInstructions?: string
   ): Promise<TrainingSession[]> {
-    const { statusData, recentActivities, milestoneData, trainingSessions } = await gatherAthleteContext();
+    const { statusData, recentActivities, milestoneData, trainingSessions, trainingLog, goalProgressData } = await gatherAthleteContext();
 
     const nextMonday = getNextMonday();
     const promptMessage = customInstructions
@@ -934,6 +962,7 @@ Return ONLY a valid JSON array of TrainingSession objects with these exact field
 - status must be "PROPOSED"
 - Dates are flexible and open for replanning; plan 4-5 sessions across the week balancing training load with recovery
 - Consider the athlete's current fitness, fatigue, injuries, and upcoming goals
+- Build on planVsActualLastWeeks and goalProgress: carry over or adapt key sessions that were missed, do not stack up missed load, and when a goal is behind its plan raise load gradually (a CTL gain of about 3-7 per week is a sustainable build)
 Return only the JSON array, no markdown, no explanation.`
       : `Generate a structured weekly training plan as a JSON array.
 Return ONLY a valid JSON array of TrainingSession objects with these exact fields:
@@ -943,6 +972,7 @@ Return ONLY a valid JSON array of TrainingSession objects with these exact field
 - status must be "PROPOSED"
 - Dates are flexible; plan 4-5 sessions across the week balancing training load with recovery
 - Consider the athlete's current fitness, fatigue, injuries, and upcoming goals
+- Build on planVsActualLastWeeks and goalProgress: carry over or adapt key sessions that were missed, do not stack up missed load, and when a goal is behind its plan raise load gradually (a CTL gain of about 3-7 per week is a sustainable build)
 Return only the JSON array, no markdown, no explanation.`;
 
     const text = await postCoach({
@@ -952,6 +982,9 @@ Return only the JSON array, no markdown, no explanation.`;
         recentActivities,
         milestoneReadiness: milestoneData,
         scheduledTrainingSessions: trainingSessions,
+        // What was planned vs done in recent weeks, and whether fitness is on track for each goal: build on it
+        planVsActualLastWeeks: trainingLog,
+        goalProgress: goalProgressData,
       },
       mode: 'json',
     });
