@@ -101,15 +101,6 @@ export const ActivityList: React.FC<ActivityListProps> = ({
     if (!day) return false;
     return (!dateFrom || day >= dateFrom) && (!dateTo || day <= dateTo);
   });
-  const formatDay = (day: string) =>
-    new Date(`${day}T12:00:00`).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
-  const rangeLabel = dateFrom && dateTo
-    ? `${formatDay(dateFrom)} to ${formatDay(dateTo)}`
-    : dateFrom
-    ? `Since ${formatDay(dateFrom)}`
-    : dateTo
-    ? `Through ${formatDay(dateTo)}`
-    : 'All time';
 
   const filteredActivities = activitiesInDateRange.filter((act) => {
     const matchesSport = selectedSport === 'all' || act.sport_type === selectedSport || (selectedSport === 'cycling' && act.sport_type === 'zwift');
@@ -305,7 +296,7 @@ export const ActivityList: React.FC<ActivityListProps> = ({
         </div>
       </div>
 
-      {activities.length > 0 && <ActivityTotals activities={activitiesInDateRange} rangeLabel={rangeLabel} />}
+      {activities.length > 0 && <ActivityTotals activities={activities} />}
 
       {deleteError && <p role="alert" className="text-sm text-rose-300">{deleteError}</p>}
 
