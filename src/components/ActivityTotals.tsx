@@ -166,9 +166,52 @@ const MONTH_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'Jul
 
 const selectClass = 'min-h-9 rounded-lg bg-slate-900 border border-white/10 px-2.5 py-1.5 text-xs font-semibold text-slate-100 focus:border-cyan-400 focus:outline-none';
 
+interface MonthChoice { year: number; month: number }
+
+/** A month dropdown and a year dropdown. Months that have not started yet are not offered. */
+const MonthPicker: React.FC<{
+  label: string;
+  value: MonthChoice | null;
+  years: number[];
+  thisYear: number;
+  thisMonth: number;
+  onChange: (next: MonthChoice | null) => void;
+  /** Adds a "None" entry, for the side that is optional */
+  allowNone?: boolean;
+}> = ({ label, value, years, thisYear, thisMonth, onChange, allowNone }) => {
+  const year = value?.year ?? thisYear;
+  const monthsIn = (y: number) => Array.from({ length: y === thisYear ? thisMonth : 12 }, (_, i) => i + 1);
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <select
+        aria-label={label}
+        value={value?.month ?? ''}
+        onChange={(e) => onChange(e.target.value === '' ? null : { year, month: Number(e.target.value) })}
+        className={selectClass}
+      >
+        {allowNone && <option value="">None</option>}
+        {monthsIn(year).map((m) => <option key={m} value={m}>{MONTH_LONG[m - 1]}</option>)}
+      </select>
+      {value && (
+        <select
+          aria-label={`${label} year`}
+          value={value.year}
+          onChange={(e) => {
+            const y = Number(e.target.value);
+            onChange({ year: y, month: Math.min(value.month, monthsIn(y).length) });
+          }}
+          className={selectClass}
+        >
+          {years.map((y) => <option key={y} value={y}>{y}</option>)}
+        </select>
+      )}
+    </span>
+  );
+};
+
 /**
  * Cumulative distance and climbing per activity type, for two years or two months side by side. Yearly mode picks
- * two years; monthly mode picks a year and two of its months.
+ * two years; monthly mode picks two months, each with its own year.
  */
 export const ActivityTotals: React.FC<ActivityTotalsProps> = ({ activities }) => {
   const today = getLocalDateString();
@@ -203,10 +246,11 @@ export const ActivityTotals: React.FC<ActivityTotalsProps> = ({ activities }) =>
   const [mode, setMode] = useState<'year' | 'month'>('year');
   const [yearA, setYearA] = useState(thisYear);
   const [yearB, setYearB] = useState<number | null>(years.includes(thisYear - 1) ? thisYear - 1 : null);
-  const [monthYear, setMonthYear] = useState(thisYear);
-  const [monthA, setMonthA] = useState(thisMonth);
-  // Last month, when it is in the same year; in January there is nothing earlier in the year to compare with
-  const [monthB, setMonthB] = useState<number | null>(thisMonth > 1 ? thisMonth - 1 : null);
+  // Each side picks its own month and year, so any month can be compared with any other (January against last December, May 2025 against May 2026)
+  const [monthA, setMonthA] = useState<MonthChoice>({ year: thisYear, month: thisMonth });
+  const [monthB, setMonthB] = useState<MonthChoice | null>(
+    thisMonth > 1 ? { year: thisYear, month: thisMonth - 1 } : years.includes(thisYear - 1) ? { year: thisYear - 1, month: 12 } : null,
+  );
 
   const sportsWithData = SPORTS.filter((s) => activities.some((x) => x.sport_type === s.key));
 
@@ -223,15 +267,15 @@ export const ActivityTotals: React.FC<ActivityTotalsProps> = ({ activities }) =>
     tickLabel = (day) => MONTH_SHORT[Math.max(0, monthStarts.filter((t) => t <= day).length - 1)] ?? '';
     dateLabel = (day, which) => new Date(which === 'a' ? yearA : yearB ?? yearA, 0, day).toLocaleDateString([], { month: 'short', day: 'numeric' });
   } else {
-    choiceA = { period: monthPeriod(monthYear, monthA), label: `${MONTH_SHORT[monthA - 1]} ${monthYear}` };
-    choiceB = monthB !== null ? { period: monthPeriod(monthYear, monthB), label: `${MONTH_SHORT[monthB - 1]} ${monthYear}` } : undefined;
+    choiceA = { period: monthPeriod(monthA.year, monthA.month), label: `${MONTH_SHORT[monthA.month - 1]} ${monthA.year}` };
+    choiceB = monthB ? { period: monthPeriod(monthB.year, monthB.month), label: `${MONTH_SHORT[monthB.month - 1]} ${monthB.year}` } : undefined;
     ticks = [1, 5, 10, 15, 20, 25, 30];
     tickLabel = (day) => String(day);
-    dateLabel = (day, which) => new Date(monthYear, (which === 'a' ? monthA : monthB ?? monthA) - 1, day).toLocaleDateString([], { month: 'short', day: 'numeric' });
+    dateLabel = (day, which) => {
+      const m = which === 'a' ? monthA : monthB ?? monthA;
+      return new Date(m.year, m.month - 1, day).toLocaleDateString([], { month: 'short', day: 'numeric' });
+    };
   }
-  // Months of the chosen year that have started (a month still to come has nothing to show)
-  const monthChoices = Array.from({ length: monthYear === thisYear ? thisMonth : 12 }, (_, i) => i + 1);
-
   return (
     <section className="rounded-2xl border border-white/10 bg-slate-900/40 p-4 sm:p-5 space-y-4" aria-label="Progress comparison">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -268,28 +312,9 @@ export const ActivityTotals: React.FC<ActivityTotalsProps> = ({ activities }) =>
           </>
         ) : (
           <>
-            <select
-              aria-label="Year"
-              value={monthYear}
-              onChange={(e) => {
-                const y = Number(e.target.value);
-                const last = y === thisYear ? thisMonth : 12;
-                setMonthYear(y);
-                setMonthA((m) => Math.min(m, last));
-                setMonthB((m) => (m !== null && m > last ? null : m));
-              }}
-              className={selectClass}
-            >
-              {years.map((y) => <option key={y} value={y}>{y}</option>)}
-            </select>
-            <select aria-label="Month" value={monthA} onChange={(e) => setMonthA(Number(e.target.value))} className={selectClass}>
-              {monthChoices.map((m) => <option key={m} value={m}>{MONTH_LONG[m - 1]}</option>)}
-            </select>
+            <MonthPicker label="Month" value={monthA} years={years} thisYear={thisYear} thisMonth={thisMonth} onChange={(next) => next && setMonthA(next)} />
             <span className="text-xs text-slate-500">compared with</span>
-            <select aria-label="Compare with month" value={monthB ?? ''} onChange={(e) => setMonthB(e.target.value === '' ? null : Number(e.target.value))} className={selectClass}>
-              <option value="">None</option>
-              {monthChoices.filter((m) => m !== monthA).map((m) => <option key={m} value={m}>{MONTH_LONG[m - 1]}</option>)}
-            </select>
+            <MonthPicker label="Compare with month" value={monthB} years={years} thisYear={thisYear} thisMonth={thisMonth} onChange={setMonthB} allowNone />
           </>
         )}
       </div>
