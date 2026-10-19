@@ -10,7 +10,7 @@ import {
 
 const SPORTS: { key: SportType; label: string; color: string }[] = [
   { key: 'cycling', label: 'Road Cycling', color: '#34D399' },
-  { key: 'zwift', label: 'Zwift / Indoor', color: '#2DD4BF' },
+  { key: 'zwift', label: 'Zwift / Indoor', color: '#E2E8F0' },
   { key: 'skimo', label: 'Skimo', color: '#38BDF8' },
   { key: 'backcountry_skiing', label: 'Backcountry Ski', color: '#60A5FA' },
   { key: 'resort_skiing', label: 'Resort Ski', color: '#F472B6' },
@@ -52,10 +52,12 @@ interface ProgressSectionProps {
   ticks: number[];
   tickLabel: (day: number) => string;
   dateLabel: (day: number, which: 'current' | 'previous') => string;
+  /** Sports switched off by the athlete: left out of the lines, the legend and the axis range */
+  hidden: SportType[];
 }
 
 const ProgressSection: React.FC<ProgressSectionProps> = ({
-  title, activities, current, previous, currentLabel, previousLabel, today, ticks, tickLabel, dateLabel,
+  title, activities, current, previous, currentLabel, previousLabel, today, ticks, tickLabel, dateLabel, hidden,
 }) => {
   const [compare, setCompare] = useState(false);
   const seconds = useMemo(
@@ -69,7 +71,7 @@ const ProgressSection: React.FC<ProgressSectionProps> = ({
     const cur = cumulativeBySport(activities, current, metric.key, today);
     const prev = compare ? cumulativeBySport(activities, previous, metric.key) : undefined;
     const days = compare ? Math.max(current.days, previous.days) : current.days;
-    const present = SPORTS.filter((s) => cur.sports.includes(s.key) || prev?.sports.includes(s.key));
+    const present = SPORTS.filter((s) => (cur.sports.includes(s.key) || prev?.sports.includes(s.key)) && !hidden.includes(s.key));
     const rows = Array.from({ length: days }, (_, i) => {
       const row: Record<string, number | undefined> = { day: i + 1 };
       for (const s of present) {
@@ -109,7 +111,9 @@ const ProgressSection: React.FC<ProgressSectionProps> = ({
       </div>
 
       {nothing ? (
-        <p className="py-6 text-center text-sm text-slate-400">No activities with distance or climbing in {currentLabel}{compare ? ` or ${previousLabel}` : ''}.</p>
+        <p className="py-6 text-center text-sm text-slate-400">
+          {hidden.length > 0 ? 'Every activity type with data here is switched off. Turn one back on above.' : `No activities with distance or climbing in ${currentLabel}${compare ? ` or ${previousLabel}` : ''}.`}
+        </p>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {charts.map(({ metric, rows, present, totals, prevTotals }) => (
@@ -120,7 +124,7 @@ const ProgressSection: React.FC<ProgressSectionProps> = ({
                   <LineChart data={rows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
                     <XAxis dataKey="day" type="number" domain={[1, rows.length]} ticks={ticks.filter((t) => t <= rows.length)} tickFormatter={tickLabel} stroke="#64748B" tick={{ fontSize: 11 }} />
-                    <YAxis stroke="#64748B" tick={{ fontSize: 11 }} tickFormatter={(v: number) => v.toLocaleString()} width={52} />
+                    <YAxis stroke="#64748B" tick={{ fontSize: 11 }} tickFormatter={(v: number) => v.toLocaleString()} width={52} domain={[0, 'auto']} allowDataOverflow={false} />
                     <Tooltip
                       contentStyle={tooltipStyle}
                       content={({ payload, label }) => {
@@ -181,6 +185,23 @@ const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
 /** Cumulative distance and climbing per activity type: this year (optionally against last year), and this month (against last month). */
 export const ActivityTotals: React.FC<ActivityTotalsProps> = ({ activities }) => {
   const today = getLocalDateString();
+  const [hidden, setHidden] = useState<SportType[]>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('summit_totals_hidden_sports') || '[]');
+      return Array.isArray(saved) ? saved.filter((k): k is SportType => SPORTS.some((s) => s.key === k)) : [];
+    } catch {
+      return [];
+    }
+  });
+  const setHiddenSaved = (next: SportType[]) => {
+    setHidden(next);
+    try {
+      localStorage.setItem('summit_totals_hidden_sports', JSON.stringify(next));
+    } catch {
+      // Not remembered across visits
+    }
+  };
+  const toggleSport = (key: SportType) => setHiddenSaved(hidden.includes(key) ? hidden.filter((k) => k !== key) : [...hidden, key]);
   const year = Number(today.slice(0, 4));
   const month = Number(today.slice(5, 7));
   const prev = previousMonth(year, month);
@@ -193,9 +214,38 @@ export const ActivityTotals: React.FC<ActivityTotalsProps> = ({ activities }) =>
   const monthLong = (y: number, m: number) => new Date(y, m - 1, 1).toLocaleDateString([], { month: 'long' });
   const monthTicks = Array.from({ length: 12 }, (_, i) => dayIndex(thisYear, `${year}-${String(i + 1).padStart(2, '0')}-01`));
   const dayDate = (y: number, m: number, day: number) => new Date(y, m - 1, day);
+  // Every activity type with activity in the periods these charts can show
+  const sportsWithData = SPORTS.filter((s) => activities.some((a) => {
+    if (a.sport_type !== s.key) return false;
+    const d = getLocalDateString(new Date(a.start_date));
+    return d >= lastYear.start && d < thisYear.end;
+  }));
 
   return (
     <section className="rounded-2xl border border-white/10 bg-slate-900/40 p-4 sm:p-5 space-y-8" aria-label="Progress this year and this month">
+      {sportsWithData.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Activity types shown">
+          <span className="text-xs text-slate-400">Show:</span>
+          {sportsWithData.map((s) => {
+            const on = !hidden.includes(s.key);
+            return (
+              <button
+                key={s.key}
+                type="button"
+                aria-pressed={on}
+                onClick={() => toggleSport(s.key)}
+                className={`min-h-8 inline-flex items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-all ${on ? 'border-white/20 bg-white/5 text-slate-100' : 'border-white/10 text-slate-500 line-through'}`}
+              >
+                <span className="h-2.5 w-2.5 rounded-full" style={{ background: on ? s.color : 'transparent', border: `1.5px solid ${s.color}` }} />
+                {s.label}
+              </button>
+            );
+          })}
+          {hidden.length > 0 && (
+            <button type="button" onClick={() => setHiddenSaved([])} className="text-xs font-semibold text-cyan-300 hover:underline">Show all</button>
+          )}
+        </div>
+      )}
       <ProgressSection
         title="This year"
         activities={activities}
@@ -207,6 +257,7 @@ export const ActivityTotals: React.FC<ActivityTotalsProps> = ({ activities }) =>
         ticks={monthTicks}
         tickLabel={(day) => MONTH_SHORT[Math.max(0, monthTicks.filter((t) => t <= day).length - 1)] ?? ''}
         dateLabel={(day, which) => dayDate(which === 'current' ? year : year - 1, 1, day).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+        hidden={hidden}
       />
       <ProgressSection
         title="This month"
@@ -219,6 +270,7 @@ export const ActivityTotals: React.FC<ActivityTotalsProps> = ({ activities }) =>
         ticks={[1, 5, 10, 15, 20, 25, 30]}
         tickLabel={(day) => String(day)}
         dateLabel={(day, which) => dayDate(which === 'current' ? year : prev.year, which === 'current' ? month : prev.month, day).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+        hidden={hidden}
       />
     </section>
   );
