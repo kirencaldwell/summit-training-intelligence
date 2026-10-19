@@ -4,7 +4,7 @@ import { Clock3 } from 'lucide-react';
 import type { Activity, SportType } from '../types';
 import { getLocalDateString } from '../lib/trainingSessions';
 import {
-  cumulativeBySport, dayIndex, monthPeriod, previousMonth, yearPeriod,
+  cumulativeBySport, dayIndex, monthPeriod, yearPeriod,
   type Period, type ProgressMetric,
 } from '../lib/progressSeries';
 
@@ -39,84 +39,65 @@ const tooltipStyle = {
 
 const fmt = (n: number) => Math.round(n).toLocaleString();
 
-interface ProgressSectionProps {
-  title: string;
+interface PeriodChoice {
+  period: Period;
+  /** Short name used in the legend and tooltip: "2026" or "Oct" */
+  label: string;
+}
+
+interface ProgressChartsProps {
   activities: Activity[];
-  /** The period being tracked, and the one it can be compared against */
-  current: Period;
-  previous: Period;
-  currentLabel: string;
-  previousLabel: string;
+  a: PeriodChoice;
+  /** The period to compare against, drawn dashed. Undefined: just the first */
+  b?: PeriodChoice;
   today: string;
-  /** Tick positions (day numbers) and how to label a day number of the current period */
   ticks: number[];
   tickLabel: (day: number) => string;
-  dateLabel: (day: number, which: 'current' | 'previous') => string;
+  dateLabel: (day: number, which: 'a' | 'b') => string;
   /** Sports switched off by the athlete: left out of the lines, the legend and the axis range */
   hidden: SportType[];
 }
 
-const ProgressSection: React.FC<ProgressSectionProps> = ({
-  title, activities, current, previous, currentLabel, previousLabel, today, ticks, tickLabel, dateLabel, hidden,
-}) => {
-  const [compare, setCompare] = useState(false);
-  const seconds = useMemo(
-    () => activities
-      .filter((a) => { const d = getLocalDateString(new Date(a.start_date)); return d >= current.start && d < current.end; })
-      .reduce((sum, a) => sum + (a.moving_time_seconds || a.duration_seconds || 0), 0),
-    [activities, current],
-  );
+const secondsIn = (activities: Activity[], period: Period) =>
+  activities
+    .filter((x) => { const d = getLocalDateString(new Date(x.start_date)); return d >= period.start && d < period.end; })
+    .reduce((sum, x) => sum + (x.moving_time_seconds || x.duration_seconds || 0), 0);
 
+const ProgressCharts: React.FC<ProgressChartsProps> = ({ activities, a, b, today, ticks, tickLabel, dateLabel, hidden }) => {
   const charts = METRICS.map((metric) => {
-    const cur = cumulativeBySport(activities, current, metric.key, today);
-    const prev = compare ? cumulativeBySport(activities, previous, metric.key) : undefined;
-    const days = compare ? Math.max(current.days, previous.days) : current.days;
-    const present = SPORTS.filter((s) => (cur.sports.includes(s.key) || prev?.sports.includes(s.key)) && !hidden.includes(s.key));
+    const first = cumulativeBySport(activities, a.period, metric.key, today);
+    const second = b ? cumulativeBySport(activities, b.period, metric.key, today) : undefined;
+    const days = Math.max(a.period.days, b?.period.days ?? 0);
+    const present = SPORTS.filter((s) => (first.sports.includes(s.key) || second?.sports.includes(s.key)) && !hidden.includes(s.key));
     const rows = Array.from({ length: days }, (_, i) => {
       const row: Record<string, number | undefined> = { day: i + 1 };
       for (const s of present) {
-        row[s.key] = cur.rows[i]?.[s.key];
-        if (prev) row[`${s.key}_prev`] = prev.rows[i]?.[s.key];
+        row[s.key] = first.rows[i]?.[s.key];
+        if (second) row[`${s.key}_b`] = second.rows[i]?.[s.key];
       }
       return row;
     });
-    return { metric, rows, present, totals: cur.totals, prevTotals: prev?.totals };
+    return { metric, rows, present, totals: first.totals, totalsB: second?.totals };
   });
-
   const nothing = charts.every((c) => c.present.length === 0);
+
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h3 className="text-sm font-bold text-white">{title}</h3>
-          <p className="text-xs text-slate-400">
-            {currentLabel}
-            {compare ? <> · dashed lines: {previousLabel}</> : null}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="flex items-center gap-1.5 text-xs text-slate-300">
-            <Clock3 className="w-3.5 h-3.5 text-cyan-400" /> {formatHours(seconds)}
-            <span className="text-slate-500">all sports</span>
-          </span>
-          <button
-            type="button"
-            aria-pressed={compare}
-            onClick={() => setCompare((v) => !v)}
-            className={`min-h-9 px-3 rounded-lg border text-xs font-semibold transition-all ${compare ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-200' : 'border-white/10 text-slate-300 hover:bg-white/5'}`}
-          >
-            Compare with {previousLabel}
-          </button>
-        </div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-300">
+        <span className="inline-flex items-center gap-1.5"><span className="inline-block w-5 border-t-2 border-slate-200" /> {a.label}</span>
+        {b && <span className="inline-flex items-center gap-1.5"><span className="inline-block w-5 border-t-2 border-dashed border-slate-300" /> {b.label}</span>}
+        <span className="inline-flex items-center gap-1.5 text-slate-400">
+          <Clock3 className="w-3.5 h-3.5 text-cyan-400" /> {formatHours(secondsIn(activities, a.period))}{b ? ` vs ${formatHours(secondsIn(activities, b.period))}` : ''} all sports
+        </span>
       </div>
 
       {nothing ? (
         <p className="py-6 text-center text-sm text-slate-400">
-          {hidden.length > 0 ? 'Every activity type with data here is switched off. Turn one back on above.' : `No activities with distance or climbing in ${currentLabel}${compare ? ` or ${previousLabel}` : ''}.`}
+          {hidden.length > 0 ? 'Every activity type with data here is switched off. Turn one back on above.' : `No activities with distance or climbing in ${a.label}${b ? ` or ${b.label}` : ''}.`}
         </p>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {charts.map(({ metric, rows, present, totals, prevTotals }) => (
+          {charts.map(({ metric, rows, present, totals, totalsB }) => (
             <div key={metric.key} className="space-y-2">
               <h4 className="text-xs font-semibold text-slate-300">{metric.title} ({metric.unit})</h4>
               <div className="h-56">
@@ -124,7 +105,7 @@ const ProgressSection: React.FC<ProgressSectionProps> = ({
                   <LineChart data={rows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
                     <XAxis dataKey="day" type="number" domain={[1, rows.length]} ticks={ticks.filter((t) => t <= rows.length)} tickFormatter={tickLabel} stroke="#64748B" tick={{ fontSize: 11 }} />
-                    <YAxis stroke="#64748B" tick={{ fontSize: 11 }} tickFormatter={(v: number) => v.toLocaleString()} width={52} domain={[0, 'auto']} allowDataOverflow={false} />
+                    <YAxis stroke="#64748B" tick={{ fontSize: 11 }} tickFormatter={(v: number) => v.toLocaleString()} width={52} domain={[0, 'auto']} />
                     <Tooltip
                       contentStyle={tooltipStyle}
                       content={({ payload, label }) => {
@@ -133,15 +114,15 @@ const ProgressSection: React.FC<ProgressSectionProps> = ({
                         const byKey = new Map(payload.map((p) => [String(p.dataKey), p.value as number | undefined]));
                         return (
                           <div style={tooltipStyle} className="border px-2.5 py-1.5 text-slate-200 space-y-0.5">
-                            <p className="font-semibold">{dateLabel(day, 'current')}{compare ? ` vs ${dateLabel(day, 'previous')}` : ''}</p>
+                            <p className="font-semibold">{dateLabel(day, 'a')}{b ? ` vs ${dateLabel(day, 'b')}` : ''}</p>
                             {present.map((s) => {
                               const c = byKey.get(s.key);
-                              const p = byKey.get(`${s.key}_prev`);
+                              const p = byKey.get(`${s.key}_b`);
                               if (c === undefined && p === undefined) return null;
                               return (
                                 <p key={s.key} className="flex items-center gap-1.5 tabular-nums">
                                   <span className="h-2 w-2 rounded-full" style={{ background: s.color }} />
-                                  {s.label}: {c !== undefined ? fmt(c) : '–'}{compare ? ` (${p !== undefined ? fmt(p) : '–'})` : ''} {metric.unit}
+                                  {s.label}: {c !== undefined ? fmt(c) : '–'}{b ? ` (${p !== undefined ? fmt(p) : '–'})` : ''} {metric.unit}
                                 </p>
                               );
                             })}
@@ -150,10 +131,10 @@ const ProgressSection: React.FC<ProgressSectionProps> = ({
                       }}
                     />
                     {present.map((s) => (
-                      <Line key={s.key} type="stepAfter" dataKey={s.key} name={s.label} stroke={s.color} strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />
+                      <Line key={s.key} type="stepAfter" dataKey={s.key} name={`${s.label} (${a.label})`} stroke={s.color} strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />
                     ))}
-                    {compare && present.map((s) => (
-                      <Line key={`${s.key}_prev`} type="stepAfter" dataKey={`${s.key}_prev`} name={`${s.label} (${previousLabel})`} stroke={s.color} strokeOpacity={0.7} strokeWidth={1.75} strokeDasharray="5 4" dot={false} connectNulls={false} isAnimationActive={false} />
+                    {b && present.map((s) => (
+                      <Line key={`${s.key}_b`} type="stepAfter" dataKey={`${s.key}_b`} name={`${s.label} (${b.label})`} stroke={s.color} strokeOpacity={0.7} strokeWidth={1.75} strokeDasharray="5 4" dot={false} connectNulls={false} isAnimationActive={false} />
                     ))}
                   </LineChart>
                 </ResponsiveContainer>
@@ -163,7 +144,7 @@ const ProgressSection: React.FC<ProgressSectionProps> = ({
                   <span key={s.key} className="inline-flex items-center gap-1.5 tabular-nums">
                     <span className="h-2 w-2 rounded-full" style={{ background: s.color }} />
                     {s.label}: <span className="font-semibold text-slate-200">{fmt(totals[s.key] ?? 0)} {metric.unit}</span>
-                    {prevTotals ? <span className="text-slate-500">({fmt(prevTotals[s.key] ?? 0)} in {previousLabel})</span> : null}
+                    {totalsB ? <span className="text-slate-500">({fmt(totalsB[s.key] ?? 0)} in {b!.label})</span> : null}
                   </span>
                 ))}
               </div>
@@ -176,15 +157,24 @@ const ProgressSection: React.FC<ProgressSectionProps> = ({
 };
 
 interface ActivityTotalsProps {
-  /** Every activity: the progress charts always cover the current year and month, whatever the list's date filter says */
+  /** Every activity: the progress charts cover the periods picked here, whatever the list's date filter says */
   activities: Activity[];
 }
 
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTH_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-/** Cumulative distance and climbing per activity type: this year (optionally against last year), and this month (against last month). */
+const selectClass = 'min-h-9 rounded-lg bg-slate-900 border border-white/10 px-2.5 py-1.5 text-xs font-semibold text-slate-100 focus:border-cyan-400 focus:outline-none';
+
+/**
+ * Cumulative distance and climbing per activity type, for two years or two months side by side. Yearly mode picks
+ * two years; monthly mode picks a year and two of its months.
+ */
 export const ActivityTotals: React.FC<ActivityTotalsProps> = ({ activities }) => {
   const today = getLocalDateString();
+  const thisYear = Number(today.slice(0, 4));
+  const thisMonth = Number(today.slice(5, 7));
+
   const [hidden, setHidden] = useState<SportType[]>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('summit_totals_hidden_sports') || '[]');
@@ -202,27 +192,108 @@ export const ActivityTotals: React.FC<ActivityTotalsProps> = ({ activities }) =>
     }
   };
   const toggleSport = (key: SportType) => setHiddenSaved(hidden.includes(key) ? hidden.filter((k) => k !== key) : [...hidden, key]);
-  const year = Number(today.slice(0, 4));
-  const month = Number(today.slice(5, 7));
-  const prev = previousMonth(year, month);
 
-  const thisYear = yearPeriod(year);
-  const lastYear = yearPeriod(year - 1);
-  const thisMonth = monthPeriod(year, month);
-  const lastMonth = monthPeriod(prev.year, prev.month);
+  // Years to choose from: every year with an activity, plus this one
+  const years = useMemo(() => {
+    const set = new Set<number>([thisYear]);
+    for (const x of activities) set.add(new Date(x.start_date).getFullYear());
+    return [...set].filter((y) => y <= thisYear).sort((p, q) => q - p);
+  }, [activities, thisYear]);
 
-  const monthLong = (y: number, m: number) => new Date(y, m - 1, 1).toLocaleDateString([], { month: 'long' });
-  const monthTicks = Array.from({ length: 12 }, (_, i) => dayIndex(thisYear, `${year}-${String(i + 1).padStart(2, '0')}-01`));
-  const dayDate = (y: number, m: number, day: number) => new Date(y, m - 1, day);
-  // Every activity type with activity in the periods these charts can show
-  const sportsWithData = SPORTS.filter((s) => activities.some((a) => {
-    if (a.sport_type !== s.key) return false;
-    const d = getLocalDateString(new Date(a.start_date));
-    return d >= lastYear.start && d < thisYear.end;
-  }));
+  const [mode, setMode] = useState<'year' | 'month'>('year');
+  const [yearA, setYearA] = useState(thisYear);
+  const [yearB, setYearB] = useState<number | null>(years.includes(thisYear - 1) ? thisYear - 1 : null);
+  const [monthYear, setMonthYear] = useState(thisYear);
+  const [monthA, setMonthA] = useState(thisMonth);
+  // Last month, when it is in the same year; in January there is nothing earlier in the year to compare with
+  const [monthB, setMonthB] = useState<number | null>(thisMonth > 1 ? thisMonth - 1 : null);
+
+  const sportsWithData = SPORTS.filter((s) => activities.some((x) => x.sport_type === s.key));
+
+  let choiceA: PeriodChoice;
+  let choiceB: PeriodChoice | undefined;
+  let ticks: number[];
+  let tickLabel: (day: number) => string;
+  let dateLabel: (day: number, which: 'a' | 'b') => string;
+  if (mode === 'year') {
+    choiceA = { period: yearPeriod(yearA), label: String(yearA) };
+    choiceB = yearB !== null ? { period: yearPeriod(yearB), label: String(yearB) } : undefined;
+    const monthStarts = Array.from({ length: 12 }, (_, i) => dayIndex(yearPeriod(2023), `2023-${String(i + 1).padStart(2, '0')}-01`));
+    ticks = monthStarts;
+    tickLabel = (day) => MONTH_SHORT[Math.max(0, monthStarts.filter((t) => t <= day).length - 1)] ?? '';
+    dateLabel = (day, which) => new Date(which === 'a' ? yearA : yearB ?? yearA, 0, day).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  } else {
+    choiceA = { period: monthPeriod(monthYear, monthA), label: `${MONTH_SHORT[monthA - 1]} ${monthYear}` };
+    choiceB = monthB !== null ? { period: monthPeriod(monthYear, monthB), label: `${MONTH_SHORT[monthB - 1]} ${monthYear}` } : undefined;
+    ticks = [1, 5, 10, 15, 20, 25, 30];
+    tickLabel = (day) => String(day);
+    dateLabel = (day, which) => new Date(monthYear, (which === 'a' ? monthA : monthB ?? monthA) - 1, day).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
+  // Months of the chosen year that have started (a month still to come has nothing to show)
+  const monthChoices = Array.from({ length: monthYear === thisYear ? thisMonth : 12 }, (_, i) => i + 1);
 
   return (
-    <section className="rounded-2xl border border-white/10 bg-slate-900/40 p-4 sm:p-5 space-y-8" aria-label="Progress this year and this month">
+    <section className="rounded-2xl border border-white/10 bg-slate-900/40 p-4 sm:p-5 space-y-4" aria-label="Progress comparison">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-bold text-white">Progress</h2>
+          <p className="text-xs text-slate-400">Running total of distance and climbing for the periods you pick.</p>
+        </div>
+        <div className="inline-flex rounded-lg border border-white/10 p-0.5" role="group" aria-label="Comparison type">
+          {(['year', 'month'] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              aria-pressed={mode === m}
+              onClick={() => setMode(m)}
+              className={`min-h-8 px-3 rounded-md text-xs font-semibold transition-all ${mode === m ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white'}`}
+            >
+              {m === 'year' ? 'Yearly' : 'Monthly'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {mode === 'year' ? (
+          <>
+            <select aria-label="Year" value={yearA} onChange={(e) => setYearA(Number(e.target.value))} className={selectClass}>
+              {years.map((y) => <option key={y} value={y}>{y}</option>)}
+            </select>
+            <span className="text-xs text-slate-500">compared with</span>
+            <select aria-label="Compare with year" value={yearB ?? ''} onChange={(e) => setYearB(e.target.value === '' ? null : Number(e.target.value))} className={selectClass}>
+              <option value="">None</option>
+              {years.filter((y) => y !== yearA).map((y) => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </>
+        ) : (
+          <>
+            <select
+              aria-label="Year"
+              value={monthYear}
+              onChange={(e) => {
+                const y = Number(e.target.value);
+                const last = y === thisYear ? thisMonth : 12;
+                setMonthYear(y);
+                setMonthA((m) => Math.min(m, last));
+                setMonthB((m) => (m !== null && m > last ? null : m));
+              }}
+              className={selectClass}
+            >
+              {years.map((y) => <option key={y} value={y}>{y}</option>)}
+            </select>
+            <select aria-label="Month" value={monthA} onChange={(e) => setMonthA(Number(e.target.value))} className={selectClass}>
+              {monthChoices.map((m) => <option key={m} value={m}>{MONTH_LONG[m - 1]}</option>)}
+            </select>
+            <span className="text-xs text-slate-500">compared with</span>
+            <select aria-label="Compare with month" value={monthB ?? ''} onChange={(e) => setMonthB(e.target.value === '' ? null : Number(e.target.value))} className={selectClass}>
+              <option value="">None</option>
+              {monthChoices.filter((m) => m !== monthA).map((m) => <option key={m} value={m}>{MONTH_LONG[m - 1]}</option>)}
+            </select>
+          </>
+        )}
+      </div>
+
       {sportsWithData.length > 0 && (
         <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Activity types shown">
           <span className="text-xs text-slate-400">Show:</span>
@@ -246,30 +317,15 @@ export const ActivityTotals: React.FC<ActivityTotalsProps> = ({ activities }) =>
           )}
         </div>
       )}
-      <ProgressSection
-        title="This year"
+
+      <ProgressCharts
         activities={activities}
-        current={thisYear}
-        previous={lastYear}
-        currentLabel={String(year)}
-        previousLabel={String(year - 1)}
+        a={choiceA}
+        b={choiceB}
         today={today}
-        ticks={monthTicks}
-        tickLabel={(day) => MONTH_SHORT[Math.max(0, monthTicks.filter((t) => t <= day).length - 1)] ?? ''}
-        dateLabel={(day, which) => dayDate(which === 'current' ? year : year - 1, 1, day).toLocaleDateString([], { month: 'short', day: 'numeric' })}
-        hidden={hidden}
-      />
-      <ProgressSection
-        title="This month"
-        activities={activities}
-        current={thisMonth}
-        previous={lastMonth}
-        currentLabel={`${monthLong(year, month)} ${year}`}
-        previousLabel={monthLong(prev.year, prev.month)}
-        today={today}
-        ticks={[1, 5, 10, 15, 20, 25, 30]}
-        tickLabel={(day) => String(day)}
-        dateLabel={(day, which) => dayDate(which === 'current' ? year : prev.year, which === 'current' ? month : prev.month, day).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+        ticks={ticks}
+        tickLabel={tickLabel}
+        dateLabel={dateLabel}
         hidden={hidden}
       />
     </section>
