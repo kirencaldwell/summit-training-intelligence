@@ -7,6 +7,7 @@ import { summarizeStreams } from '../streamSummary';
 import { intensityCharacter, sameDayTotals } from '../intensityCharacter';
 import { evaluatePlanChecks, parsePlanChecks, type PlanCheck } from '../planChecks';
 import { buildWeekSummaries, goalProgress } from '../trainingLog';
+import { buildProgressContext } from './progressContext';
 import { parseReadinessReply, type GoalReadinessAssessment } from '../goalReadiness';
 import { ftToM, kgToLb, kmToMi, mToFt, miToKm, roundTo } from '../units';
 import {
@@ -21,7 +22,15 @@ import {
 // The athlete works in imperial units. Data is stored metric, so everything sent to the model
 // is converted here and named with its unit; the model's proposals are converted back below.
 /** POST to /api/coach with the active provider's settings (Gemini via the server key, or the athlete's own Claude key). */
-async function postCoach(body: Record<string, unknown>): Promise<string> {
+/** What the server says it actually gave the coach for a chat question (the filtered context), when it reports it. */
+export interface CoachContextInfo {
+  filter?: unknown;
+  sections: string[];
+  activities?: { total_matching: number; sent: number; items: { date: string; title: string; sport_type: string }[] };
+  sessions_sent?: number;
+}
+
+async function postCoachRaw(body: Record<string, unknown>): Promise<{ text: string; contextInfo?: CoachContextInfo }> {
   const extras = coachRequestExtras();
   const res = await fetch('/api/coach', {
     method: 'POST',
@@ -29,8 +38,12 @@ async function postCoach(body: Record<string, unknown>): Promise<string> {
     body: JSON.stringify({ ...body, ...extras.body }),
   });
   if (!res.ok) throw await readCoachError(res);
-  const { text } = await res.json();
-  return text ?? '';
+  const { text, context_info } = await res.json();
+  return { text: text ?? '', contextInfo: context_info };
+}
+
+async function postCoach(body: Record<string, unknown>): Promise<string> {
+  return (await postCoachRaw(body)).text;
 }
 
 // Plan checks are generated once per planned session (a cheap model reads the plan text) and kept on this device
@@ -259,7 +272,8 @@ async function gatherAthleteContext(focusGoalId?: string) {
   const statusData = {
     profile: profileForAI(profile),
     pmc: { ...latestPmc, formCategory },
-    nextGoal: goalForAI(goals[0]),
+    // The nearest active goal (not just whichever was added first)
+    nextGoal: goalForAI(goals.filter((g) => g.status === 'ACTIVE').sort((a, b) => (a.target_date ?? '9999').localeCompare(b.target_date ?? '9999'))[0] ?? goals[0]),
   };
 
   const recentActivities = activities.slice(0, 8).map(a => ({
@@ -357,7 +371,9 @@ async function gatherAthleteContext(focusGoalId?: string) {
     };
   });
 
-  return { statusData, recentActivities, milestoneData, trainingSessions, allActivities, goals: goals.map(goalForAI), focusGoal, trainingLog, goalProgressData };
+  const progress = buildProgressContext(profile, activities, goals, trainingSessions);
+
+  return { statusData, recentActivities, milestoneData, trainingSessions, allActivities, goals: goals.map(goalForAI), focusGoal, trainingLog, goalProgressData, progress, hasPowerTarget: targetW > 0 };
 }
 
 /** Returns the next Monday as a YYYY-MM-DD string (the dashboard's "upcoming week") */
@@ -387,18 +403,12 @@ class GeminiCoachEngine {
     const toolCalls: AICoachToolCall[] = [];
 
     // Gather all local context in a single unified step
-    const { statusData, recentActivities, milestoneData, trainingSessions, allActivities, goals, focusGoal } =
+    const { statusData, milestoneData, trainingSessions, allActivities, goals, focusGoal, progress, hasPowerTarget } =
       await gatherAthleteContext(focusGoalId);
-
-    toolCalls.push(
-      { toolName: 'getAthleteStatus', args: {}, result: statusData },
-      { toolName: 'queryActivities', args: { limit: 8 }, result: recentActivities },
-      { toolName: 'getMilestoneReadiness', args: {}, result: milestoneData }
-    );
 
     // POST to /api/coach — provider keys never ship in the bundle (Gemini's lives on the server;
     // Claude uses the athlete's own key from Coach Settings, sent per request)
-    const text = await postCoach({
+    const { text, contextInfo } = await postCoachRaw({
       message: userQuery,
       calendar: calendarNote(),
       // The goal being discussed/replanned, with its readiness, so the coach stays on it
@@ -413,10 +423,15 @@ class GeminiCoachEngine {
         athleteStatus: statusData,
         activities: allActivities,
         goals,
-        milestoneReadiness: milestoneData,
+        // The 20-minute power readiness only means something when the goal has a power target; leave it out otherwise
+        milestoneReadiness: hasPowerTarget ? milestoneData : undefined,
         sessions: trainingSessions,
+        progress,
       },
     });
+
+    // Show what the coach was really given (the filtered context the server reports), not the full local dataset
+    if (contextInfo) toolCalls.push({ toolName: 'contextSentToCoach', args: {}, result: contextInfo });
 
     const { cleanText, proposedPlan, proposedGoal } = extractProposals(text || '', focusGoal?.id);
 

@@ -260,7 +260,18 @@ const SYSTEM_PROMPT = `You are Summit Intelligence, an elite AI endurance coach 
 - Units: the athlete uses imperial units. All data you receive is already imperial (distance_mi, elevation_gain_ft, weight_lb, pack_weight_lb, avg_vam_ft_per_hour) — respond in miles, feet, pounds and mph, never metric. (W/kg stays as the standard power-to-weight ratio.)
 - Preparing for the specific goals and events the athlete has added; never assume a goal, injury, threshold or fitness level that is not in the provided data
 
-The user will provide their current training data as JSON context, including their profile, current PMC metrics, recent activities, milestone readiness, and current scheduledTrainingSessions.
+The user will provide their current training data as JSON context: their profile, current PMC metrics (pmc, today only), goals, recent activities, scheduledTrainingSessions, and a \`progress\` summary of their training history.
+
+### Answering questions about progress:
+When the athlete asks how they are doing or progressing, answer from \`progress\` and be specific:
+- Fitness trend: use training_load.ctl_by_age and ctl_change to say whether fitness (CTL) is rising, flat or falling over 4, 12, 26 and 52 weeks, with the numbers. Today's pmc alone says nothing about progress.
+- Volume and consistency: use weekly_last_12_weeks, weekly_averages and monthly_last_12_months (hours, vert, TSS, number of activities). Say whether recent weeks are above or below the earlier ones, and note a gap or a drop. The current week is still in progress: never judge it as a short week.
+- Year on year: use year_to_date_vs_same_dates_last_year (same calendar dates, so it is a fair comparison), overall and per sport.
+- Plan: use plan_vs_actual_last_4_weeks for sessions done against planned and load done against planned.
+- Goals: use goal_progress. status_against_plan compares CTL with where the goal's phase plan expects it today; a goal with has_ctl_targets false cannot be judged that way, so say so and use the trend instead. Relate progress to what each goal demands (its target date, distance, climbing, power) from the goals list. Judge each goal by its own sport and target: do not judge a ski or mountaineering goal by cycling power numbers.
+- Trust: training_load_basis_last_12_weeks says how many activities have measured power versus estimated load (AI estimate, learned model, heart rate, rough baseline). When most load is estimated, say the fitness figures are approximate. Volume totals leave out e-bike rides.
+- Use only numbers that are in the context; if something needed to answer is missing, say what is missing. Never invent a trend, a goal or a threshold.
+- Keep it short: lead with the verdict (improving, holding, or slipping, and whether on track), then 2-3 supporting numbers, then one or two concrete suggestions.
 
 ### Training Plan, Long-Term Goals & Workout Proposals:
 When the user asks you to:
@@ -361,6 +372,8 @@ interface FilterSpec {
   include_pmc: boolean;
   include_goals: boolean;
   include_milestone: boolean;
+  /** Training history and trends: fitness over time, weekly and monthly volume, year on year, plan vs actual, goal progress */
+  include_progress: boolean;
   activities: {
     include: boolean;
     start_date?: string; // YYYY-MM-DD
@@ -384,6 +397,7 @@ const DEFAULT_SPEC: FilterSpec = {
   include_pmc: true,
   include_goals: true,
   include_milestone: true,
+  include_progress: true,
   activities: { include: true, sort_by: 'date', limit: 8 },
   sessions: { include: true },
 };
@@ -394,6 +408,7 @@ const FILTER_PROMPT = `You are a data-retrieval planner for an endurance coachin
   "include_pmc": boolean,       // current CTL/ATL/TSB fitness-fatigue-form
   "include_goals": boolean,     // long-term goals and periodization phases
   "include_milestone": boolean, // readiness vs. the target event (20m power, days remaining)
+  "include_progress": boolean,  // training HISTORY and trends: fitness (CTL) over the last year, weekly and monthly volume, this year vs last year, plan vs actual, progress toward each goal
   "activities": {
     "include": boolean,
     "start_date": "YYYY-MM-DD" | null,
@@ -408,6 +423,7 @@ const FILTER_PROMPT = `You are a data-retrieval planner for an endurance coachin
   "sessions": { "include": boolean, "start_date": "YYYY-MM-DD" | null, "end_date": "YYYY-MM-DD" | null }
 }
 Rules:
+- Questions about progress, trends, improvement, consistency, volume, "how am I doing", comparisons with earlier periods, or whether the plan is on track need include_progress true (and usually include_goals). For those, only a few recent activities are needed (limit 8) because the progress summary already covers the history.
 - Be selective: exclude anything irrelevant to the message. Planning or scheduling requests need sessions, goals, pmc and profile plus recent activities (last ~3 weeks).
 - Questions about fatigue/readiness need pmc and recent activities. Injury questions need profile and activities with knee discomfort.
 - Resolve relative dates ("last month", "this week") using today's date.
@@ -429,6 +445,7 @@ function sanitizeSpec(raw: any): FilterSpec {
     include_pmc: raw?.include_pmc !== false,
     include_goals: raw?.include_goals !== false,
     include_milestone: raw?.include_milestone !== false,
+    include_progress: raw?.include_progress !== false,
     activities: {
       include: a.include !== false,
       start_date: asDate(a.start_date),
@@ -478,7 +495,8 @@ function applyFilter(spec: FilterSpec, data: any) {
   if (spec.include_goals) {
     out.goals = data.goals;
   }
-  if (spec.include_milestone) out.milestoneReadiness = data.milestoneReadiness;
+  if (spec.include_milestone && data.milestoneReadiness) out.milestoneReadiness = data.milestoneReadiness;
+  if (spec.include_progress && data.progress) out.progress = data.progress;
 
   if (spec.activities.include) {
     const f = spec.activities;
@@ -676,7 +694,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       user: `${contextBlock}${calendarBlock}${focusBlock}User question: ${message}`,
     });
 
-    return res.status(200).json({ text });
+    // Tell the client what the coach was actually given, so a poor answer can be traced to missing context
+    const contextInfo = filtered && spec
+      ? {
+          filter: spec,
+          sections: Object.keys(filtered as Record<string, unknown>),
+          activities: (filtered as any).activities
+            ? {
+                total_matching: (filtered as any).activities.totalMatching,
+                sent: (filtered as any).activities.items.length,
+                items: (filtered as any).activities.items.map((a: any) => ({ date: String(a.start_date ?? '').slice(0, 10), title: a.title, sport_type: a.sport_type })),
+              }
+            : undefined,
+          sessions_sent: Array.isArray((filtered as any).scheduledTrainingSessions) ? (filtered as any).scheduledTrainingSessions.length : undefined,
+        }
+      : undefined;
+    return res.status(200).json({ text, context_info: contextInfo });
   } catch (err) {
     return sendError(res, err);
   }
