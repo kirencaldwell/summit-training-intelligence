@@ -669,28 +669,61 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
                 </div>
               )}
 
-              {/* Tool Execution Logs if any */}
+              {/* What the coach was actually given for this answer, so a poor answer can be traced to missing context */}
               {msg.toolCalls && msg.toolCalls.length > 0 && (
                 <div className="rounded-xl bg-slate-950/80 border border-white/10 p-3 text-xs text-slate-300 space-y-2">
                   <button
                     onClick={() => toggleToolLogs(msg.id)}
-                    className="flex items-center justify-between w-full font-mono text-[11px] text-amber-400 hover:text-amber-300"
+                    className="flex items-center justify-between w-full text-[11px] text-slate-400 hover:text-slate-200"
                   >
                     <span className="flex items-center">
                       <Terminal className="w-3.5 h-3.5 mr-1.5" />
-                      Executed Database Tools ({msg.toolCalls.length})
+                      What the coach saw
                     </span>
                     {expandedToolLogs[msg.id] ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                   </button>
 
                   {expandedToolLogs[msg.id] && (
-                    <div className="space-y-2 pt-2 border-t border-white/5 font-mono text-[11px]">
-                      {msg.toolCalls.map((tc, idx) => (
-                        <div key={idx} className="p-2 rounded bg-slate-900 border border-white/5 space-y-1">
-                          <div className="text-cyan-400 font-semibold">⚡ fn: {tc.toolName}</div>
-                          <div className="text-slate-400">args: {JSON.stringify(tc.args)}</div>
-                        </div>
-                      ))}
+                    <div className="space-y-2 pt-2 border-t border-white/5 text-[11px]">
+                      {msg.toolCalls.map((tc, idx) => {
+                        const info = tc.toolName === 'contextSentToCoach'
+                          ? (tc.result as { sections?: string[]; activities?: { total_matching: number; sent: number; items: { date: string; title: string; sport_type: string }[] }; sessions_sent?: number })
+                          : undefined;
+                        if (!info) {
+                          return (
+                            <div key={idx} className="p-2 rounded bg-slate-900 border border-white/5 font-mono">
+                              <div className="text-cyan-400 font-semibold">{tc.toolName}</div>
+                              <div className="text-slate-400">args: {JSON.stringify(tc.args)}</div>
+                            </div>
+                          );
+                        }
+                        const label: Record<string, string> = {
+                          profile: 'profile', pmc: "today's fitness (CTL / ATL / form)", goals: 'goals', milestoneReadiness: 'power readiness (goals with a power target)',
+                          progress: 'training history and trends', activities: 'activities', scheduledTrainingSessions: 'planned sessions',
+                        };
+                        return (
+                          <div key={idx} className="space-y-1.5">
+                            <p className="text-slate-300">
+                              Sent: {(info.sections ?? []).map((k) => label[k] ?? k).join(' · ') || 'nothing'}
+                            </p>
+                            {info.activities && (
+                              <div>
+                                <p className="text-slate-400">
+                                  Activities: {info.activities.sent} of {info.activities.total_matching} matching
+                                  {info.activities.sent < info.activities.total_matching ? ' (the rest were not sent)' : ''}
+                                </p>
+                                <ul className="mt-0.5 max-h-28 overflow-y-auto text-slate-500">
+                                  {info.activities.items.map((a, i) => <li key={i} className="truncate">{a.date} · {a.title}</li>)}
+                                </ul>
+                              </div>
+                            )}
+                            {info.sessions_sent !== undefined && <p className="text-slate-400">Planned sessions: {info.sessions_sent}</p>}
+                            {!(info.sections ?? []).includes('progress') && (
+                              <p className="text-amber-300">No training history was sent for this question, so the coach could not see trends.</p>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
