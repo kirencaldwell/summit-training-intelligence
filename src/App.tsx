@@ -14,6 +14,7 @@ import { PerformancePage, type PerformanceView } from './components/PerformanceP
 import { TravelPaceView } from './components/TravelPaceView';
 import { TrainingWeekSection, type AppTab } from './components/TrainingWeekSection';
 import { LongTermPlan } from './components/LongTermPlan';
+import type { TrackingMetric } from './lib/trackingMetrics';
 import { TrainingLog } from './components/TrainingLog';
 import { ElevationCheckPanel, type ElevationChange } from './components/ElevationCheck';
 import { HeartRateDistributionPage } from './components/HeartRateDistributionPage';
@@ -182,6 +183,14 @@ export function App() {
       console.warn('Readiness assessment could not be saved with the goal:', err);
     }
     return { assessment, synced: false };
+  };
+
+  // Metrics the coach chooses for a goal (validated, with starting values), and saving the ones the athlete keeps
+  const handleSuggestMetrics = (goalId: string) => coachEngine.proposeGoalMetrics(goalId);
+  const handleSaveMetrics = async (goalId: string, metrics: TrackingMetric[]) => {
+    const result = await dataService.saveGoalMetrics(goalId, metrics);
+    setGoals((prev) => prev.map((g) => (g.id === goalId ? { ...g, tracking_metrics: metrics } : g)));
+    return result;
   };
 
   const handleCompleteGoal = async (goalId: string, debriefNotes: string) => {
@@ -812,6 +821,11 @@ export function App() {
               <LongTermPlan
                 goals={goals}
                 currentCtl={pmcData[pmcData.length - 1]?.ctl}
+                activities={activities}
+                sessions={trainingSessions}
+                profile={profile}
+                onSuggestMetrics={handleSuggestMetrics}
+                onSaveMetrics={handleSaveMetrics}
                 onPlanWithCoach={(goal) => {
                   setCoachFocus({ goalId: goal.id, prompt: `Plan the training phases and milestones leading up to "${goal.name}".` });
                   setActiveTab('coach');

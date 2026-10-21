@@ -1,4 +1,5 @@
 import type { GoalReadinessAssessment } from '../lib/goalReadiness';
+import type { TrackingMetric } from '../lib/trackingMetrics';
 
 export type SportType = 
   | 'cycling' 
@@ -137,6 +138,8 @@ export interface Goal {
   milestones?: GoalMilestone[];
   /** Latest on-request coach assessment of readiness for this goal (stored with the goal) */
   readiness_assessment?: GoalReadinessAssessment | null;
+  /** Weekly metrics the coach chose for this goal, each with a target (measured from the athlete's activities) */
+  tracking_metrics?: TrackingMetric[] | null;
 }
 
 export type TrainingSessionStatus = 'PROPOSED' | 'ACCEPTED' | 'COMPLETED' | 'DECLINED';

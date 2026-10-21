@@ -1,6 +1,8 @@
 import React from 'react';
 import { Flag, Sparkles, CheckCircle2, Circle } from 'lucide-react';
-import type { Goal, PeriodizationPhase } from '../types';
+import type { Activity, AthleteProfile, Goal, PeriodizationPhase, TrainingSession } from '../types';
+import type { TrackingMetric } from '../lib/trackingMetrics';
+import { GoalMetrics } from './GoalMetrics';
 import { addDaysToDateOnly, getLocalDateString } from '../lib/trainingSessions';
 
 interface LongTermPlanProps {
@@ -8,6 +10,12 @@ interface LongTermPlanProps {
   /** Current fitness (CTL), to compare with each phase's target */
   currentCtl?: number;
   onPlanWithCoach?: (goal: Goal) => void;
+  /** Needed for the weekly progress metrics under each goal */
+  activities?: Activity[];
+  sessions?: TrainingSession[];
+  profile?: AthleteProfile;
+  onSuggestMetrics?: (goalId: string) => Promise<TrackingMetric[]>;
+  onSaveMetrics?: (goalId: string, metrics: TrackingMetric[]) => Promise<{ synced: boolean }>;
 }
 
 interface PlacedPhase extends PeriodizationPhase {
@@ -42,7 +50,7 @@ function placePhases(goal: Goal, today: string): PlacedPhase[] {
 
 const PHASE_COLORS = ['#38BDF8', '#34D399', '#FBBF24', '#F97316', '#F43F5E', '#A78BFA'];
 
-export const LongTermPlan: React.FC<LongTermPlanProps> = ({ goals, currentCtl, onPlanWithCoach }) => {
+export const LongTermPlan: React.FC<LongTermPlanProps> = ({ goals, currentCtl, onPlanWithCoach, activities, sessions, profile, onSuggestMetrics, onSaveMetrics }) => {
   const today = getLocalDateString();
   const active = goals
     .filter((g) => g.status === 'ACTIVE')
@@ -167,6 +175,9 @@ export const LongTermPlan: React.FC<LongTermPlanProps> = ({ goals, currentCtl, o
                   ))}
                 </ul>
               </div>
+            )}
+            {onSuggestMetrics && onSaveMetrics && activities && sessions && profile && (
+              <GoalMetrics goal={goal} activities={activities} sessions={sessions} profile={profile} onSuggest={onSuggestMetrics} onSave={onSaveMetrics} />
             )}
           </article>
         );

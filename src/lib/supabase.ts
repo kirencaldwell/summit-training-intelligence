@@ -1,5 +1,6 @@
 import { createClient, type User } from '@supabase/supabase-js';
 import type { MunterParams } from './munter';
+import type { TrackingMetric } from './trackingMetrics';
 import { routeOutline } from './routePreview';
 import type { Activity, AICoachMessage, AthleteProfile, Goal, TrainingSession, TrainingSessionStatus } from '../types';
 import { addDaysToDateOnly } from './trainingSessions';
@@ -28,6 +29,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 
 const STORAGE_KEYS = {
   MUNTER: 'summit_munter_params',
+  GOAL_METRICS: 'summit_goal_metrics',
   SESSION_LINKS: 'summit_session_links',
   SESSION_ASSESSMENTS: 'summit_session_assessments',
   PROFILE: 'summit_athlete_profile',
@@ -321,9 +323,40 @@ class DataService {
         .eq('user_id', profile.id)
         .order('created_at', { ascending: false });
       if (error) throw new Error(`Goals could not be loaded: ${error.message}`);
-      return (data || []) as Goal[];
+      const cached = this.readGoalMetricsCache();
+      // A database without the tracking_metrics column keeps them on this device
+      return ((data || []) as Goal[]).map((g) => (g.tracking_metrics === undefined && cached[g.id] ? { ...g, tracking_metrics: cached[g.id] } : g));
     }
     return this.localGoals;
+  }
+
+  private readGoalMetricsCache(): Record<string, TrackingMetric[]> {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEYS.GOAL_METRICS) || '{}');
+    } catch {
+      return {};
+    }
+  }
+
+  /**
+   * Save the metrics chosen for a goal. `synced` is false when the database has no tracking_metrics column yet
+   * (the SQL has not been run): the metrics are then kept on this device only.
+   */
+  public async saveGoalMetrics(goalId: string, metrics: TrackingMetric[]): Promise<{ synced: boolean }> {
+    try {
+      await this.updateGoal(goalId, { tracking_metrics: metrics });
+      return { synced: true };
+    } catch (err) {
+      if (!(err instanceof Error) || !err.message.includes('tracking_metrics')) throw err;
+    }
+    try {
+      const all = this.readGoalMetricsCache();
+      all[goalId] = metrics;
+      localStorage.setItem(STORAGE_KEYS.GOAL_METRICS, JSON.stringify(all));
+    } catch {
+      // Storage unavailable: the metrics will not survive a reload
+    }
+    return { synced: false };
   }
 
   public async addGoal(newGoal: Goal): Promise<Goal> {

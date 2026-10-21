@@ -8,6 +8,7 @@ import { intensityCharacter, sameDayTotals } from '../intensityCharacter';
 import { evaluatePlanChecks, parsePlanChecks, type PlanCheck } from '../planChecks';
 import { buildWeekSummaries, goalProgress } from '../trainingLog';
 import { buildProgressContext } from './progressContext';
+import { metricMenu, parseMetricProposals, withBaselines, type MetricContext, type TrackingMetric } from '../trackingMetrics';
 import { parseReadinessReply, type GoalReadinessAssessment } from '../goalReadiness';
 import { ftToM, kgToLb, kmToMi, mToFt, miToKm, roundTo } from '../units';
 import {
@@ -371,7 +372,8 @@ async function gatherAthleteContext(focusGoalId?: string) {
     };
   });
 
-  const progress = buildProgressContext(profile, activities, goals, trainingSessions);
+  const munterParams = await dataService.getMunterParams().catch(() => ({}));
+  const progress = buildProgressContext(profile, activities, goals, trainingSessions, new Date(), munterParams);
 
   return { statusData, recentActivities, milestoneData, trainingSessions, allActivities, goals: goals.map(goalForAI), focusGoal, trainingLog, goalProgressData, progress, hasPowerTarget: targetW > 0 };
 }
@@ -609,6 +611,41 @@ class GeminiCoachEngine {
       context,
     });
     return parseReadinessReply(String(reply ?? ''), goalId);
+  }
+
+  /**
+   * Ask the coach which metrics are worth measuring weekly toward a goal, with a target for each. The coach only
+   * chooses from a fixed set of measurable kinds; the proposals are validated here, and given a starting value
+   * measured from the athlete's own activities.
+   */
+  public async proposeGoalMetrics(goalId: string): Promise<TrackingMetric[]> {
+    const [profile, activities, goals, sessions, munter] = await Promise.all([
+      dataService.getProfile(),
+      dataService.getActivities(),
+      dataService.getGoals(),
+      dataService.getTrainingSessions(),
+      dataService.getMunterParams().catch(() => ({})),
+    ]);
+    const goal = goals.find((g) => g.id === goalId);
+    if (!goal) throw new Error('That goal could not be found.');
+    const loadProfile = { ftp: profile.ftp, lthr: profile.lthr, weight_kg: profile.weight_kg };
+    const ctx: MetricContext = { activities, sessions, pmc: calculatePMC(activities, 400, loadProfile), profile, loadProfile, munter };
+    const today = getLocalDateString();
+    const daysLeft = goal.target_date ? Math.ceil((new Date(`${goal.target_date}T12:00:00`).getTime() - Date.now()) / 86400000) : null;
+
+    const reply = await postCoach({
+      mode: 'goal_metrics',
+      message: 'Choose the weekly metrics worth tracking toward this goal and set a target for each.',
+      context: {
+        today,
+        goal: { ...goalForAI(goal), days_remaining: daysLeft, weeks_remaining: daysLeft !== null ? roundTo(daysLeft / 7, 1) : null },
+        athlete: { ftp: profile.ftp || null, weight_lb: profile.weight_kg ? roundTo(kgToLb(profile.weight_kg), 1) : null, notes: profile.notes?.trim() || null },
+        current_values: metricMenu(ctx),
+      },
+    });
+    const parsed = parseMetricProposals(reply, goal, today);
+    if (parsed.length === 0) throw new Error('The coach did not return any usable metrics. Try again.');
+    return withBaselines(parsed, ctx);
   }
 
   public async assessActivity(activity: Activity): Promise<string> {
@@ -964,7 +1001,7 @@ class GeminiCoachEngine {
     _occupiedDates: string[] = [],
     customInstructions?: string
   ): Promise<TrainingSession[]> {
-    const { statusData, recentActivities, milestoneData, trainingSessions, trainingLog, goalProgressData } = await gatherAthleteContext();
+    const { statusData, recentActivities, milestoneData, trainingSessions, trainingLog, progress } = await gatherAthleteContext();
 
     const nextMonday = getNextMonday();
     const promptMessage = customInstructions
@@ -977,7 +1014,7 @@ Return ONLY a valid JSON array of TrainingSession objects with these exact field
 - status must be "PROPOSED"
 - Dates are flexible and open for replanning; plan 4-5 sessions across the week balancing training load with recovery
 - Consider the athlete's current fitness, fatigue, injuries, and upcoming goals
-- Build on planVsActualLastWeeks and goalProgress: carry over or adapt key sessions that were missed, do not stack up missed load, and when a goal is behind its plan raise load gradually (a CTL gain of about 3-7 per week is a sustainable build)
+- Build on planVsActualLastWeeks and goalProgress: carry over or adapt key sessions that were missed, do not stack up missed load, and when a goal is behind its plan raise load gradually (a CTL gain of about 3-7 per week is a sustainable build). Where a goal has tracked_metrics, aim the week at the ones that are behind (for example a long climbing day for a vert target) without exceeding the safe build rate
 Return only the JSON array, no markdown, no explanation.`
       : `Generate a structured weekly training plan as a JSON array.
 Return ONLY a valid JSON array of TrainingSession objects with these exact fields:
@@ -987,7 +1024,7 @@ Return ONLY a valid JSON array of TrainingSession objects with these exact field
 - status must be "PROPOSED"
 - Dates are flexible; plan 4-5 sessions across the week balancing training load with recovery
 - Consider the athlete's current fitness, fatigue, injuries, and upcoming goals
-- Build on planVsActualLastWeeks and goalProgress: carry over or adapt key sessions that were missed, do not stack up missed load, and when a goal is behind its plan raise load gradually (a CTL gain of about 3-7 per week is a sustainable build)
+- Build on planVsActualLastWeeks and goalProgress: carry over or adapt key sessions that were missed, do not stack up missed load, and when a goal is behind its plan raise load gradually (a CTL gain of about 3-7 per week is a sustainable build). Where a goal has tracked_metrics, aim the week at the ones that are behind (for example a long climbing day for a vert target) without exceeding the safe build rate
 Return only the JSON array, no markdown, no explanation.`;
 
     const text = await postCoach({
@@ -999,7 +1036,7 @@ Return only the JSON array, no markdown, no explanation.`;
         scheduledTrainingSessions: trainingSessions,
         // What was planned vs done in recent weeks, and whether fitness is on track for each goal: build on it
         planVsActualLastWeeks: trainingLog,
-        goalProgress: goalProgressData,
+        goalProgress: progress.goal_progress,
       },
       mode: 'json',
     });
