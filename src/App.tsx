@@ -14,7 +14,7 @@ import { PerformancePage, type PerformanceView } from './components/PerformanceP
 import { TravelPaceView } from './components/TravelPaceView';
 import { TrainingWeekSection, type AppTab } from './components/TrainingWeekSection';
 import { LongTermPlan } from './components/LongTermPlan';
-import type { TrackingMetric } from './lib/trackingMetrics';
+import { backfillStartDate, type TrackingMetric } from './lib/trackingMetrics';
 import { TrainingLog } from './components/TrainingLog';
 import { ElevationCheckPanel, type ElevationChange } from './components/ElevationCheck';
 import { HeartRateDistributionPage } from './components/HeartRateDistributionPage';
@@ -191,6 +191,21 @@ export function App() {
     const result = await dataService.saveGoalMetrics(goalId, metrics);
     setGoals((prev) => prev.map((g) => (g.id === goalId ? { ...g, tracking_metrics: metrics } : g)));
     return result;
+  };
+
+  // Set up metrics for every active goal that has none, measured from when its plan began (what is already done counts)
+  const handleBackfillMetrics = async () => {
+    const results: { goal: string; count?: number; synced?: boolean; error?: string }[] = [];
+    for (const goal of goals.filter((g) => g.status === 'ACTIVE' && !(g.tracking_metrics?.length))) {
+      try {
+        const metrics = await coachEngine.proposeGoalMetrics(goal.id, { startDate: backfillStartDate(goal) });
+        const { synced } = await handleSaveMetrics(goal.id, metrics);
+        results.push({ goal: goal.name, count: metrics.length, synced });
+      } catch (err) {
+        results.push({ goal: goal.name, error: err instanceof Error ? err.message : 'Could not set up metrics.' });
+      }
+    }
+    return results;
   };
 
   const handleCompleteGoal = async (goalId: string, debriefNotes: string) => {
@@ -826,6 +841,7 @@ export function App() {
                 profile={profile}
                 onSuggestMetrics={handleSuggestMetrics}
                 onSaveMetrics={handleSaveMetrics}
+                onBackfillMetrics={handleBackfillMetrics}
                 onPlanWithCoach={(goal) => {
                   setCoachFocus({ goalId: goal.id, prompt: `Plan the training phases and milestones leading up to "${goal.name}".` });
                   setActiveTab('coach');

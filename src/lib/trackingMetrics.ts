@@ -249,13 +249,37 @@ export function parseMetricProposals(raw: unknown, goal: Pick<Goal, 'id' | 'targ
   return out;
 }
 
-/** Fixes each metric's starting point at today's value, so progress is measured from where the athlete is now. */
-export function withBaselines(metrics: TrackingMetric[], ctx: MetricContext): TrackingMetric[] {
+/**
+ * Fixes each metric's starting point: its value on `startDate` (default today), so progress is measured from there.
+ * A date in the past counts what the athlete has already achieved since. When there is nothing to measure that far
+ * back (no activities yet), that metric starts today instead.
+ */
+export function withBaselines(metrics: TrackingMetric[], ctx: MetricContext, startDate?: string): TrackingMetric[] {
   const today = ctx.today ?? getLocalDateString();
+  const from = startDate && startDate < today ? startDate : today;
   return metrics.map((m) => {
-    const e = evaluateMetric({ ...m, start_value: undefined, start_date: undefined }, ctx);
-    return { ...m, start_value: e.current !== undefined ? roundTo(e.current, 2) : 0, start_date: today };
+    const bare = { ...m, start_value: undefined, start_date: undefined };
+    const then = from !== today ? evaluateMetric(bare, { ...ctx, today: from }) : undefined;
+    if (then?.current !== undefined) return { ...m, start_value: roundTo(then.current, 2), start_date: from };
+    const now = evaluateMetric(bare, { ...ctx, today });
+    return { ...m, start_value: now.current !== undefined ? roundTo(now.current, 2) : 0, start_date: today };
   });
+}
+
+/**
+ * Where progress should be measured from for a goal that already exists: when its plan began (its phases end on the
+ * goal date), but no further back than 26 weeks; with no started plan, 8 weeks ago, so there is some history to
+ * measure from. Undefined when the plan has not started yet (nothing to catch up on).
+ */
+export function backfillStartDate(goal: Pick<Goal, 'target_date' | 'periodization_phases'>, today = getLocalDateString()): string | undefined {
+  const oldest = addDaysToDateOnly(today, -182);
+  const totalDays = (goal.periodization_phases ?? []).reduce((s, p) => s + Math.max(0, p.weeks) * 7, 0);
+  if (goal.target_date && totalDays > 0) {
+    const planStart = addDaysToDateOnly(goal.target_date, -totalDays);
+    if (planStart >= today) return undefined;
+    return planStart < oldest ? oldest : planStart;
+  }
+  return addDaysToDateOnly(today, -56);
 }
 
 /**

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Flag, Sparkles, CheckCircle2, Circle } from 'lucide-react';
 import type { Activity, AthleteProfile, Goal, PeriodizationPhase, TrainingSession } from '../types';
 import type { TrackingMetric } from '../lib/trackingMetrics';
@@ -16,6 +16,8 @@ interface LongTermPlanProps {
   profile?: AthleteProfile;
   onSuggestMetrics?: (goalId: string) => Promise<TrackingMetric[]>;
   onSaveMetrics?: (goalId: string, metrics: TrackingMetric[]) => Promise<{ synced: boolean }>;
+  /** Sets up metrics for every active goal that has none, measured from when its plan began */
+  onBackfillMetrics?: () => Promise<{ goal: string; count?: number; synced?: boolean; error?: string }[]>;
 }
 
 interface PlacedPhase extends PeriodizationPhase {
@@ -50,7 +52,9 @@ function placePhases(goal: Goal, today: string): PlacedPhase[] {
 
 const PHASE_COLORS = ['#38BDF8', '#34D399', '#FBBF24', '#F97316', '#F43F5E', '#A78BFA'];
 
-export const LongTermPlan: React.FC<LongTermPlanProps> = ({ goals, currentCtl, onPlanWithCoach, activities, sessions, profile, onSuggestMetrics, onSaveMetrics }) => {
+export const LongTermPlan: React.FC<LongTermPlanProps> = ({ goals, currentCtl, onPlanWithCoach, activities, sessions, profile, onSuggestMetrics, onSaveMetrics, onBackfillMetrics }) => {
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillResults, setBackfillResults] = useState<{ goal: string; count?: number; synced?: boolean; error?: string }[] | null>(null);
   const today = getLocalDateString();
   const active = goals
     .filter((g) => g.status === 'ACTIVE')
@@ -64,8 +68,50 @@ export const LongTermPlan: React.FC<LongTermPlanProps> = ({ goals, currentCtl, o
     );
   }
 
+  const missing = active.filter((g) => !(g.tracking_metrics?.length));
+  const runBackfill = async () => {
+    if (!onBackfillMetrics) return;
+    setBackfilling(true);
+    setBackfillResults(null);
+    try {
+      setBackfillResults(await onBackfillMetrics());
+    } finally {
+      setBackfilling(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
+      {onBackfillMetrics && (missing.length > 0 || backfillResults) && (
+        <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3 space-y-2">
+          {missing.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs text-slate-300">
+                {missing.length} of your {active.length} {active.length === 1 ? 'goal has' : 'goals have'} no progress metrics yet. The coach can set them all up now, measured from when each plan began so what you have already done counts.
+              </p>
+              <button
+                type="button"
+                disabled={backfilling}
+                onClick={() => void runBackfill()}
+                className="min-h-9 inline-flex items-center gap-1.5 px-3 rounded-lg bg-cyan-500/20 border border-cyan-500/40 text-xs font-semibold text-cyan-100 hover:bg-cyan-500/30 disabled:opacity-50"
+              >
+                <Sparkles className={`w-3.5 h-3.5 ${backfilling ? 'animate-pulse' : ''}`} />
+                {backfilling ? 'Setting up…' : `Set up metrics for ${missing.length === 1 ? 'this goal' : `all ${missing.length} goals`}`}
+              </button>
+            </div>
+          )}
+          {backfillResults && (
+            <ul role="status" className="space-y-0.5 text-xs">
+              {backfillResults.map((r, i) => (
+                <li key={i} className={r.error ? 'text-rose-300' : 'text-emerald-300'}>
+                  {r.error ? `${r.goal}: ${r.error}` : `${r.goal}: ${r.count} ${r.count === 1 ? 'metric' : 'metrics'} set up${r.synced === false ? ' (saved on this device only until the database is updated)' : ''}`}
+                </li>
+              ))}
+              <li className="text-slate-500">Each can be removed, or replaced with new suggestions, from its goal below.</li>
+            </ul>
+          )}
+        </div>
+      )}
       {active.map((goal) => {
         const phases = placePhases(goal, today);
         const totalWeeks = phases.reduce((s, p) => s + Math.max(0, p.weeks), 0);

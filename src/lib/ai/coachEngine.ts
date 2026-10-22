@@ -618,7 +618,7 @@ class GeminiCoachEngine {
    * chooses from a fixed set of measurable kinds; the proposals are validated here, and given a starting value
    * measured from the athlete's own activities.
    */
-  public async proposeGoalMetrics(goalId: string): Promise<TrackingMetric[]> {
+  public async proposeGoalMetrics(goalId: string, options: { startDate?: string } = {}): Promise<TrackingMetric[]> {
     const [profile, activities, goals, sessions, munter] = await Promise.all([
       dataService.getProfile(),
       dataService.getActivities(),
@@ -645,7 +645,7 @@ class GeminiCoachEngine {
     });
     const parsed = parseMetricProposals(reply, goal, today);
     if (parsed.length === 0) throw new Error('The coach did not return any usable metrics. Try again.');
-    return withBaselines(parsed, ctx);
+    return withBaselines(parsed, ctx, options.startDate);
   }
 
   public async assessActivity(activity: Activity): Promise<string> {

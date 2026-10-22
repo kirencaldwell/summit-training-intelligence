@@ -6,7 +6,7 @@ import { dataService } from '../lib/supabase';
 import { calculatePMC } from '../lib/trainingMath';
 import type { MunterParams } from '../lib/munter';
 import {
-  evaluateMetric, formatMetricValue, metricUnit, type MetricContext, type MetricEvaluation, type MetricStatus, type TrackingMetric,
+  backfillStartDate, evaluateMetric, formatMetricValue, metricUnit, withBaselines, type MetricContext, type MetricEvaluation, type MetricStatus, type TrackingMetric,
 } from '../lib/trackingMetrics';
 
 const STATUS: Record<MetricStatus, { label: string; cls: string; bar: string }> = {
@@ -95,6 +95,8 @@ export const GoalMetrics: React.FC<GoalMetricsProps> = ({ goal, activities, sess
   const [busy, setBusy] = useState<'suggesting' | 'saving' | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  // Where progress is measured from: when the plan began (counting what is already done), or today
+  const [from, setFrom] = useState<'earlier' | 'today'>('earlier');
 
   const metrics = goal.tracking_metrics ?? [];
   useEffect(() => {
@@ -110,13 +112,20 @@ export const GoalMetrics: React.FC<GoalMetricsProps> = ({ goal, activities, sess
   const evaluations = useMemo(() => metrics.map((m) => ({ metric: m, evaluation: evaluateMetric(m, ctx) })), [metrics, ctx]);
   const proposalEvals = useMemo(() => (proposals ?? []).map((m) => ({ metric: m, evaluation: evaluateMetric(m, ctx) })), [proposals, ctx]);
 
+  const earlierStart = useMemo(() => backfillStartDate(goal), [goal]);
+  const startFor = (choice: 'earlier' | 'today') => (choice === 'earlier' ? earlierStart : undefined);
+  const rebase = (choice: 'earlier' | 'today') => {
+    setFrom(choice);
+    setProposals((prev) => (prev ? withBaselines(prev, ctx, startFor(choice)) : prev));
+  };
+
   const suggest = async () => {
     setBusy('suggesting');
     setError('');
     setNotice('');
     try {
       const next = await onSuggest(goal.id);
-      setProposals(next);
+      setProposals(withBaselines(next, ctx, startFor(from)));
       setKept(next.map((m) => m.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'The coach could not suggest metrics.');
@@ -177,6 +186,17 @@ export const GoalMetrics: React.FC<GoalMetricsProps> = ({ goal, activities, sess
           <p className="text-xs text-slate-300">
             The coach suggests these for “{goal.name}”. Adjust a target if you like, untick any you don't want, then save. This replaces the metrics now tracked for this goal.
           </p>
+          {earlierStart && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-300" role="radiogroup" aria-label="Measure progress from">
+              <span className="text-slate-400">Measure progress from</span>
+              {([['earlier', `${fmtDate(earlierStart)}${goal.periodization_phases?.length ? ' (when the plan began)' : ''}`], ['today', 'today']] as const).map(([value, label]) => (
+                <label key={value} className="inline-flex items-center gap-1.5 cursor-pointer">
+                  <input type="radio" name={`from-${goal.id}`} checked={from === value} onChange={() => rebase(value)} className="accent-cyan-500" />
+                  {label}
+                </label>
+              ))}
+            </div>
+          )}
           <div className="grid gap-2 md:grid-cols-2">
             {proposalEvals.map(({ metric, evaluation }) => {
               const on = kept.includes(metric.id);
