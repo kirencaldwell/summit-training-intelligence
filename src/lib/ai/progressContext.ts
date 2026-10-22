@@ -4,6 +4,8 @@ import { isEbike } from '../tags';
 import { kmToMi, mToFt, roundTo } from '../units';
 import { addDaysToDateOnly, getCurrentTrainingWeekStartDate, getLocalDateString, getWeekStartDate } from '../trainingSessions';
 import { buildWeekSummaries, goalProgress } from '../trainingLog';
+import { evaluateMetric, formatMetricValue, type MetricContext } from '../trackingMetrics';
+import type { MunterParams } from '../munter';
 
 /**
  * A curated "how is the athlete progressing" summary for the chat coach: how fitness has moved over time, weekly and
@@ -17,6 +19,7 @@ export function buildProgressContext(
   goals: Goal[],
   sessions: TrainingSession[],
   now = new Date(),
+  munter?: Record<string, MunterParams>,
 ) {
   const loadProfile = profile ? { ftp: profile.ftp, lthr: profile.lthr, weight_kg: profile.weight_kg } : undefined;
   const today = getLocalDateString(now);
@@ -118,9 +121,25 @@ export function buildProgressContext(
     actual_hours: roundTo(w.actualMinutes / 60, 1),
     unplanned_activities: w.unplanned.length,
   }));
+  const metricCtx: MetricContext = { activities, sessions, pmc, profile, loadProfile, munter, today };
   const goalsProgress = goals.filter((g) => g.status === 'ACTIVE').map((g) => {
     const p = goalProgress(g, pmc, today);
+    // The weekly metrics the coach set for this goal, as measured now
+    const tracked = (g.tracking_metrics ?? []).map((m) => {
+      const e = evaluateMetric(m, metricCtx);
+      return {
+        metric: m.name,
+        why: m.why || undefined,
+        status: e.status,
+        now: e.current !== undefined ? formatMetricValue(m, e.current) : 'no data',
+        target: `${formatMetricValue(m, m.target)} by ${m.target_date}`,
+        started_at: m.start_value !== undefined ? formatMetricValue(m, m.start_value) : undefined,
+        expected_today: e.expected !== undefined ? formatMetricValue(m, e.expected) : undefined,
+        last_8_weeks_oldest_first: e.series.slice(-8).map((x) => (x.value === undefined ? null : x.value)),
+      };
+    });
     return {
+      tracked_metrics: tracked.length ? tracked : undefined,
       goal: g.name,
       target_date: g.target_date ?? null,
       weeks_to_go: g.target_date ? roundTo((new Date(`${g.target_date}T12:00:00`).getTime() - now.getTime()) / (7 * dayMs), 1) : null,
