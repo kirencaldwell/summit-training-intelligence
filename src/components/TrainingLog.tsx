@@ -144,7 +144,10 @@ export const TrainingLog: React.FC<TrainingLogProps> = ({ sessions, goals, profi
         <div className="space-y-2">
           {weeks.map((week, i) => {
             // The current week's open sessions are listed above; the log shows what is done (and past-due) so far
-            const listed = week.isCurrent ? week.planned.filter((s) => s.status === 'COMPLETED') : week.planned;
+            // Newest first so the latest session is at the top
+            const listed = (week.isCurrent ? week.planned.filter((s) => s.status === 'COMPLETED') : week.planned)
+              .slice()
+              .sort((a, b) => b.session_date.localeCompare(a.session_date));
             return (
               <WeekRow key={week.weekStart} week={week} open={i === 0 || (i === 1 && weeks[0].isCurrent && listed.length === 0)}>
                 {listed.length > 0 && (
@@ -166,7 +169,7 @@ export const TrainingLog: React.FC<TrainingLogProps> = ({ sessions, goals, profi
                   <div>
                     <p className="text-xs font-semibold text-slate-300 mb-1">Not in the plan</p>
                     <div className="flex flex-wrap gap-1.5">
-                      {week.unplanned.map((a) => (
+                      {week.unplanned.slice().sort((a, b) => b.start_date.localeCompare(a.start_date)).map((a) => (
                         <button
                           key={a.id}
                           type="button"
