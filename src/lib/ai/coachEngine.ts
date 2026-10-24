@@ -1,3 +1,4 @@
+import { estimateMunter, isMunterSport, type MunterParams } from '../munter';
 import type { Activity, AICoachMessage, AICoachToolCall, AthleteProfile, Goal, MetricStreamPoint, ProposedGoalAction, ProposedPlanAction, TrainingSession } from '../../types';
 import { dataService } from '../supabase';
 import { calculatePMC, calculatePowerCurve, calculatePowerReadiness, resolveTss, tssFromIntensity } from '../trainingMath';
@@ -113,6 +114,21 @@ function activityUnitsForAI(a: Activity) {
   };
 }
 
+/** Travel rates for hiking/skiing: climbing and descending measured separately, because the whole-activity VAM is diluted by descents and stops. */
+function travelRatesForAI(m: MunterParams | undefined) {
+  if (!m) return undefined;
+  const ft = (v?: number) => (v !== undefined ? Math.round(mToFt(v)) : undefined);
+  return {
+    climbing_rate_ft_per_hour: ft(m.ascent_mh),
+    climbing_rate_incl_breaks_ft_per_hour: ft(m.ascent_mh_with_breaks),
+    best_30min_climb_ft_per_hour: ft(m.best_30min_climb_mh),
+    descending_rate_ft_per_hour: ft(m.descent_mh),
+    flat_speed_mph: m.flat_kmh !== undefined ? roundTo(kmToMi(m.flat_kmh), 1) : undefined,
+    minutes_climbing: Math.round(m.up_minutes),
+    minutes_stopped: m.stopped_minutes !== undefined ? Math.round(m.stopped_minutes) : undefined,
+  };
+}
+
 /** Everything the coach is told about one activity: summary numbers, intensity character and the condensed time-series. */
 function activityBlock(
   a: Activity,
@@ -138,7 +154,9 @@ function activityBlock(
     avg_hr: a.avg_hr,
     max_hr: a.max_hr,
     avg_cadence: a.avg_cadence,
+    // Total gain over the WHOLE activity time (descents and stops included): lower than the pace while climbing
     avg_vam_ft_per_hour: mToFtRounded(a.avg_vam_mh),
+    travel_rates_while_moving: isMunterSport(a.sport_type) ? travelRatesForAI(estimateMunter(streams)) : undefined,
     time_in_hr_zones_seconds: a.time_in_hr_zones,
     time_in_power_zones_seconds: a.time_in_power_zones,
     plan_check_results: planCheckResults && planCheckResults.length ? planCheckResults : undefined,
@@ -320,6 +338,7 @@ async function gatherAthleteContext(focusGoalId?: string) {
   const milestoneData = { goal: goalForAI(goal), daysRemaining, powerCurve20m: power20m || null, powerCurve20mWindowDays: readiness?.windowDays ?? null, targetPowerWatts: targetW || null, readinessScorePct, coachingAdvice };
 
   // Full (compact) dataset — the server filters this down to what the question needs
+  const munterParams = await dataService.getMunterParams().catch(() => ({} as Record<string, MunterParams>));
   const allActivities = activities.map(a => ({
     id: a.id,
     title: a.title,
@@ -335,6 +354,7 @@ async function gatherAthleteContext(focusGoalId?: string) {
     avg_hr: a.avg_hr,
     max_hr: a.max_hr,
     avg_vam_ft_per_hour: mToFtRounded(a.avg_vam_mh),
+    travel_rates_while_moving: travelRatesForAI(munterParams[a.id]),
     pack_weight_lb: a.pack_weight_kg ? roundTo(kgToLb(a.pack_weight_kg), 1) : undefined,
     perceived_exertion: a.perceived_exertion,
     knee_discomfort_level: a.knee_discomfort_level,
@@ -372,7 +392,6 @@ async function gatherAthleteContext(focusGoalId?: string) {
     };
   });
 
-  const munterParams = await dataService.getMunterParams().catch(() => ({}));
   const progress = buildProgressContext(profile, activities, goals, trainingSessions, new Date(), munterParams);
 
   return { statusData, recentActivities, milestoneData, trainingSessions, allActivities, goals: goals.map(goalForAI), focusGoal, trainingLog, goalProgressData, progress, hasPowerTarget: targetW > 0 };
