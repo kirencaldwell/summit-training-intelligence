@@ -272,8 +272,9 @@ export function climbRateSeries(points: MetricStreamPoint[] | undefined, windowS
   const maxGap = maxGapSeconds(pts.map((p) => p.time));
   const alt = smoothAltitude(pts, 45);
 
-  // Cumulative moving seconds at each sample
+  // Cumulative moving seconds and height change (moving steps only, as estimateMunter counts them) at each sample
   const moving: number[] = new Array(pts.length).fill(0);
+  const gained: number[] = new Array(pts.length).fill(0);
   for (let i = 1; i < pts.length; i++) {
     const a = pts[i - 1];
     const b = pts[i];
@@ -286,6 +287,8 @@ export function climbRateSeries(points: MetricStreamPoint[] | undefined, windowS
       isMoving = km !== undefined && (km / dt) * 3600 >= MOVING_KMH;
     }
     moving[i] = moving[i - 1] + (isMoving ? dt : 0);
+    const dz = alt[i] !== undefined && alt[i - 1] !== undefined ? alt[i]! - alt[i - 1]! : 0;
+    gained[i] = gained[i - 1] + (isMoving ? dz : 0);
   }
 
   const out: ClimbPoint[] = [];
@@ -299,11 +302,10 @@ export function climbRateSeries(points: MetricStreamPoint[] | undefined, windowS
     while (lo < pts.length - 1 && pts[lo + 1].time <= t - half) lo++;
     while (hi < pts.length - 1 && pts[hi + 1].time <= t + half) hi++;
     while (mid < pts.length - 1 && pts[mid + 1].time <= t) mid++;
-    const za = alt[lo];
-    const zb = alt[hi];
     const spent = moving[hi] - moving[lo];
     const point: ClimbPoint = { time: Math.round(t), elevation_m: alt[mid] };
-    if (za !== undefined && zb !== undefined && spent >= windowSeconds * 0.4) point.rate_mh = Math.round((zb - za) / (spent / 3600));
+    // Height changed while moving over the time spent moving: height drifting during stops does not inflate the rate
+    if (spent >= windowSeconds * 0.4) point.rate_mh = Math.round((gained[hi] - gained[lo]) / (spent / 3600));
     out.push(point);
   }
   return out;
