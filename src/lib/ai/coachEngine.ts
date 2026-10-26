@@ -40,7 +40,8 @@ async function postCoachRaw(body: Record<string, unknown>): Promise<{ text: stri
     body: JSON.stringify({ ...body, ...extras.body }),
   });
   if (!res.ok) throw await readCoachError(res);
-  const { text, context_info } = await res.json();
+  const { text, context_info, usage } = await res.json();
+  if (Array.isArray(usage)) void dataService.logLlmUsage(usage);
   return { text: text ?? '', contextInfo: context_info };
 }
 
