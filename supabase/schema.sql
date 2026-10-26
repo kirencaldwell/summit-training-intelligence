@@ -223,7 +223,7 @@ CREATE TABLE IF NOT EXISTS public.integration_settings (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- One row per AI model call (sizes and counts only, never prompt text), so the athlete can see what the coach costs
+-- One row per AI model call (sizes, counts and the full prompt/reply text), so the athlete can see what the coach costs
 -- and which features are worth replacing with plain algorithms.
 CREATE TABLE IF NOT EXISTS public.llm_usage (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -238,8 +238,17 @@ CREATE TABLE IF NOT EXISTS public.llm_usage (
   cache_read_tokens INTEGER,
   prompt_chars INTEGER,
   latency_ms INTEGER,
-  ok BOOLEAN NOT NULL DEFAULT TRUE
+  ok BOOLEAN NOT NULL DEFAULT TRUE,
+  system_text TEXT,
+  user_text TEXT,
+  history_text TEXT,
+  response_text TEXT
 );
+-- The full request and reply of each call, to debug prompts and see what is worth trimming (older tables get the columns here)
+ALTER TABLE public.llm_usage ADD COLUMN IF NOT EXISTS system_text TEXT;
+ALTER TABLE public.llm_usage ADD COLUMN IF NOT EXISTS user_text TEXT;
+ALTER TABLE public.llm_usage ADD COLUMN IF NOT EXISTS history_text TEXT;
+ALTER TABLE public.llm_usage ADD COLUMN IF NOT EXISTS response_text TEXT;
 CREATE INDEX IF NOT EXISTS idx_llm_usage_user_date ON public.llm_usage (user_id, created_at DESC);
 
 -- ---------------------------------------------------------

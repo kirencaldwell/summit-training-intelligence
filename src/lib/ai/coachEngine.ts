@@ -37,7 +37,8 @@ async function postCoachRaw(body: Record<string, unknown>): Promise<{ text: stri
   const res = await fetch('/api/coach', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...extras.headers },
-    body: JSON.stringify({ ...body, ...extras.body }),
+    // logPayloads: the server returns the full prompt and reply so they can be stored in the athlete's own llm_usage table
+    body: JSON.stringify({ ...body, ...extras.body, logPayloads: true }),
   });
   if (!res.ok) throw await readCoachError(res);
   const { text, context_info, usage } = await res.json();

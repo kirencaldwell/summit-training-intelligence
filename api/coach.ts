@@ -42,11 +42,19 @@ export interface UsageRecord {
   prompt_chars: number;
   latency_ms: number;
   ok: boolean;
+  /** Exactly what went in and came out, only when the athlete's client asks for it (to debug and trim prompts) */
+  system_text?: string;
+  user_text?: string;
+  history_text?: string;
+  response_text?: string;
 }
 
+const PAYLOAD_CAP = 400_000;
+const clip = (text: string) => (text.length > PAYLOAD_CAP ? `${text.slice(0, PAYLOAD_CAP)}\n[cut at ${PAYLOAD_CAP} characters]` : text);
+
 type Engine =
-  | { provider: 'gemini'; genAI: GoogleGenerativeAI; usage: UsageRecord[]; mode: string }
-  | { provider: 'claude'; client: Anthropic; model: string; usage: UsageRecord[]; mode: string };
+  | { provider: 'gemini'; genAI: GoogleGenerativeAI; usage: UsageRecord[]; mode: string; logPayloads: boolean }
+  | { provider: 'claude'; client: Anthropic; model: string; usage: UsageRecord[]; mode: string; logPayloads: boolean };
 
 type Tokens = { input?: number; output?: number; cacheRead?: number };
 interface Completion { text: string; model: string; tokens: Tokens }
@@ -105,6 +113,11 @@ async function complete(engine: Engine, req: CompleteRequest): Promise<string> {
     ok: false,
   };
   engine.usage.push(record);
+  if (engine.logPayloads) {
+    record.system_text = clip(req.system);
+    record.user_text = clip(req.user);
+    if (req.turns?.length) record.history_text = clip(req.turns.map((t) => `${t.role}: ${t.text}`).join('\n\n'));
+  }
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error('The AI provider took too long to respond. Try again in a moment.')), MODEL_TIMEOUT_MS);
@@ -116,6 +129,7 @@ async function complete(engine: Engine, req: CompleteRequest): Promise<string> {
     record.output_tokens = done.tokens.output;
     record.cache_read_tokens = done.tokens.cacheRead;
     record.ok = true;
+    if (engine.logPayloads) record.response_text = clip(done.text);
     return done.text;
   } finally {
     record.latency_ms = Date.now() - started;
@@ -637,7 +651,7 @@ function buildEngine(req: VercelRequest, res: VercelResponse): Engine | null {
       maxRetries: 1,
       defaultHeaders: workspaceId ? { 'anthropic-workspace-id': workspaceId } : undefined,
     });
-    return { provider: 'claude', client, model, usage: [], mode };
+    return { provider: 'claude', client, model, usage: [], mode, logPayloads: body.logPayloads === true };
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
@@ -645,7 +659,7 @@ function buildEngine(req: VercelRequest, res: VercelResponse): Engine | null {
     res.status(500).json({ error: 'GEMINI_API_KEY not configured on server.' });
     return null;
   }
-  return { provider: 'gemini', genAI: new GoogleGenerativeAI(apiKey), usage: [], mode };
+  return { provider: 'gemini', genAI: new GoogleGenerativeAI(apiKey), usage: [], mode, logPayloads: body.logPayloads === true };
 }
 
 function sendError(res: VercelResponse, err: unknown) {
