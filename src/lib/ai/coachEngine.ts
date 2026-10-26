@@ -1019,59 +1019,6 @@ class GeminiCoachEngine {
       rationale: typeof parsed.rationale === 'string' ? parsed.rationale.trim().slice(0, 500) : '',
     };
   }
-
-  /** Generate or replan a proposed weekly training plan via the active coach model */
-  public async generateWeeklyPlan(
-    _occupiedDates: string[] = [],
-    customInstructions?: string
-  ): Promise<TrainingSession[]> {
-    const { statusData, recentActivities, milestoneData, trainingSessions, trainingLog, progress } = await gatherAthleteContext();
-
-    const nextMonday = getNextMonday();
-    const promptMessage = customInstructions
-      ? `Generate a structured weekly training plan as a JSON array for next week (starting ${nextMonday}).
-User replanning instructions / adjustments: "${customInstructions}"
-Return ONLY a valid JSON array of TrainingSession objects with these exact fields:
-{ id, week_start_date, session_date, title, sport_type, duration_minutes, focus, details, target_tss, status }
-- week_start_date and session_date must be ISO date strings (YYYY-MM-DD)
-- sport_type must be one of: cycling, zwift, skimo, backcountry_skiing, resort_skiing, scrambling, weighted_hiking
-- status must be "PROPOSED"
-- Dates are flexible and open for replanning; plan 4-5 sessions across the week balancing training load with recovery
-- Consider the athlete's current fitness, fatigue, injuries, and upcoming goals
-- Build on planVsActualLastWeeks and goalProgress: carry over or adapt key sessions that were missed, do not stack up missed load, and when a goal is behind its plan raise load gradually (a CTL gain of about 3-7 per week is a sustainable build). Where a goal has tracked_metrics, aim the week at the ones that are behind (for example a long climbing day for a vert target) without exceeding the safe build rate
-Return only the JSON array, no markdown, no explanation.`
-      : `Generate a structured weekly training plan as a JSON array.
-Return ONLY a valid JSON array of TrainingSession objects with these exact fields:
-{ id, week_start_date, session_date, title, sport_type, duration_minutes, focus, details, target_tss, status }
-- week_start_date and session_date must be ISO date strings (YYYY-MM-DD) for next week (starting ${nextMonday})
-- sport_type must be one of: cycling, zwift, skimo, backcountry_skiing, resort_skiing, scrambling, weighted_hiking
-- status must be "PROPOSED"
-- Dates are flexible; plan 4-5 sessions across the week balancing training load with recovery
-- Consider the athlete's current fitness, fatigue, injuries, and upcoming goals
-- Build on planVsActualLastWeeks and goalProgress: carry over or adapt key sessions that were missed, do not stack up missed load, and when a goal is behind its plan raise load gradually (a CTL gain of about 3-7 per week is a sustainable build). Where a goal has tracked_metrics, aim the week at the ones that are behind (for example a long climbing day for a vert target) without exceeding the safe build rate
-Return only the JSON array, no markdown, no explanation.`;
-
-    const text = await postCoach({
-      message: promptMessage,
-      context: {
-        athleteStatus: statusData,
-        recentActivities,
-        milestoneReadiness: milestoneData,
-        scheduledTrainingSessions: trainingSessions,
-        // What was planned vs done in recent weeks, and whether fitness is on track for each goal: build on it
-        planVsActualLastWeeks: trainingLog,
-        goalProgress: progress.goal_progress,
-      },
-      mode: 'json',
-    });
-
-    // Extract JSON array from the response (strip markdown fences if the model includes them)
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) throw new Error('Could not parse weekly plan from AI response.');
-
-    const sessions: TrainingSession[] = JSON.parse(jsonMatch[0]);
-    return sessions;
-  }
 }
 
 export const coachEngine = new GeminiCoachEngine();
