@@ -430,7 +430,12 @@ class DataService {
     if (!(this.mode === 'supabase' && supabase) || this.llmUsageTableMissing || records.length === 0) return;
     try {
       const profile = await this.getAuthenticatedProfile();
-      const { error } = await supabase.from('llm_usage').insert(records.map((r) => ({ ...r, user_id: profile.id })));
+      const rows = records.map((r) => ({ ...r, user_id: profile.id }));
+      let { error } = await supabase.from('llm_usage').insert(rows);
+      // A table from before the payload columns existed: keep the usage numbers and drop the text
+      if (error && /system_text|user_text|history_text|response_text/.test(error.message)) {
+        ({ error } = await supabase.from('llm_usage').insert(rows.map(({ system_text, user_text, history_text, response_text, ...rest }) => rest)));
+      }
       if (error && /llm_usage/.test(error.message)) this.llmUsageTableMissing = true;
     } catch { /* usage logging never breaks the coach */ }
   }

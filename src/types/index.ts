@@ -239,4 +239,9 @@ export interface LlmUsageRecord {
   prompt_chars: number;
   latency_ms: number;
   ok: boolean;
+  /** The full request and reply, for debugging prompts; present only when payload logging is on */
+  system_text?: string;
+  user_text?: string;
+  history_text?: string;
+  response_text?: string;
 }
