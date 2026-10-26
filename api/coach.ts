@@ -534,9 +534,10 @@ function sanitizeSpec(raw: any): FilterSpec {
   };
 }
 
-async function planFilter(engine: Engine, message: string): Promise<FilterSpec> {
+async function planFilter(engine: Engine, message: string, localToday?: string): Promise<FilterSpec> {
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    // The athlete's own date: the server clock is UTC and runs a day ahead of an evening in the Americas
+    const today = localToday && /^\d{4}-\d{2}-\d{2}$/.test(localToday) ? localToday : new Date().toISOString().slice(0, 10);
     const raw = await complete(engine, {
       tier: 'filter',
       system: FILTER_PROMPT,
@@ -582,14 +583,26 @@ function applyFilter(spec: FilterSpec, data: any) {
         default: return new Date(a.start_date).getTime() || 0;
       }
     };
-    const matched = ((data.activities as any[]) ?? [])
-      .filter(a => inRange(a.start_date, f.start_date, f.end_date))
-      .filter(a => !f.sport_types?.length || f.sport_types.includes(String(a.sport_type).toLowerCase()))
-      .filter(a => !f.keywords?.length || f.keywords.some(k => `${a.title ?? ''} ${a.gear_notes ?? ''} ${(a.tags ?? []).join(' ')}`.toLowerCase().includes(k)))
+    const sportMatch = (a: any) => f.sport_types?.includes(String(a.sport_type).toLowerCase());
+    const keywordMatch = (a: any) => f.keywords?.some(k => `${a.title ?? ''} ${a.gear_notes ?? ''} ${(a.tags ?? []).join(' ')}`.toLowerCase().includes(k));
+    const hasSports = !!f.sport_types?.length;
+    const hasKeywords = !!f.keywords?.length;
+    const all = (data.activities as any[]) ?? [];
+    const matched = all
+      // The athlete's local date (the client sends it), not the UTC date of the start time
+      .filter(a => inRange(a.date ?? a.start_date, f.start_date, f.end_date))
+      // A sport and a keyword are two ways of naming the same activity ("my hike"), so either may match: both together
+      // would drop a hike whose title does not say "hike"
+      .filter(a => (!hasSports && !hasKeywords) || (hasSports && sportMatch(a)) || (hasKeywords && keywordMatch(a)))
       .filter(a => f.min_tss === undefined || (a.tss ?? 0) >= f.min_tss)
       .filter(a => f.min_knee_discomfort === undefined || (a.knee_discomfort_level ?? 0) >= f.min_knee_discomfort)
       .sort((a, b) => key(b) - key(a));
-    out.activities = { totalMatching: matched.length, items: matched.slice(0, f.limit) };
+    let items = matched.slice(0, f.limit);
+    // The latest few activities are always sent: a filter that guessed wrong must not hide what the athlete just did
+    const latest = all.slice().sort((a, b) => (new Date(b.start_date).getTime() || 0) - (new Date(a.start_date).getTime() || 0)).slice(0, 3);
+    const have = new Set(items.map(a => a.id));
+    items = [...items, ...latest.filter(a => !have.has(a.id))];
+    out.activities = { totalMatching: matched.length, items };
   }
 
   if (spec.sessions.include) {
@@ -750,7 +763,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Callers that already send a curated `context` (e.g. weekly plan generation) skip this.
     let spec: FilterSpec | undefined;
     if (fullData) {
-      spec = await planFilter(engine, message);
+      spec = await planFilter(engine, message, typeof req.body?.today === 'string' ? req.body.today : undefined);
       if (focusGoal) {
         // Goal discussions always need the full picture: profile, load, goals, readiness, plan and recent training
         spec.include_profile = spec.include_pmc = spec.include_goals = spec.include_milestone = true;
@@ -788,7 +801,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             ? {
                 total_matching: (filtered as any).activities.totalMatching,
                 sent: (filtered as any).activities.items.length,
-                items: (filtered as any).activities.items.map((a: any) => ({ date: String(a.start_date ?? '').slice(0, 10), title: a.title, sport_type: a.sport_type })),
+                items: (filtered as any).activities.items.map((a: any) => ({ date: String(a.date ?? a.start_date ?? '').slice(0, 10), title: a.title, sport_type: a.sport_type })),
               }
             : undefined,
           sessions_sent: Array.isArray((filtered as any).scheduledTrainingSessions) ? (filtered as any).scheduledTrainingSessions.length : undefined,
