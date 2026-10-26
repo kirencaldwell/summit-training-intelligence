@@ -301,6 +301,8 @@ async function gatherAthleteContext(focusGoalId?: string) {
     title: a.title,
     sport_type: a.sport_type,
     start_date: a.start_date,
+    // The athlete's local day: the UTC start_date puts an evening activity on the next day
+    date: getLocalDateString(new Date(a.start_date)),
     duration_minutes: Math.round(a.duration_seconds / 60),
     ...activityUnitsForAI(a),
     normalized_power: a.normalized_power,
@@ -345,6 +347,7 @@ async function gatherAthleteContext(focusGoalId?: string) {
     title: a.title,
     sport_type: a.sport_type,
     start_date: a.start_date,
+    date: getLocalDateString(new Date(a.start_date)),
     duration_minutes: Math.round(a.duration_seconds / 60),
     ...activityUnitsForAI(a),
     avg_power: a.avg_power,
@@ -433,6 +436,7 @@ class GeminiCoachEngine {
     const { text, contextInfo } = await postCoachRaw({
       message: userQuery,
       calendar: calendarNote(),
+      today: getLocalDateString(new Date()),
       // The goal being discussed/replanned, with its readiness, so the coach stays on it
       focusGoal: focusGoal ? { ...focusGoal, milestone_readiness: { ...milestoneData, goal: undefined } } : undefined,
       // Prior turns so the model keeps the conversation context (greeting/system/error msgs excluded)
