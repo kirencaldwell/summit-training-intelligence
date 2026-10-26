@@ -226,3 +226,17 @@ export interface StravaConnectState {
   lastSyncedAt?: string;
   accessToken?: string;
 }
+
+/** One AI model call as the coach server reports it: sizes and counts, never prompt text. */
+export interface LlmUsageRecord {
+  mode: string;
+  tier: 'main' | 'filter';
+  provider: 'gemini' | 'claude';
+  model: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_tokens?: number;
+  prompt_chars: number;
+  latency_ms: number;
+  ok: boolean;
+}

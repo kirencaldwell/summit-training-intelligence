@@ -2,7 +2,7 @@ import { createClient, type User } from '@supabase/supabase-js';
 import type { MunterParams } from './munter';
 import type { TrackingMetric } from './trackingMetrics';
 import { routeOutline } from './routePreview';
-import type { Activity, AICoachMessage, AthleteProfile, Goal, TrainingSession, TrainingSessionStatus } from '../types';
+import type { Activity, AICoachMessage, AthleteProfile, Goal, LlmUsageRecord, TrainingSession, TrainingSessionStatus } from '../types';
 import { addDaysToDateOnly } from './trainingSessions';
 import { readStoredMessages } from './coachChatSync';
 import { isDuplicateActivity, MAX_START_GAP_MS } from './activityDuplicates';
@@ -421,6 +421,18 @@ class DataService {
     this.localGoals = this.localGoals.filter(g => g.id !== id);
     this.saveLocalState();
     return true;
+  }
+
+  private llmUsageTableMissing = false;
+
+  /** Log model calls (sizes and counts only). Best effort: a missing table or no Supabase just means nothing is recorded. */
+  public async logLlmUsage(records: LlmUsageRecord[]): Promise<void> {
+    if (!(this.mode === 'supabase' && supabase) || this.llmUsageTableMissing || records.length === 0) return;
+    try {
+      const profile = await this.getAuthenticatedProfile();
+      const { error } = await supabase.from('llm_usage').insert(records.map((r) => ({ ...r, user_id: profile.id })));
+      if (error && /llm_usage/.test(error.message)) this.llmUsageTableMissing = true;
+    } catch { /* usage logging never breaks the coach */ }
   }
 
   /** The account's synced coach chat. Only available with Supabase; throws if the coach_chats table is missing. */

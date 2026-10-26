@@ -223,6 +223,25 @@ CREATE TABLE IF NOT EXISTS public.integration_settings (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- One row per AI model call (sizes and counts only, never prompt text), so the athlete can see what the coach costs
+-- and which features are worth replacing with plain algorithms.
+CREATE TABLE IF NOT EXISTS public.llm_usage (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  mode TEXT NOT NULL,
+  tier TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  model TEXT,
+  input_tokens INTEGER,
+  output_tokens INTEGER,
+  cache_read_tokens INTEGER,
+  prompt_chars INTEGER,
+  latency_ms INTEGER,
+  ok BOOLEAN NOT NULL DEFAULT TRUE
+);
+CREATE INDEX IF NOT EXISTS idx_llm_usage_user_date ON public.llm_usage (user_id, created_at DESC);
+
 -- ---------------------------------------------------------
 -- INDEXES FOR PERFORMANCE
 -- ---------------------------------------------------------
@@ -240,6 +259,7 @@ ALTER TABLE public.activities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.training_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.coach_chats ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.integration_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.llm_usage ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Users can view own profile" ON public.profiles;
 DROP POLICY IF EXISTS "Users can view own goals" ON public.goals;
@@ -261,6 +281,8 @@ DROP POLICY IF EXISTS "Users can delete own training sessions" ON public.trainin
 DROP POLICY IF EXISTS "Users can view own coach chat" ON public.coach_chats;
 DROP POLICY IF EXISTS "Users can insert own coach chat" ON public.coach_chats;
 DROP POLICY IF EXISTS "Users can update own coach chat" ON public.coach_chats;
+DROP POLICY IF EXISTS "Users can view own llm usage" ON public.llm_usage;
+DROP POLICY IF EXISTS "Users can insert own llm usage" ON public.llm_usage;
 DROP POLICY IF EXISTS "Users can view own integration settings" ON public.integration_settings;
 DROP POLICY IF EXISTS "Users can insert own integration settings" ON public.integration_settings;
 DROP POLICY IF EXISTS "Users can update own integration settings" ON public.integration_settings;
@@ -323,6 +345,12 @@ CREATE POLICY "Users can update own coach chat" ON public.coach_chats
   FOR UPDATE TO authenticated USING (user_id = (SELECT public.current_profile_id()))
   WITH CHECK (user_id = (SELECT public.current_profile_id()));
 GRANT SELECT, INSERT, UPDATE ON public.coach_chats TO authenticated;
+
+CREATE POLICY "Users can view own llm usage" ON public.llm_usage
+  FOR SELECT TO authenticated USING (user_id = (SELECT public.current_profile_id()));
+CREATE POLICY "Users can insert own llm usage" ON public.llm_usage
+  FOR INSERT TO authenticated WITH CHECK (user_id = (SELECT public.current_profile_id()));
+GRANT SELECT, INSERT ON public.llm_usage TO authenticated;
 
 CREATE POLICY "Users can view own integration settings" ON public.integration_settings
   FOR SELECT TO authenticated USING (user_id = (SELECT public.current_profile_id()));

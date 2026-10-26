@@ -30,9 +30,26 @@ const CLAUDE_FILTER_MODEL = 'claude-haiku-4-5';
 
 type Turn = { role: 'user' | 'model'; text: string };
 
+/** One model call, for the athlete's own usage log (sizes and counts only, never prompt text). */
+export interface UsageRecord {
+  mode: string;
+  tier: 'main' | 'filter';
+  provider: 'gemini' | 'claude';
+  model: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_tokens?: number;
+  prompt_chars: number;
+  latency_ms: number;
+  ok: boolean;
+}
+
 type Engine =
-  | { provider: 'gemini'; genAI: GoogleGenerativeAI }
-  | { provider: 'claude'; client: Anthropic; model: string };
+  | { provider: 'gemini'; genAI: GoogleGenerativeAI; usage: UsageRecord[]; mode: string }
+  | { provider: 'claude'; client: Anthropic; model: string; usage: UsageRecord[]; mode: string };
+
+type Tokens = { input?: number; output?: number; cacheRead?: number };
+interface Completion { text: string; model: string; tokens: Tokens }
 
 interface CompleteRequest {
   system: string;
@@ -57,6 +74,14 @@ function sanitizeTurns(history: unknown): Turn[] {
   return turns;
 }
 
+function claudeTokens(u?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number | null }): Tokens {
+  return { input: u?.input_tokens, output: u?.output_tokens, cacheRead: u?.cache_read_input_tokens ?? undefined };
+}
+
+function geminiTokens(u?: { promptTokenCount?: number; candidatesTokenCount?: number; cachedContentTokenCount?: number }): Tokens {
+  return { input: u?.promptTokenCount, output: u?.candidatesTokenCount, cacheRead: u?.cachedContentTokenCount };
+}
+
 function claudeText(response: { content: Array<{ type: string; text?: string }> }): string {
   return response.content
     .filter((block) => block.type === 'text')
@@ -69,37 +94,59 @@ function claudeText(response: { content: Array<{ type: string; text?: string }> 
 const MODEL_TIMEOUT_MS = 50_000;
 
 async function complete(engine: Engine, req: CompleteRequest): Promise<string> {
+  const started = Date.now();
+  const record: UsageRecord = {
+    mode: engine.mode,
+    tier: req.tier,
+    provider: engine.provider,
+    model: '',
+    prompt_chars: req.system.length + req.user.length + (req.turns ?? []).reduce((n, t) => n + t.text.length, 0),
+    latency_ms: 0,
+    ok: false,
+  };
+  engine.usage.push(record);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error('The AI provider took too long to respond. Try again in a moment.')), MODEL_TIMEOUT_MS);
   });
   try {
-    return await Promise.race([completeUnbounded(engine, req), timeout]);
+    const done = await Promise.race([completeUnbounded(engine, req), timeout]);
+    record.model = done.model;
+    record.input_tokens = done.tokens.input;
+    record.output_tokens = done.tokens.output;
+    record.cache_read_tokens = done.tokens.cacheRead;
+    record.ok = true;
+    return done.text;
   } finally {
+    record.latency_ms = Date.now() - started;
     if (timer) clearTimeout(timer);
   }
 }
 
-async function completeUnbounded(engine: Engine, req: CompleteRequest): Promise<string> {
+async function completeUnbounded(engine: Engine, req: CompleteRequest): Promise<Completion> {
   const turns = req.turns ?? [];
 
   if (engine.provider === 'gemini') {
     if (req.tier === 'filter') {
+      const name = process.env.GEMINI_FILTER_MODEL || 'gemini-3.5-flash-lite';
       const model = engine.genAI.getGenerativeModel({
-        model: process.env.GEMINI_FILTER_MODEL || 'gemini-3.5-flash-lite',
+        model: name,
         systemInstruction: req.system,
         generationConfig: { responseMimeType: 'application/json', temperature: 0 },
       });
-      return (await model.generateContent(req.user)).response.text();
+      const { response } = await model.generateContent(req.user);
+      return { text: response.text(), model: name, tokens: geminiTokens(response.usageMetadata) };
     }
+    const name = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
     const model = engine.genAI.getGenerativeModel({
-      model: process.env.GEMINI_MODEL || 'gemini-3.5-flash',
+      model: name,
       systemInstruction: req.system,
     });
     const chat = model.startChat({
       history: turns.map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
     });
-    return (await chat.sendMessage(req.user)).response.text();
+    const { response } = await chat.sendMessage(req.user);
+    return { text: response.text(), model: name, tokens: geminiTokens(response.usageMetadata) };
   }
 
   const messages: Anthropic.MessageParam[] = [
@@ -115,7 +162,7 @@ async function completeUnbounded(engine: Engine, req: CompleteRequest): Promise<
       system: `${req.system}\n\nReturn only the raw JSON object: no markdown fences, no commentary.`,
       messages,
     });
-    return claudeText(response);
+    return { text: claudeText(response), model: CLAUDE_FILTER_MODEL, tokens: claudeTokens(response.usage) };
   }
 
   const params = {
@@ -151,7 +198,7 @@ async function completeUnbounded(engine: Engine, req: CompleteRequest): Promise<
   if (response.stop_reason === 'refusal') {
     throw new Error('Claude declined to answer this request. Try rephrasing it.');
   }
-  return claudeText(response);
+  return { text: claudeText(response), model: engine.model, tokens: claudeTokens(response.usage) };
 }
 
 const WITHIN_THE_RIDE = `**Within the ride** — the activity's time_series (when present) is a condensed view of the recorded data: a coarse timeline, best power for key durations, sustained_power_efforts, short_hard_efforts, power_surges, high_heart_rate_periods, block_structure and power_distribution (time spent in each power band, sized to the ride; use it to say how the ride's effort was spread: mostly easy with a few hard bursts, a steady middle, or polarized). block_structure is judged against the ride itself rather than FTP, so it catches intervals that are well below threshold or that step up in difficulty; check it for structured sets (reps, rest, progression) even when sustained_power_efforts is empty. short_hard_efforts lists the 10 s to 2 min hard efforts (sprints, short intervals) with their duration, average and peak watts, and the count; power_surges only lists the very highest peaks and understates how long a sprint lasted, so use short_hard_efforts for the effort's real length. When the plan prescribes sprints or short efforts (for example 3-4 sprints of 30 s), check plan_check_results first and then short_hard_efforts, and say how many were found and how they compare (count, duration, power); never say planned sprints are missing when they appear there. Look for intervals, sustained efforts, short hard efforts, power surges and periods of high heart rate, and describe what happened and when (minutes from the start, duration, watts or % FTP, HR). Say whether the ride was steady or structured, whether efforts looked like deliberate intervals or terrain-driven (repeated efforts of similar length and power separated by similar easy gaps are a deliberate set, even on a hilly route or a Zwift climb; call efforts terrain-driven only when their lengths, powers and spacing are irregular), whether HR drifted upward at steady power, and how this changes the picture given by the averages. If the lists are empty, say no notable efforts, short hard efforts, surges or high-HR periods were found. If time_series is missing, say the ride has no recorded time-series. Never invent efforts that are not in time_series.`;
@@ -555,6 +602,7 @@ function applyFilter(spec: FilterSpec, data: any) {
 
 function buildEngine(req: VercelRequest, res: VercelResponse): Engine | null {
   const body = req.body ?? {};
+  const mode = typeof body.mode === 'string' ? body.mode : 'chat';
 
   if (body.provider === 'claude') {
     const header = req.headers['x-anthropic-key'];
@@ -576,7 +624,7 @@ function buildEngine(req: VercelRequest, res: VercelResponse): Engine | null {
       maxRetries: 1,
       defaultHeaders: workspaceId ? { 'anthropic-workspace-id': workspaceId } : undefined,
     });
-    return { provider: 'claude', client, model };
+    return { provider: 'claude', client, model, usage: [], mode };
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
@@ -584,7 +632,7 @@ function buildEngine(req: VercelRequest, res: VercelResponse): Engine | null {
     res.status(500).json({ error: 'GEMINI_API_KEY not configured on server.' });
     return null;
   }
-  return { provider: 'gemini', genAI: new GoogleGenerativeAI(apiKey) };
+  return { provider: 'gemini', genAI: new GoogleGenerativeAI(apiKey), usage: [], mode };
 }
 
 function sendError(res: VercelResponse, err: unknown) {
@@ -640,7 +688,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         system: ESTIMATE_PROMPT,
         user: `<activity_context>\n${JSON.stringify(context, null, 2)}\n</activity_context>\n\n${message}`,
       });
-      return res.status(200).json({ text });
+      return res.status(200).json({ text, usage: engine.usage });
     }
 
     // Goal readiness: an on-request holistic judgement of one goal from a curated context
@@ -651,7 +699,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         system: READINESS_PROMPT,
         user: `<readiness_context>\n${JSON.stringify(context, null, 2)}\n</readiness_context>\n\n${message}`,
       });
-      return res.status(200).json({ text });
+      return res.status(200).json({ text, usage: engine.usage });
     }
 
     // Plan checks: the cheap model reads only the planned session text and returns checks for the client to measure
@@ -662,7 +710,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         system: PLAN_CHECKS_PROMPT,
         user: `<planned_session>\n${JSON.stringify(context, null, 2)}\n</planned_session>\n\n${message}`,
       });
-      return res.status(200).json({ text });
+      return res.status(200).json({ text, usage: engine.usage });
     }
 
     // Metrics worth tracking toward a goal: the model only chooses and sets targets, the client measures them
@@ -673,7 +721,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         system: GOAL_METRICS_PROMPT,
         user: `<metrics_context>\n${JSON.stringify(context, null, 2)}\n</metrics_context>\n\n${message}`,
       });
-      return res.status(200).json({ text });
+      return res.status(200).json({ text, usage: engine.usage });
     }
 
     // Assessment of a completed planned session from its linked activities (same single-shot shape)
@@ -684,7 +732,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         system: SESSION_ASSESSMENT_PROMPT,
         user: `<session_context>\n${JSON.stringify(context, null, 2)}\n</session_context>\n\n${message}`,
       });
-      return res.status(200).json({ text });
+      return res.status(200).json({ text, usage: engine.usage });
     }
 
     // Single-shot activity assessment: the client sends a curated context, no chat history or filtering
@@ -695,7 +743,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         system: ASSESSMENT_PROMPT,
         user: `<activity_context>\n${JSON.stringify(context, null, 2)}\n</activity_context>\n\n${message}`,
       });
-      return res.status(200).json({ text });
+      return res.status(200).json({ text, usage: engine.usage });
     }
 
     // Step 1+2 (chat only): cheap model plans a filter, server applies it to the full dataset.
@@ -746,7 +794,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           sessions_sent: Array.isArray((filtered as any).scheduledTrainingSessions) ? (filtered as any).scheduledTrainingSessions.length : undefined,
         }
       : undefined;
-    return res.status(200).json({ text, context_info: contextInfo });
+    return res.status(200).json({ text, context_info: contextInfo, usage: engine.usage });
   } catch (err) {
     return sendError(res, err);
   }
