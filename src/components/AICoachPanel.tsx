@@ -27,8 +27,6 @@ interface AICoachPanelProps {
   syncStatus?: ChatSyncStatus;
   setMessages: React.Dispatch<React.SetStateAction<AICoachMessage[]>>;
   trainingSessions: TrainingSession[];
-  isGeneratingWeeklyPlan: boolean;
-  onGenerateWeeklyPlan: () => Promise<void>;
   onUpdateTrainingSession: (id: string, status: TrainingSessionStatus) => Promise<void>;
   onAcceptProposedPlan?: (proposal: ProposedPlanAction) => Promise<void>;
   onAcceptProposedGoal?: (goal: Goal, updatesGoalId?: string) => Promise<void>;
@@ -45,8 +43,6 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
   syncStatus,
   setMessages,
   trainingSessions,
-  isGeneratingWeeklyPlan,
-  onGenerateWeeklyPlan,
   onUpdateTrainingSession,
   onAcceptProposedPlan,
   onAcceptProposedGoal,
@@ -66,10 +62,13 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
   const [planActionMsgId, setPlanActionMsgId] = useState<string | null>(null);
   const [goalActionMsgId, setGoalActionMsgId] = useState<string | null>(null);
   const [expandedToolLogs, setExpandedToolLogs] = useState<Record<string, boolean>>({});
-  const chatBottomRef = useRef<HTMLDivElement>(null);
+  const feedRef = useRef<HTMLDivElement>(null);
+  // Proposed sessions start collapsed on a phone, where they would otherwise take the whole screen from the chat
+  const [showProposed, setShowProposed] = useState(() => typeof window === 'undefined' || !window.matchMedia || window.matchMedia('(min-width: 640px)').matches);
 
   useEffect(() => {
-    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Scroll the feed itself: scrollIntoView would also drag the whole page (and the header) along on a phone
+    feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, isProcessing]);
 
   // Arriving from a goal with a suggested prompt: put it in the input for the athlete to send or edit
@@ -180,15 +179,6 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
     );
   };
 
-  const handleGenerateWeeklyPlan = async () => {
-    setPlanError('');
-    try {
-      await onGenerateWeeklyPlan();
-    } catch (err) {
-      setPlanError(err instanceof Error ? err.message : 'The weekly plan could not be saved.');
-    }
-  };
-
   const handleSessionStatus = async (session: TrainingSession, status: TrainingSessionStatus) => {
     setUpdatingSessionId(session.id);
     setPlanError('');
@@ -221,7 +211,7 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
       ];
 
   return (
-    <div className="w-full max-w-5xl mx-auto glass-panel rounded-2xl border border-white/10 flex flex-col h-[min(750px,calc(100dvh-9rem))] min-h-[560px] shadow-2xl overflow-hidden">
+    <div className="w-full max-w-5xl mx-auto glass-panel rounded-2xl border border-white/10 flex flex-col h-[calc(100dvh-13rem)] min-h-[420px] sm:h-[min(750px,calc(100dvh-9rem))] sm:min-h-[560px] shadow-2xl overflow-hidden">
       
       {/* Header */}
       <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-white/10 bg-slate-950/60 flex items-center justify-between">
@@ -239,7 +229,7 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
                 {activeCoachLabel()}
               </span>
             </h2>
-            <p className="text-[11px] text-slate-400">Contextual multi-sport coaching from your activities, goals and notes</p>
+            <p className="hidden sm:block text-[11px] text-slate-400">Contextual multi-sport coaching from your activities, goals and notes</p>
           </div>
         </div>
 
@@ -301,29 +291,25 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
       )}
 
       {/* Individually accepted weekly proposals */}
-      <section className="border-b border-white/10 bg-slate-950/35 px-5 py-4 space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      {proposedSessions.length > 0 && (
+      <section className="border-b border-white/10 bg-slate-950/35 px-3 sm:px-5 py-3 sm:py-4 space-y-3">
+        <button
+          type="button"
+          onClick={() => setShowProposed((v) => !v)}
+          aria-expanded={showProposed}
+          className="flex w-full items-center justify-between gap-3 text-left"
+        >
           <div>
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <CalendarDays className="w-4 h-4 text-cyan-400" /> Next Week's Sessions
+              <CalendarDays className="w-4 h-4 text-cyan-400" /> Next Week's Sessions ({proposedSessions.length})
             </h3>
             <p className="text-[11px] text-slate-400 mt-1">Review and accept each workout separately.</p>
           </div>
-          <button
-            type="button"
-            onClick={() => void handleGenerateWeeklyPlan()}
-            disabled={isGeneratingWeeklyPlan}
-            className="min-h-11 inline-flex items-center justify-center gap-2 rounded-lg bg-cyan-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-cyan-400 disabled:opacity-50"
-          >
-            <Sparkles className={`w-3.5 h-3.5 ${isGeneratingWeeklyPlan ? 'animate-pulse' : ''}`} />
-            {isGeneratingWeeklyPlan ? 'Building plan...' : 'Generate weekly plan'}
-          </button>
-        </div>
+          <span className="shrink-0 text-[11px] font-semibold text-cyan-300">{showProposed ? 'Hide' : 'Show'}</span>
+        </button>
 
-        {planError && <p role="alert" className="text-xs text-rose-300">{planError}</p>}
-
-        {proposedSessions.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
+        {showProposed && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
             {proposedSessions.map((session) => (
               <article key={session.id} className="rounded-lg border border-white/10 bg-slate-900/70 p-3">
                 <div className="flex items-start justify-between gap-3">
@@ -360,24 +346,25 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
                 </div>
               </article>
             ))}
-          </div>
-        ) : (
-          <p className="text-xs text-slate-500">No proposed sessions. Generate a plan to review workouts for next week.</p>
+        </div>
         )}
       </section>
+      )}
+
+      {planError && <p role="alert" className="border-b border-rose-500/20 bg-rose-500/5 px-3 sm:px-5 py-2 text-xs text-rose-300">{planError}</p>}
 
       {/* Message Feed */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-gradient-to-b from-slate-950/40 via-summit-dark/60 to-slate-950/40">
+      <div ref={feedRef} className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-4 sm:space-y-6 bg-gradient-to-b from-slate-950/40 via-summit-dark/60 to-slate-950/40">
         {messages.map((msg) => (
           <div
             key={msg.id}
-            className={`flex items-start space-x-3 ${
-              msg.sender === 'user' ? 'flex-row-reverse space-x-reverse' : ''
+            className={`flex items-start sm:space-x-3 ${
+              msg.sender === 'user' ? 'flex-row-reverse sm:space-x-reverse' : ''
             }`}
           >
             {/* Avatar */}
             <div
-              className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${
+              className={`hidden sm:flex w-8 h-8 rounded-xl items-center justify-center flex-shrink-0 ${
                 msg.sender === 'user'
                   ? 'bg-cyan-500 text-slate-950 font-bold'
                   : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
@@ -387,9 +374,9 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
             </div>
 
             {/* Content Bubble */}
-            <div className={`max-w-2xl space-y-2`}>
+            <div className={`min-w-0 max-w-2xl space-y-2 ${msg.sender === 'user' ? 'ml-auto' : 'flex-1'}`}>
               <div
-                className={`p-4 rounded-2xl text-sm leading-relaxed ${
+                className={`p-3 sm:p-4 rounded-2xl text-sm leading-relaxed break-words [overflow-wrap:anywhere] ${
                   msg.sender === 'user'
                     ? 'bg-cyan-500/10 border border-cyan-500/30 text-cyan-50 text-right rounded-tr-none'
                     : 'glass-panel border-white/10 text-slate-200 rounded-tl-none'
@@ -417,7 +404,7 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
 
               {/* Proposal Card embedded in chat if AI generated/modified workouts */}
               {msg.proposedPlan && msg.proposedPlan.sessions.length > 0 && (
-                <div className="rounded-2xl border border-cyan-500/30 bg-slate-900/95 p-4 shadow-2xl space-y-3">
+                <div className="rounded-2xl border border-cyan-500/30 bg-slate-900/95 p-3 sm:p-4 shadow-2xl space-y-3">
                   {/* Header */}
                   <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-2.5">
                     <div className="flex items-center gap-2.5 min-w-0">
@@ -530,7 +517,7 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
 
               {/* Long-Term Goal & Periodization Proposal Card */}
               {msg.proposedGoal && (
-                <div className="rounded-2xl border border-amber-500/30 bg-gradient-to-b from-slate-900 via-slate-900/95 to-slate-950 p-5 shadow-2xl space-y-4">
+                <div className="rounded-2xl border border-amber-500/30 bg-gradient-to-b from-slate-900 via-slate-900/95 to-slate-950 p-3 sm:p-5 shadow-2xl space-y-4">
                   {/* Header */}
                   <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-3">
                     <div className="flex items-center gap-3">
@@ -740,7 +727,6 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
             <span className="font-mono">Gemini AI querying training database & reasoning...</span>
           </div>
         )}
-        <div ref={chatBottomRef} />
       </div>
 
       {/* Quick Prompts & Input Controls */}

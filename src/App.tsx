@@ -5,7 +5,7 @@ import { dataService, isSupabaseConfigured, supabase } from './lib/supabase';
 import type { GoalReadinessAssessment } from './lib/goalReadiness';
 import { installIntensityModel } from './lib/intensityModel';
 import { calculatePMC, calculatePowerCurve, calculateVAM, canImproveWithAi, hasPowerCurveData } from './lib/trainingMath';
-import { addDaysToDateOnly, getCurrentTrainingWeekStartDate, getNextTrainingWeekStartDate } from './lib/trainingSessions';
+import { addDaysToDateOnly, getCurrentTrainingWeekStartDate } from './lib/trainingSessions';
 import { Navbar } from './components/Navbar';
 import { DashboardOverview } from './components/DashboardOverview';
 import { ActivityList } from './components/ActivityList';
@@ -92,7 +92,6 @@ export function App() {
   );
   const [goals, setGoals] = useState<Goal[]>([]);
   const [trainingSessions, setTrainingSessions] = useState<TrainingSession[]>([]);
-  const [isGeneratingWeeklyPlan, setIsGeneratingWeeklyPlan] = useState(false);
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [chatSync, setChatSync] = useState<ChatSyncStatus>({ state: 'idle' });
   const [authReady, setAuthReady] = useState(!isSupabaseConfigured);
@@ -421,26 +420,6 @@ export function App() {
     await dataService.deleteActivity(activity.id);
     setActivities((prev) => prev.filter((item) => item.id !== activity.id));
     setSelectedActivity((prev) => prev?.id === activity.id ? null : prev);
-  };
-
-  const handleGenerateWeeklyPlan = async () => {
-    setIsGeneratingWeeklyPlan(true);
-    try {
-      const weekStartDate = getNextTrainingWeekStartDate();
-      const occupiedDates = trainingSessions
-        .filter((session) => session.week_start_date === weekStartDate && session.status !== 'PROPOSED')
-        .map((session) => session.session_date);
-      const drafts = await coachEngine.generateWeeklyPlan(occupiedDates);
-      const generatedWeekStartDate = drafts[0]?.week_start_date;
-      if (!generatedWeekStartDate) throw new Error('There are no remaining workout days to propose for next week.');
-      const proposed = await dataService.replaceProposedTrainingSessions(generatedWeekStartDate, drafts);
-      setTrainingSessions((previous) => [
-        ...previous.filter((session) => session.week_start_date !== generatedWeekStartDate || session.status !== 'PROPOSED'),
-        ...proposed,
-      ]);
-    } finally {
-      setIsGeneratingWeeklyPlan(false);
-    }
   };
 
   const handleUpdateTrainingSession = async (id: string, status: TrainingSessionStatus) => {
@@ -960,8 +939,6 @@ export function App() {
             syncStatus={isSupabaseConfigured ? chatSync : undefined}
             setMessages={setCoachMessages}
             trainingSessions={trainingSessions}
-            isGeneratingWeeklyPlan={isGeneratingWeeklyPlan}
-            onGenerateWeeklyPlan={handleGenerateWeeklyPlan}
             onUpdateTrainingSession={handleUpdateTrainingSession}
             onAcceptProposedPlan={handleAcceptProposedPlan}
             onAcceptProposedGoal={handleAcceptProposedGoal}
