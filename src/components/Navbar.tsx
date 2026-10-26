@@ -28,8 +28,17 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  // On a phone the header slides away once the page is scrolled off the top, to give the content the room
+  const [scrolledAway, setScrolledAway] = useState(false);
   const desktopMenuRef = useRef<HTMLDivElement>(null);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onScroll = () => setScrolledAway(window.scrollY > 24);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   useEffect(() => {
     if (!isProfileMenuOpen) return;
@@ -83,7 +92,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <>
-    <header className="sticky top-0 z-40 w-full glass-panel border-b border-white/10 bg-summit-dark/80 backdrop-blur-md">
+    <header className={`sticky top-0 z-40 w-full glass-panel border-b border-white/10 bg-summit-dark/80 backdrop-blur-md transition-transform duration-200 ${scrolledAway && !isProfileMenuOpen && !isMobileMenuOpen ? 'max-xl:-translate-y-full' : ''}`}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between min-h-14 xl:h-16">
           {/* Logo */}
