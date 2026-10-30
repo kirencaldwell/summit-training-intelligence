@@ -45,7 +45,7 @@ const MetricCard: React.FC<{ metric: TrackingMetric; evaluation: MetricEvaluatio
     ? Math.max(0, Math.min(100, ((evaluation.expected - metric.start_value) / (metric.target - metric.start_value)) * 100))
     : undefined;
   return (
-    <div className="rounded-xl border border-white/10 bg-slate-900/50 p-3 space-y-2">
+    <div id={`metric-${metric.id}`} className="scroll-mt-24 rounded-xl border border-white/10 bg-slate-900/50 p-3 space-y-2">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-white truncate">{metric.name}</p>

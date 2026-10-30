@@ -9,7 +9,7 @@ import type { LoadProfile } from './trainingMath';
  * facts the rest of the app uses (plan, load, goal pacing, tracked metrics). Each flag says what it noticed, with
  * the numbers, and what to do about it.
  */
-export type BriefAction = { kind: 'plan_week' } | { kind: 'tab'; tab: 'training' | 'goals' | 'activities' | 'performance'; label: string };
+export type BriefAction = { kind: 'plan_week' } | { kind: 'tab'; tab: 'training' | 'goals' | 'activities' | 'performance'; label: string; /** id of the element to scroll to once the tab is open */ target?: string };
 
 export interface BriefFlag {
   id: string;
@@ -115,7 +115,7 @@ export function buildBrief({ sessions, activities, pmc, goals, loadProfile, metr
       flags.push({
         id: `goal-${goal.id}`, level: 'warn',
         text: `${goal.name} is ${gp.status === 'well_behind' ? 'well ' : ''}behind its plan: fitness ${Math.round(gp.actualCtl ?? 0)} against about ${Math.round(gp.expectedCtl ?? 0)} expected today${gp.neededRampPerWeek !== undefined ? `, needing about ${gp.neededRampPerWeek >= 0 ? '+' : ''}${gp.neededRampPerWeek.toFixed(1)} CTL a week to catch up` : ''}.`,
-        action: { kind: 'tab', tab: 'training', label: 'See the long-term plan' },
+        action: { kind: 'tab', tab: 'training', label: 'See the goal', target: `goal-${goal.id}` },
       });
     } else if (gp.status === 'ahead') {
       flags.push({ id: `goal-${goal.id}`, level: 'good', text: `${goal.name} is ahead of its plan (fitness ${Math.round(gp.actualCtl ?? 0)} vs about ${Math.round(gp.expectedCtl ?? 0)}).` });
@@ -126,7 +126,7 @@ export function buildBrief({ sessions, activities, pmc, goals, loadProfile, metr
         flags.push({
           id: `metric-${metric.id}`, level: 'warn',
           text: `${metric.name}: ${formatMetricValue(metric, ev.current)} now vs about ${formatMetricValue(metric, ev.expected)} on the path to ${formatMetricValue(metric, metric.target)}.`,
-          action: { kind: 'tab', tab: 'training', label: 'See the metric' },
+          action: { kind: 'tab', tab: 'training', label: 'See the metric', target: `metric-${metric.id}` },
         });
       }
     }
