@@ -1,5 +1,5 @@
 import { estimateMunter, isMunterSport, type MunterParams } from '../munter';
-import type { Activity, AICoachMessage, AICoachToolCall, AthleteProfile, Goal, MetricStreamPoint, ProposedGoalAction, ProposedPlanAction, TrainingSession } from '../../types';
+import type { Activity, AICoachMessage, AICoachToolCall, AthleteProfile, Goal, MetricStreamPoint, ProposedGoalAction, ProposedPlanAction, SessionScore, TrainingSession } from '../../types';
 import { dataService } from '../supabase';
 import { calculatePMC, calculatePowerCurve, calculatePowerReadiness, resolveTss, tssFromIntensity } from '../trainingMath';
 import { CoachApiError, coachRequestExtras, readCoachError } from '../coachSettings';
@@ -8,6 +8,8 @@ import { summarizeStreams } from '../streamSummary';
 import { intensityCharacter, sameDayTotals } from '../intensityCharacter';
 import { evaluatePlanChecks, parsePlanChecks, type PlanCheck } from '../planChecks';
 import { buildWeekSummaries, goalProgress } from '../trainingLog';
+import { scoreSession } from '../sessionScore';
+import { parseWeekDraft, type CheckIn, type DraftSession, type WeekBudget } from '../weekBudget';
 import { buildProgressContext } from './progressContext';
 import { metricMenu, parseMetricProposals, withBaselines, type MetricContext, type TrackingMetric } from '../trackingMetrics';
 import { parseReadinessReply, type GoalReadinessAssessment } from '../goalReadiness';
@@ -51,7 +53,7 @@ async function postCoach(body: Record<string, unknown>): Promise<string> {
 }
 
 // Plan checks are generated once per planned session (a cheap model reads the plan text) and kept on this device
-const PLAN_CHECKS_CACHE_KEY = 'summit_plan_checks_v1';
+const PLAN_CHECKS_CACHE_KEY = 'summit_plan_checks_v2';
 const PLAN_CHECKS_CACHE_MAX = 150;
 
 function planTextHash(s: TrainingSession): string {
@@ -812,6 +814,82 @@ class GeminiCoachEngine {
    * like a single-activity assessment, the plan's measurable checks are run on each one, and the coach sees the
    * combined totals against what was planned.
    */
+  /**
+   * Draft one week of sessions for the athlete's stated availability. The model only fills the available days; the
+   * budget (how much training the week should hold) is worked out in software and the draft is checked against it.
+   */
+  public async generateWeekPlan(checkIn: CheckIn, budget: WeekBudget, extraNote?: string): Promise<DraftSession[]> {
+    const { statusData, recentActivities, trainingLog, progress } = await gatherAthleteContext();
+    const text = await postCoach({
+      mode: 'weekly_plan',
+      message: `Draft the sessions for the week starting ${checkIn.week_start}.${extraNote?.trim() ? ` The athlete also asks: ${extraNote.trim().slice(0, 500)}` : ''}`,
+      context: {
+        check_in: {
+          week_start: checkIn.week_start,
+          availability: checkIn.days.filter((d) => d.available).map((d) => ({ date: d.date, max_minutes: d.max_minutes, athlete_note: d.note?.trim().slice(0, 160) || undefined })),
+          unavailable: checkIn.days.filter((d) => !d.available).map((d) => d.date),
+          feeling: checkIn.feel,
+          athlete_notes_for_the_week: checkIn.notes.trim().slice(0, 600) || undefined,
+        },
+        budget: {
+          remaining_tss_min: budget.remaining_tss_min,
+          remaining_tss_target: budget.remaining_tss_target,
+          remaining_tss_max: budget.remaining_tss_max,
+          max_session_tss: budget.max_session_tss,
+          max_hard_days: budget.max_hard_days,
+          slots: budget.slots,
+          why: budget.reasons,
+          fitness_now: { ctl: budget.ctl_now, atl: budget.atl_now, tsb: budget.tsb_now },
+        },
+        athleteStatus: statusData,
+        recent_activities: recentActivities.slice(0, 6),
+        planVsActualLastWeeks: trainingLog,
+        goalProgress: progress.goal_progress,
+      },
+    });
+    const drafts = parseWeekDraft(text, checkIn.week_start);
+    if (drafts.length === 0) throw new Error('The coach did not return a usable week. Try again.');
+    return drafts;
+  }
+
+  /**
+   * Score a completed session against its plan with no AI call beyond the cached plan-text parse: duration, load and
+   * the measurable checks run on each linked activity's recorded data. Returns the score for the caller to store.
+   */
+  public async scoreSession(session: TrainingSession): Promise<SessionScore> {
+    const linkedIds = session.completed_activity_ids ?? [];
+    if (linkedIds.length === 0) throw new Error('Link at least one activity to this session first.');
+    const [profile, activities] = await Promise.all([dataService.getProfile(), dataService.getActivities()]);
+    const linked = linkedIds
+      .map((id) => activities.find((a) => a.id === id))
+      .filter((a): a is Activity => Boolean(a));
+    if (linked.length === 0) throw new Error('The activities linked to this session could not be found.');
+
+    const loadProfile = { ftp: profile.ftp, lthr: profile.lthr, weight_kg: profile.weight_kg };
+    const streams = await Promise.all(linked.map(async (a) => {
+      if (a.streams_data?.length) return a.streams_data;
+      try { return (await dataService.getActivityById(a.id))?.streams_data; } catch { return undefined; }
+    }));
+
+    let checks: PlanCheck[] = [];
+    try {
+      checks = await planChecksFor(session, profile.ftp);
+    } catch (err) {
+      console.warn('Could not build the plan checks for scoring:', err);
+    }
+    const thresholds = { ftp: profile.ftp || undefined, lthr: profile.lthr || undefined };
+    const perActivity = streams.map((points) => evaluatePlanChecks(points, checks, thresholds));
+
+    return scoreSession({
+      planned_minutes: session.duration_minutes,
+      planned_tss: session.target_tss,
+      actual_minutes: linked.reduce((n, a) => n + a.duration_seconds / 60, 0),
+      actual_tss: linked.reduce((n, a) => n + resolveTss(a, loadProfile).tss, 0),
+      check_results: checks.map((_, i) => perActivity.map((r) => r[i])),
+      activity_ids: linked.map((a) => a.id),
+    });
+  }
+
   public async assessSession(session: TrainingSession): Promise<string> {
     const linkedIds = session.completed_activity_ids ?? [];
     if (linkedIds.length === 0) throw new Error('Link at least one activity to this session first.');

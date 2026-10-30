@@ -1,6 +1,9 @@
 import type { MetricStreamPoint } from '../types';
 import { calculateHRZones, calculatePowerZones } from './trainingMath';
 import { findRuns, smooth, toSeconds, type Second } from './streamSummary';
+import { estimateMunter } from './munter';
+import { hysteresisGain } from './elevation';
+import { mToFt } from './units';
 
 /**
  * Plan checks: measurable things a planned session asked for ("3 x 30 s sprints", "stay in Z2", "2 x 20 min at 250 W").
@@ -11,7 +14,11 @@ export type PlanCheck =
   | { kind: 'repeated_efforts'; label: string; reps?: number; seconds: number; min_watts?: number; min_percent_ftp?: number; optional?: boolean }
   | { kind: 'intervals'; label: string; reps: number; minutes: number; target_watts?: number; target_percent_ftp?: number; tolerance_percent: number }
   | { kind: 'power_cap'; label: string; max_watts?: number; max_percent_ftp?: number }
-  | { kind: 'time_in_zone'; label: string; metric: 'power' | 'hr'; zone_min?: number; zone_max?: number; min_percent_in_range?: number };
+  | { kind: 'time_in_zone'; label: string; metric: 'power' | 'hr'; zone_min?: number; zone_max?: number; min_percent_in_range?: number }
+  /** Hiking and ski touring: how fast the athlete climbed while climbing (not the whole-activity average) */
+  | { kind: 'climb_rate'; label: string; min_ft_per_hour: number }
+  /** Hiking and ski touring: total height gained */
+  | { kind: 'vertical_gain'; label: string; min_feet: number };
 
 export const MAX_PLAN_CHECKS = 8;
 
@@ -64,6 +71,14 @@ export function parsePlanChecks(raw: unknown): PlanCheck[] {
       if (!metric || (zone_min === undefined && zone_max === undefined)) continue;
       if (metric === 'hr' && ((zone_min ?? 1) > 5 || (zone_max ?? 1) > 5)) continue;
       out.push({ kind: 'time_in_zone', label, metric, zone_min, zone_max, min_percent_in_range: int(c.min_percent_in_range, 1, 100) });
+    } else if (c.kind === 'climb_rate') {
+      const min_ft_per_hour = int(c.min_ft_per_hour, 200, 6000);
+      if (min_ft_per_hour === undefined) continue;
+      out.push({ kind: 'climb_rate', label, min_ft_per_hour });
+    } else if (c.kind === 'vertical_gain') {
+      const min_feet = int(c.min_feet, 100, 25000);
+      if (min_feet === undefined) continue;
+      out.push({ kind: 'vertical_gain', label, min_feet });
     }
   }
   return out;
@@ -119,6 +134,36 @@ export function evaluatePlanChecks(
     const base = { label: c.label, kind: c.kind } as const;
     const unmeasurable = (status: string, why: string): PlanCheckResult => ({ ...base, status, measured_as: why });
     if (!secs.length) return unmeasurable('no_time_series', 'this ride has no recorded time series');
+
+    if (c.kind === 'climb_rate') {
+      const m = estimateMunter(points);
+      if (!m || m.ascent_mh === undefined) return unmeasurable('not_measurable', 'not enough climbing in the recording to measure a climbing rate');
+      const rate = round(mToFt(m.ascent_mh));
+      const best30 = m.best_30min_climb_mh !== undefined ? round(mToFt(m.best_30min_climb_mh)) : undefined;
+      const status = rate >= c.min_ft_per_hour * 0.95 ? 'met' : rate >= c.min_ft_per_hour * 0.8 ? 'partly_met' : 'below_target';
+      return {
+        ...base, status,
+        measured_as: 'height gained over moving time on climbing ground (breaks left out), in ft/h',
+        found: rate, expected: c.min_ft_per_hour,
+        stats: {
+          climbing_rate_ft_per_hour: rate,
+          ...(m.ascent_mh_with_breaks !== undefined ? { climbing_rate_with_breaks_ft_per_hour: round(mToFt(m.ascent_mh_with_breaks)) } : {}),
+          ...(best30 !== undefined ? { best_30min_climb_ft_per_hour: best30 } : {}),
+          minutes_climbing: m.up_minutes,
+        },
+      };
+    }
+
+    if (c.kind === 'vertical_gain') {
+      const alts = (points ?? []).map((p) => p.alt).filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+      if (alts.length < 10) return unmeasurable('not_measurable', 'no altitude data');
+      const feet = round(mToFt(hysteresisGain(alts, 5)));
+      const status = feet >= c.min_feet * 0.95 ? 'met' : feet >= c.min_feet * 0.8 ? 'partly_met' : 'short';
+      return {
+        ...base, status, measured_as: 'height gained with GPS altitude noise filtered out, in feet',
+        found: feet, expected: c.min_feet, stats: { gain_ft: feet },
+      };
+    }
 
     if (c.kind === 'repeated_efforts') {
       if (!hasPower) return unmeasurable('no_power_data', 'no power data');

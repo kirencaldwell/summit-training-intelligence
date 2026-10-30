@@ -18,6 +18,12 @@ export interface TrainingWeekSectionProps {
   onReopenTrainingSession?: (id: string) => Promise<void>;
   /** Asks the coach to assess a completed session from its linked activities; synced is false when it could only be kept on this device */
   onAssessTrainingSession?: (id: string) => Promise<{ synced: boolean }>;
+  /** Opens the weekly check-in */
+  onPlanWeek?: () => void;
+  /** Scores a completed session against its plan (software only); synced is false when it could only be kept on this device */
+  onScoreTrainingSession?: (id: string) => Promise<{ synced: boolean }>;
+  /** Sessions being scored right now */
+  scoringSessionIds?: string[];
   /** 'plan' (default): the open sessions with the plan header and actions. 'log': one past week's sessions inside the training log */
   variant?: 'plan' | 'log';
   /** Every session, so the activity picker can flag activities already linked elsewhere */
@@ -34,6 +40,9 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
   onCompleteTrainingSession,
   onReopenTrainingSession,
   onAssessTrainingSession,
+  onScoreTrainingSession,
+  onPlanWeek,
+  scoringSessionIds = [],
   variant = 'plan',
   allSessions,
 }) => {
@@ -42,6 +51,17 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
   const [sessionNotice, setSessionNotice] = useState('');
   const [assessingSessionId, setAssessingSessionId] = useState<string | null>(null);
   const [assessErrors, setAssessErrors] = useState<Record<string, string>>({});
+
+  const scoreSession = async (id: string) => {
+    if (!onScoreTrainingSession) return;
+    setAssessErrors((prev) => ({ ...prev, [id]: '' }));
+    try {
+      const { synced } = await onScoreTrainingSession(id);
+      setSessionNotice(synced ? '' : 'The score is saved on this device only until the database is updated (run the latest supabase/schema.sql).');
+    } catch (err) {
+      setAssessErrors((prev) => ({ ...prev, [id]: err instanceof Error ? err.message : 'The session could not be scored.' }));
+    }
+  };
 
   const assessSession = async (id: string) => {
     if (!onAssessTrainingSession) return;
@@ -113,19 +133,21 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
                 </button>
               )
             )}
+            {onPlanWeek && (
+              <button
+                type="button"
+                onClick={onPlanWeek}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500 text-xs font-bold text-slate-950 hover:bg-cyan-400 transition-all"
+              >
+                <Sparkles className="w-3.5 h-3.5" /> Plan the week
+              </button>
+            )}
             <button
               type="button"
               onClick={() => onNavigateTab('coach')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/20 transition-all"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-xs font-semibold text-slate-300 hover:text-white hover:bg-white/5 transition-all"
             >
-              <Sparkles className="w-3.5 h-3.5" /> Replan with Coach
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigateTab('coach')}
-              className="text-xs font-semibold text-slate-400 hover:text-white px-2 py-1.5"
-            >
-              Review weekly plan
+              <Bot className="w-3.5 h-3.5" /> Ask the coach
             </button>
           </div>
         </div>
@@ -193,6 +215,14 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
                 )}
                 {session.status === 'COMPLETED' && (session.completed_activity_ids?.length ?? 0) === 0 && onAssessTrainingSession && (
                   <p className="mt-3 text-[11px] text-slate-500">Link the activities that did this session (Edit links) to get a coach assessment.</p>
+                )}
+                {session.status === 'COMPLETED' && (session.completed_activity_ids?.length ?? 0) > 0 && (
+                  <SessionScoreBlock
+                    session={session}
+                    scoring={scoringSessionIds.includes(session.id)}
+                    onScore={onScoreTrainingSession ? () => void scoreSession(session.id) : undefined}
+                    hasAssessment={Boolean(session.coach_assessment)}
+                  />
                 )}
                 {assessErrors[session.id] && <p role="alert" className="mt-2 text-xs text-rose-400">{assessErrors[session.id]}</p>}
                 {session.status === 'COMPLETED' && session.coach_assessment && (
@@ -290,7 +320,7 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
         ) : (
           <div className="rounded-lg border border-dashed border-white/10 px-4 py-5 text-sm text-slate-400">
             {variant === 'plan'
-              ? 'Nothing left to do this week. Generate the next week in the AI Coach, or see what you did in the training log below.'
+              ? 'Nothing left to do this week. Plan the next one with "Plan the week", or see what you did in the training log below.'
               : 'No planned sessions this week.'}
           </div>
         )}
@@ -342,5 +372,51 @@ export const NextSessionsPreview: React.FC<{ sessions: TrainingSession[]; onNavi
         </div>
       )}
     </section>
+  );
+};
+
+const VERDICT_STYLE: Record<NonNullable<TrainingSession['auto_score']>['verdict'], { box: string; text: string; label: string }> = {
+  on_plan: { box: 'border-emerald-500/30 bg-emerald-500/10', text: 'text-emerald-200', label: 'On plan' },
+  partly: { box: 'border-amber-500/30 bg-amber-500/10', text: 'text-amber-200', label: 'Partly on plan' },
+  off_plan: { box: 'border-rose-500/30 bg-rose-500/10', text: 'text-rose-200', label: 'Off plan' },
+  unmeasured: { box: 'border-white/10 bg-white/5', text: 'text-slate-300', label: 'Not measurable' },
+};
+const ITEM_MARK: Record<'met' | 'partial' | 'missed' | 'info', { mark: string; color: string }> = {
+  met: { mark: '✓', color: 'text-emerald-400' },
+  partial: { mark: '~', color: 'text-amber-400' },
+  missed: { mark: '✗', color: 'text-rose-400' },
+  info: { mark: '–', color: 'text-slate-500' },
+};
+
+/** The software verdict on a completed session: how the linked activities matched the plan, no AI involved. */
+const SessionScoreBlock: React.FC<{ session: TrainingSession; scoring: boolean; onScore?: () => void; hasAssessment: boolean }> = ({ session, scoring, onScore, hasAssessment }) => {
+  const linked = session.completed_activity_ids ?? [];
+  const score = session.auto_score;
+  // A score from a different set of linked activities is out of date
+  const current = score && score.activity_ids.length === linked.length && score.activity_ids.every((id) => linked.includes(id));
+  if (scoring) return <p role="status" className="mt-3 text-[11px] text-slate-400">Scoring against the plan…</p>;
+  if (!score || !current) {
+    return onScore ? (
+      <button type="button" onClick={onScore} className="mt-3 min-h-9 inline-flex items-center gap-1.5 px-3 rounded-lg border border-white/10 text-xs font-semibold text-slate-300 hover:text-white hover:bg-white/5">
+        <Check className="w-3.5 h-3.5" /> Score against the plan
+      </button>
+    ) : null;
+  }
+  const style = VERDICT_STYLE[score.verdict];
+  return (
+    <details open={score.verdict !== 'on_plan'} className={`mt-3 rounded-lg border p-3 ${style.box}`}>
+      <summary className={`cursor-pointer text-xs font-semibold ${style.text}`}>{score.headline}</summary>
+      <ul className="mt-2 space-y-1">
+        {score.items.map((item, i) => (
+          <li key={i} className="flex gap-2 text-[11px] leading-snug text-slate-300">
+            <span className={`shrink-0 font-bold ${ITEM_MARK[item.status].color}`} aria-label={item.status}>{ITEM_MARK[item.status].mark}</span>
+            <span><span className="font-semibold text-slate-200">{item.label}.</span> {item.detail}</span>
+          </li>
+        ))}
+      </ul>
+      {(score.verdict === 'partly' || score.verdict === 'off_plan') && !hasAssessment && (
+        <p className="mt-2 text-[11px] text-slate-400">Want the why? Generate the coach assessment below.</p>
+      )}
+    </details>
   );
 };

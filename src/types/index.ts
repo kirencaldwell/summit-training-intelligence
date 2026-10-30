@@ -160,6 +160,26 @@ export interface TrainingSession {
   /** AI coach assessment of the completed session, written from the linked activities */
   coach_assessment?: string;
   coach_assessment_at?: string;
+  /** Software verdict on how the linked activities matched the plan (no AI), written when the session is completed */
+  auto_score?: SessionScore;
+}
+
+export type ScoreStatus = 'met' | 'partial' | 'missed' | 'info';
+
+export interface ScoreItem {
+  label: string;
+  status: ScoreStatus;
+  detail: string;
+}
+
+export interface SessionScore {
+  v: number;
+  verdict: 'on_plan' | 'partly' | 'off_plan' | 'unmeasured';
+  headline: string;
+  items: ScoreItem[];
+  at: string;
+  /** The activities this score was computed from, so a changed link list can be told from a current score */
+  activity_ids: string[];
 }
 
 export interface PMCDayPoint {

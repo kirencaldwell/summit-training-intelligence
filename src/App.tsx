@@ -19,6 +19,8 @@ import { TrainingLog } from './components/TrainingLog';
 import { ElevationCheckPanel, type ElevationChange } from './components/ElevationCheck';
 import { HeartRateDistributionPage } from './components/HeartRateDistributionPage';
 import { AICoachPanel, INITIAL_COACH_MESSAGES } from './components/AICoachPanel';
+import { WeeklyCheckIn } from './components/WeeklyCheckIn';
+import type { DraftSession } from './lib/weekBudget';
 import { ActivityDetailModal } from './components/ActivityDetailModal';
 import { AthleteProfileModal } from './components/AthleteProfileModal';
 import { DataSyncModal } from './components/ImportDataModal';
@@ -427,9 +429,49 @@ export function App() {
     setTrainingSessions((previous) => previous.map((session) => session.id === id ? updated : session));
   };
 
+  // The weekly check-in: availability in, a checked week out
+  const [isCheckInOpen, setIsCheckInOpen] = useState(false);
+
+  const handleAcceptWeekPlan = async (weekStart: string, drafts: DraftSession[], replaceIds: string[]) => {
+    for (const id of replaceIds) await dataService.deleteTrainingSession(id);
+    const proposed = await dataService.replaceProposedTrainingSessions(weekStart, drafts);
+    const accepted: TrainingSession[] = [];
+    for (const session of proposed) accepted.push(await dataService.updateTrainingSessionStatus(session.id, 'ACCEPTED'));
+    const gone = new Set(replaceIds);
+    setTrainingSessions((previous) => [
+      ...previous.filter((s) => !gone.has(s.id) && !(s.week_start_date === weekStart && s.status === 'PROPOSED')),
+      ...accepted,
+    ]);
+  };
+
+  // Sessions being scored right now (software only: duration, load and the plan's measurable checks)
+  const [scoringSessionIds, setScoringSessionIds] = useState<string[]>([]);
+
+  const scoreTrainingSession = async (session: TrainingSession): Promise<{ synced: boolean }> => {
+    setScoringSessionIds((ids) => [...ids, session.id]);
+    try {
+      const score = await coachEngine.scoreSession(session);
+      const { session: saved, synced } = await dataService.saveSessionScore(session.id, score);
+      setTrainingSessions((previous) => previous.map((s) => (s.id === session.id ? { ...saved, auto_score: score } : s)));
+      return { synced };
+    } finally {
+      setScoringSessionIds((ids) => ids.filter((x) => x !== session.id));
+    }
+  };
+
+  const handleScoreTrainingSession = async (id: string) => {
+    const session = trainingSessions.find((s) => s.id === id);
+    if (!session) throw new Error('Training session not found.');
+    return scoreTrainingSession(session);
+  };
+
   const handleCompleteTrainingSession = async (id: string, activityIds: string[]) => {
     const { session, synced } = await dataService.completeTrainingSession(id, activityIds);
     setTrainingSessions((previous) => previous.map((s) => (s.id === id ? session : s)));
+    // Score it straight away, in the background: the verdict appears on the card when it is ready
+    if (activityIds.length > 0) {
+      scoreTrainingSession(session).catch((err) => console.warn('Could not score the session:', err));
+    }
     return { synced };
   };
 
@@ -793,6 +835,9 @@ export function App() {
               onNavigateTab={setActiveTab}
               onDeleteTrainingSessions={handleDeleteTrainingSessions}
               onCompleteTrainingSession={handleCompleteTrainingSession}
+              onScoreTrainingSession={handleScoreTrainingSession}
+              onPlanWeek={() => setIsCheckInOpen(true)}
+              scoringSessionIds={scoringSessionIds}
               onReopenTrainingSession={handleReopenTrainingSession}
               onAssessTrainingSession={handleAssessTrainingSession}
             />
@@ -804,6 +849,8 @@ export function App() {
               onOpenActivity={handleOpenActivity}
               onNavigateTab={setActiveTab}
               onCompleteTrainingSession={handleCompleteTrainingSession}
+              onScoreTrainingSession={handleScoreTrainingSession}
+              scoringSessionIds={scoringSessionIds}
               onReopenTrainingSession={handleReopenTrainingSession}
               onAssessTrainingSession={handleAssessTrainingSession}
             />
@@ -940,6 +987,7 @@ export function App() {
             setMessages={setCoachMessages}
             trainingSessions={trainingSessions}
             onUpdateTrainingSession={handleUpdateTrainingSession}
+            onPlanWeek={() => setIsCheckInOpen(true)}
             onAcceptProposedPlan={handleAcceptProposedPlan}
             onAcceptProposedGoal={handleAcceptProposedGoal}
             focusGoal={coachFocus ? goals.find((g) => g.id === coachFocus.goalId) ?? null : null}
@@ -977,6 +1025,16 @@ export function App() {
       )}
 
       {/* Unified Data Sources Modal */}
+      {isCheckInOpen && (
+        <WeeklyCheckIn
+          pmc={pmcData}
+          goals={goals}
+          sessions={trainingSessions}
+          onGenerate={(checkIn, budget, note) => coachEngine.generateWeekPlan(checkIn, budget, note)}
+          onAccept={handleAcceptWeekPlan}
+          onClose={() => setIsCheckInOpen(false)}
+        />
+      )}
       <DataSyncModal
         isOpen={isStravaModalOpen}
         onClose={() => setIsStravaModalOpen(false)}
