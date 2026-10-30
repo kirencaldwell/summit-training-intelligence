@@ -5,7 +5,9 @@ import { dataService, isSupabaseConfigured, supabase } from './lib/supabase';
 import type { GoalReadinessAssessment } from './lib/goalReadiness';
 import { installIntensityModel } from './lib/intensityModel';
 import { calculatePMC, calculatePowerCurve, calculateVAM, canImproveWithAi, hasPowerCurveData } from './lib/trainingMath';
-import { addDaysToDateOnly, getCurrentTrainingWeekStartDate } from './lib/trainingSessions';
+import { addDaysToDateOnly, getCurrentTrainingWeekStartDate, getLocalDateString } from './lib/trainingSessions';
+import { addFindings, addNote, EMPTY_MEMORY, parseStructuredAssessment, type CoachMemory } from './lib/coachMemory';
+import { CoachMemoryContext } from './components/CoachMemoryContext';
 import { Navbar } from './components/Navbar';
 import { DashboardOverview } from './components/DashboardOverview';
 import { ActivityList } from './components/ActivityList';
@@ -20,6 +22,8 @@ import { ElevationCheckPanel, type ElevationChange } from './components/Elevatio
 import { HeartRateDistributionPage } from './components/HeartRateDistributionPage';
 import { AICoachPanel, INITIAL_COACH_MESSAGES } from './components/AICoachPanel';
 import { WeeklyCheckIn } from './components/WeeklyCheckIn';
+import { CoachBrief } from './components/CoachBrief';
+import { CoachMemoryPanel } from './components/CoachMemoryPanel';
 import type { DraftSession } from './lib/weekBudget';
 import { ActivityDetailModal } from './components/ActivityDetailModal';
 import { AthleteProfileModal } from './components/AthleteProfileModal';
@@ -61,6 +65,15 @@ function removeLegacyImporterKeys() {
 
 export function App() {
   // Coach chat lives here so it survives tab switches (the panel unmounts), and is mirrored to localStorage for reloads
+  // What the coach remembers: notes and recent findings, shared with assessments through a context
+  const [coachMemory, setCoachMemory] = useState<CoachMemory>(EMPTY_MEMORY);
+  const coachMemoryRef = useRef(coachMemory);
+  const updateCoachMemory = (change: (memory: CoachMemory) => CoachMemory) => {
+    const next = change(coachMemoryRef.current);
+    coachMemoryRef.current = next;
+    setCoachMemory(next);
+    void dataService.saveCoachMemory(next);
+  };
   const [coachMessages, setCoachMessages] = useState<AICoachMessage[]>(() => {
     try {
       const saved = localStorage.getItem('summit-coach-messages');
@@ -362,6 +375,10 @@ export function App() {
     setAssessmentErrors((prev) => ({ ...prev, [activity.id]: '' }));
     try {
       const text = await coachEngine.assessActivity(activity);
+      const structured = parseStructuredAssessment(text);
+      if (structured) {
+        updateCoachMemory((m) => addFindings(m, structured, { source: 'activity', ref: activity.id, about: activity.title, date: getLocalDateString(new Date(activity.start_date)) }));
+      }
       const saved = await dataService.updateActivity(activity.id, {
         coach_assessment: text,
         coach_assessment_at: new Date().toISOString(),
@@ -479,6 +496,10 @@ export function App() {
     const session = trainingSessions.find((s) => s.id === id);
     if (!session) throw new Error('Training session not found.');
     const text = await coachEngine.assessSession(session);
+    const structured = parseStructuredAssessment(text);
+    if (structured) {
+      updateCoachMemory((m) => addFindings(m, structured, { source: 'session', ref: session.id, about: session.title, date: session.session_date }));
+    }
     const { session: saved, synced } = await dataService.saveSessionAssessment(id, text);
     setTrainingSessions((previous) => previous.map((s) => (s.id === id ? saved : s)));
     return { synced };
@@ -617,6 +638,17 @@ export function App() {
     void loadAppData()
       .then(() => { if (active) setAppError(''); })
       .catch((err) => { if (active) setAppError(err.message || 'Unable to load your account data.'); });
+    return () => { active = false; };
+  }, [authUser]);
+
+  useEffect(() => {
+    if (isSupabaseConfigured && !authUser) return;
+    let active = true;
+    dataService.getCoachMemory().then((memory) => {
+      if (!active) return;
+      coachMemoryRef.current = memory;
+      setCoachMemory(memory);
+    }).catch((err) => console.warn('Could not load the coach memory:', err));
     return () => { active = false; };
   }, [authUser]);
 
@@ -778,6 +810,7 @@ export function App() {
     .sort((a, b) => a.session_date.localeCompare(b.session_date));
 
   return (
+    <CoachMemoryContext.Provider value={{ memory: coachMemory, remember: (text) => updateCoachMemory((m) => addNote(m, text, 'coach')) }}>
     <div className="min-h-screen bg-summit-dark text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-slate-950">
       {/* Navigation Header */}
       <Navbar
@@ -981,20 +1014,34 @@ export function App() {
         )}
 
         {activeTab === 'coach' && (
-          <AICoachPanel
-            messages={coachMessages}
-            syncStatus={isSupabaseConfigured ? chatSync : undefined}
-            setMessages={setCoachMessages}
-            trainingSessions={trainingSessions}
-            onUpdateTrainingSession={handleUpdateTrainingSession}
-            onPlanWeek={() => setIsCheckInOpen(true)}
-            onAcceptProposedPlan={handleAcceptProposedPlan}
-            onAcceptProposedGoal={handleAcceptProposedGoal}
-            focusGoal={coachFocus ? goals.find((g) => g.id === coachFocus.goalId) ?? null : null}
-            focusPrompt={coachFocus?.prompt}
-            onClearFocus={() => setCoachFocus(null)}
-            onFocusPromptConsumed={handleFocusPromptConsumed}
-          />
+          <div className="space-y-4">
+            <CoachBrief
+              sessions={trainingSessions}
+              activities={activities}
+              pmc={pmcData}
+              goals={goals}
+              profile={profile}
+              loadProfile={loadProfile}
+              onPlanWeek={() => setIsCheckInOpen(true)}
+              onNavigateTab={setActiveTab}
+            />
+            <CoachMemoryPanel memory={coachMemory} onChange={updateCoachMemory} />
+            <AICoachPanel
+              messages={coachMessages}
+              syncStatus={isSupabaseConfigured ? chatSync : undefined}
+              setMessages={setCoachMessages}
+              trainingSessions={trainingSessions}
+              onUpdateTrainingSession={handleUpdateTrainingSession}
+              onPlanWeek={() => setIsCheckInOpen(true)}
+              onAcceptProposedPlan={handleAcceptProposedPlan}
+              onAcceptProposedGoal={handleAcceptProposedGoal}
+              focusGoal={coachFocus ? goals.find((g) => g.id === coachFocus.goalId) ?? null : null}
+              focusPrompt={coachFocus?.prompt}
+              onClearFocus={() => setCoachFocus(null)}
+              onFocusPromptConsumed={handleFocusPromptConsumed}
+            />
+
+          </div>
         )}
       </main>
 
@@ -1061,6 +1108,7 @@ export function App() {
         </div>
       </footer>
     </div>
+    </CoachMemoryContext.Provider>
   );
 }
 export default App;

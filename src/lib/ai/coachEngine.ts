@@ -9,6 +9,7 @@ import { intensityCharacter, sameDayTotals } from '../intensityCharacter';
 import { evaluatePlanChecks, parsePlanChecks, type PlanCheck } from '../planChecks';
 import { buildWeekSummaries, goalProgress } from '../trainingLog';
 import { scoreSession } from '../sessionScore';
+import { memoryForAI } from '../coachMemory';
 import { parseWeekDraft, type CheckIn, type DraftSession, type WeekBudget } from '../weekBudget';
 import { buildProgressContext } from './progressContext';
 import { metricMenu, parseMetricProposals, withBaselines, type MetricContext, type TrackingMetric } from '../trackingMetrics';
@@ -445,7 +446,8 @@ class GeminiCoachEngine {
       // Prior turns so the model keeps the conversation context (greeting/system/error msgs excluded)
       history: previousMessages
         .filter((m) => (m.sender === 'user' || m.sender === 'coach') && m.id !== 'init-msg' && !m.id.startsWith('err-'))
-        .slice(-20)
+        // The coach memory and progress summary carry the long view; only the last few turns go as a transcript
+        .slice(-8)
         .map((m) => ({ role: m.sender === 'user' ? 'user' : 'model', text: m.text })),
       // Server-side cheap model filters this down before the main model sees it
       fullData: {
@@ -456,6 +458,8 @@ class GeminiCoachEngine {
         milestoneReadiness: hasPowerTarget ? milestoneData : undefined,
         sessions: trainingSessions,
         progress,
+        // Notes and recent findings: continuity that replaces most of the raw chat history
+        memory: memoryForAI(await dataService.getCoachMemory()),
       },
     });
 
@@ -798,6 +802,7 @@ class GeminiCoachEngine {
         .filter((a) => a.id !== activity.id && new Date(a.start_date).getTime() < startMs && new Date(a.start_date).getTime() >= startMs - 28 * dayMs)
         .slice(0, 20)
         .map(compact),
+      coach_memory: memoryForAI(await dataService.getCoachMemory()),
     };
 
     const text = await postCoach({
@@ -845,6 +850,7 @@ class GeminiCoachEngine {
         recent_activities: recentActivities.slice(0, 6),
         planVsActualLastWeeks: trainingLog,
         goalProgress: progress.goal_progress,
+        coach_memory: memoryForAI(await dataService.getCoachMemory()),
       },
     });
     const drafts = parseWeekDraft(text, checkIn.week_start);
@@ -994,6 +1000,7 @@ class GeminiCoachEngine {
         .filter((s) => s.id !== session.id && (s.status === 'ACCEPTED' || s.status === 'COMPLETED')
           && Math.abs(new Date(`${s.session_date}T12:00:00Z`).getTime() - sessionMs) <= 4 * dayMs)
         .map((s) => ({ date: s.session_date, title: s.title, sport_type: s.sport_type, duration_minutes: s.duration_minutes, target_tss: s.target_tss, status: s.status })),
+      coach_memory: memoryForAI(await dataService.getCoachMemory()),
     };
 
     const text = await postCoach({
