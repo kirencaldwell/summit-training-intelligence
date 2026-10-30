@@ -427,9 +427,34 @@ export function App() {
     setTrainingSessions((previous) => previous.map((session) => session.id === id ? updated : session));
   };
 
+  // Sessions being scored right now (software only: duration, load and the plan's measurable checks)
+  const [scoringSessionIds, setScoringSessionIds] = useState<string[]>([]);
+
+  const scoreTrainingSession = async (session: TrainingSession): Promise<{ synced: boolean }> => {
+    setScoringSessionIds((ids) => [...ids, session.id]);
+    try {
+      const score = await coachEngine.scoreSession(session);
+      const { session: saved, synced } = await dataService.saveSessionScore(session.id, score);
+      setTrainingSessions((previous) => previous.map((s) => (s.id === session.id ? { ...saved, auto_score: score } : s)));
+      return { synced };
+    } finally {
+      setScoringSessionIds((ids) => ids.filter((x) => x !== session.id));
+    }
+  };
+
+  const handleScoreTrainingSession = async (id: string) => {
+    const session = trainingSessions.find((s) => s.id === id);
+    if (!session) throw new Error('Training session not found.');
+    return scoreTrainingSession(session);
+  };
+
   const handleCompleteTrainingSession = async (id: string, activityIds: string[]) => {
     const { session, synced } = await dataService.completeTrainingSession(id, activityIds);
     setTrainingSessions((previous) => previous.map((s) => (s.id === id ? session : s)));
+    // Score it straight away, in the background: the verdict appears on the card when it is ready
+    if (activityIds.length > 0) {
+      scoreTrainingSession(session).catch((err) => console.warn('Could not score the session:', err));
+    }
     return { synced };
   };
 
@@ -793,6 +818,8 @@ export function App() {
               onNavigateTab={setActiveTab}
               onDeleteTrainingSessions={handleDeleteTrainingSessions}
               onCompleteTrainingSession={handleCompleteTrainingSession}
+              onScoreTrainingSession={handleScoreTrainingSession}
+              scoringSessionIds={scoringSessionIds}
               onReopenTrainingSession={handleReopenTrainingSession}
               onAssessTrainingSession={handleAssessTrainingSession}
             />
@@ -804,6 +831,8 @@ export function App() {
               onOpenActivity={handleOpenActivity}
               onNavigateTab={setActiveTab}
               onCompleteTrainingSession={handleCompleteTrainingSession}
+              onScoreTrainingSession={handleScoreTrainingSession}
+              scoringSessionIds={scoringSessionIds}
               onReopenTrainingSession={handleReopenTrainingSession}
               onAssessTrainingSession={handleAssessTrainingSession}
             />

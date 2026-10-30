@@ -291,8 +291,10 @@ Each check is one of these shapes (omit fields you do not know; every check need
 - { "kind": "intervals", "label": string, "reps": number, "minutes": number, "target_watts": number, "target_percent_ftp": number, "tolerance_percent": number } for sustained work such as "2 x 20 min at 250 W" or "3 x 15 sweetspot at 90% FTP" (give the target the plan states: watts, or percent of FTP).
 - { "kind": "power_cap", "label": string, "max_watts": number, "max_percent_ftp": number } for a ceiling such as "under 195 W".
 - { "kind": "time_in_zone", "label": string, "metric": "power" | "hr", "zone_min": number, "zone_max": number, "min_percent_in_range": number } for zone targets such as "keep it in Zone 2" (power zones 1-7, heart-rate zones 1-5; use zone_max alone for "stay at or below Z2").
+- { "kind": "climb_rate", "label": string, "min_ft_per_hour": number } for a hiking or ski-touring climbing pace such as "climb at 1,500 ft/h" or "VAM 1,800 ft/h" (feet of height per hour while climbing).
+- { "kind": "vertical_gain", "label": string, "min_feet": number } for a total climbing target such as "4,000 ft of vert" (feet; convert metres at 3.28 feet per metre).
 
-Rules: include only things the plan explicitly asks for and that power or heart rate can show; do not invent targets. Do not make checks for duration, TSS, cadence, route, gear or how it should feel. Several checks are fine (for example sprints plus a ceiling for the rest of the ride), at most 8. If nothing is measurable output { "checks": [] }.`;
+Rules: include only things the plan explicitly asks for and that power, heart rate, climbing rate or height gained can show; do not invent targets. Do not make checks for duration, TSS, cadence, route, gear or how it should feel. Several checks are fine (for example sprints plus a ceiling for the rest of the ride), at most 8. If nothing is measurable output { "checks": [] }.`;
 
 const ESTIMATE_PROMPT = `You estimate the training stress of one endurance activity that lacks reliable power data. Combine the athlete's own description with the recorded data in the JSON context.
 
