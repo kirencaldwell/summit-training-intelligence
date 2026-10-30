@@ -5,6 +5,7 @@ import type { MunterParams } from '../lib/munter';
 import type { LoadProfile } from '../lib/trainingMath';
 import { dataService } from '../lib/supabase';
 import { buildBrief, type BriefAction } from '../lib/coachBrief';
+import { scrollToTarget } from '../lib/scrollToTarget';
 import type { AppTab } from './TrainingWeekSection';
 
 interface CoachBriefProps {
@@ -38,7 +39,11 @@ export const CoachBrief: React.FC<CoachBriefProps> = ({ sessions, activities, pm
     [sessions, activities, pmc, goals, profile, loadProfile, munter],
   );
 
-  const run = (action: BriefAction) => (action.kind === 'plan_week' ? onPlanWeek() : onNavigateTab(action.tab));
+  const run = (action: BriefAction) => {
+    if (action.kind === 'plan_week') return onPlanWeek();
+    onNavigateTab(action.tab);
+    if (action.target) scrollToTarget(action.target);
+  };
   const f = brief.fitness;
 
   return (

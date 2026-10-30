@@ -123,7 +123,7 @@ export const LongTermPlan: React.FC<LongTermPlanProps> = ({ goals, currentCtl, o
         const current = phases.find((p) => p.current);
         const milestones = [...(goal.milestones ?? [])].sort((a, b) => (a.target_date ?? '9999').localeCompare(b.target_date ?? '9999'));
         return (
-          <article key={goal.id} className="glass-panel rounded-2xl border border-white/10 p-4 space-y-4">
+          <article key={goal.id} id={`goal-${goal.id}`} className="scroll-mt-24 glass-panel rounded-2xl border border-white/10 p-4 space-y-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 className="text-base font-bold text-white flex items-center gap-2"><Flag className="w-4 h-4 text-amber-400" /> {goal.name}</h3>
