@@ -1,3 +1,5 @@
+import { parseStructuredAssessment } from '../lib/coachMemory';
+import { StructuredAssessmentView } from './StructuredAssessmentView';
 import React, { useMemo, useState } from 'react';
 import { X, Calendar, Clock, Navigation, Mountain, Zap, Heart, ShieldAlert, Bot, RefreshCw, Pencil, Check, Tag } from 'lucide-react';
 import type { Activity, AthleteProfile, SportType } from '../types';
@@ -245,6 +247,9 @@ const ActivityEditor: React.FC<{
 
 /** Minimal markdown for the coach text: **bold** inline, "- " bullets, blank-line paragraphs. */
 export const AssessmentText: React.FC<{ text: string }> = ({ text }) => {
+  // Assessments are stored as structured JSON now; older ones are plain text
+  const structured = parseStructuredAssessment(text);
+  if (structured) return <StructuredAssessmentView assessment={structured} />;
   const inline = (line: string) =>
     line.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
       part.startsWith('**') && part.endsWith('**') && part.length > 4

@@ -16,7 +16,7 @@ export const INITIAL_COACH_MESSAGES: AICoachMessage[] = [
     text: `### 🏔️ Summit AI Coach Ready
 I can see the profile, goals and activities you've added, and I'll work from those. Ask me about your training load, recovery, or an upcoming event.
 
-I can build **multi-week periodized plans**, set up **Coach's Goals**, and adapt your **weekly workouts** on demand. What would you like to work on?`,
+I can build multi-week periodized plans, set up Coach's Goals, and adapt your weekly workouts on demand. What would you like to work on?`,
     timestamp: ''
   }
 ];

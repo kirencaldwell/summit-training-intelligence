@@ -215,6 +215,9 @@ CREATE TABLE IF NOT EXISTS public.coach_chats (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- What the coach remembers about the athlete: durable notes and the findings of recent assessments
+ALTER TABLE public.coach_chats ADD COLUMN IF NOT EXISTS memory JSONB;
+
 -- Per-athlete connections to other services (the Intervals.icu API key), kept apart from `profiles` so a
 -- secret never travels with the profile data the app and the AI coach read.
 CREATE TABLE IF NOT EXISTS public.integration_settings (

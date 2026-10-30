@@ -1,5 +1,6 @@
 import { createClient, type User } from '@supabase/supabase-js';
 import type { MunterParams } from './munter';
+import { readMemory, type CoachMemory } from './coachMemory';
 import type { TrackingMetric } from './trackingMetrics';
 import { routeOutline } from './routePreview';
 import type { Activity, AICoachMessage, AthleteProfile, Goal, LlmUsageRecord, SessionScore, TrainingSession, TrainingSessionStatus } from '../types';
@@ -33,6 +34,7 @@ const STORAGE_KEYS = {
   SESSION_LINKS: 'summit_session_links',
   SESSION_ASSESSMENTS: 'summit_session_assessments',
   SESSION_SCORES: 'summit_session_scores',
+  COACH_MEMORY: 'summit_coach_memory',
   PROFILE: 'summit_athlete_profile',
   ACTIVITIES: 'summit_activities_list',
   GOALS: 'summit_goals_list',
@@ -439,6 +441,43 @@ class DataService {
       }
       if (error && /llm_usage/.test(error.message)) this.llmUsageTableMissing = true;
     } catch { /* usage logging never breaks the coach */ }
+  }
+
+  private memoryColumnMissing = false;
+  private readMemoryCache(): CoachMemory {
+    try { return readMemory(JSON.parse(localStorage.getItem(STORAGE_KEYS.COACH_MEMORY) || '{}')); } catch { return readMemory({}); }
+  }
+
+  /** What the coach remembers about the athlete. Synced in coach_chats.memory when that column exists, else kept on this device. */
+  public async getCoachMemory(): Promise<CoachMemory> {
+    const local = this.readMemoryCache();
+    if (!(this.mode === 'supabase' && supabase) || this.memoryColumnMissing) return local;
+    try {
+      const profile = await this.getAuthenticatedProfile();
+      const { data, error } = await supabase.from('coach_chats').select('memory').eq('user_id', profile.id).maybeSingle();
+      if (error) {
+        if (/memory/.test(error.message)) this.memoryColumnMissing = true;
+        return local;
+      }
+      if (!data?.memory) return local;
+      const remote = readMemory(data.memory);
+      // Whichever side was changed last wins
+      return (remote.updated_at ?? '') >= (local.updated_at ?? '') ? remote : local;
+    } catch {
+      return local;
+    }
+  }
+
+  public async saveCoachMemory(memory: CoachMemory): Promise<{ synced: boolean }> {
+    try { localStorage.setItem(STORAGE_KEYS.COACH_MEMORY, JSON.stringify(memory)); } catch { /* storage unavailable */ }
+    if (!(this.mode === 'supabase' && supabase) || this.memoryColumnMissing) return { synced: this.mode !== 'supabase' };
+    try {
+      const profile = await this.getAuthenticatedProfile();
+      const { error } = await supabase.from('coach_chats').upsert({ user_id: profile.id, memory }, { onConflict: 'user_id' });
+      if (!error) return { synced: true };
+      if (/memory/.test(error.message)) this.memoryColumnMissing = true;
+    } catch { /* the device copy stands */ }
+    return { synced: false };
   }
 
   /** The account's synced coach chat. Only available with Supabase; throws if the coach_chats table is missing. */
