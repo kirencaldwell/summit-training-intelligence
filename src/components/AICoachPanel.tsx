@@ -28,6 +28,8 @@ interface AICoachPanelProps {
   setMessages: React.Dispatch<React.SetStateAction<AICoachMessage[]>>;
   trainingSessions: TrainingSession[];
   onUpdateTrainingSession: (id: string, status: TrainingSessionStatus) => Promise<void>;
+  /** Opens the weekly check-in (availability, load budget, drafted week) */
+  onPlanWeek?: () => void;
   onAcceptProposedPlan?: (proposal: ProposedPlanAction) => Promise<void>;
   onAcceptProposedGoal?: (goal: Goal, updatesGoalId?: string) => Promise<void>;
   /** Goal the conversation is currently about (set from the Goals tab) */
@@ -44,6 +46,7 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
   setMessages,
   trainingSessions,
   onUpdateTrainingSession,
+  onPlanWeek,
   onAcceptProposedPlan,
   onAcceptProposedGoal,
   focusGoal,
@@ -204,7 +207,6 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
         'Plan next week for this goal',
       ]
     : [
-        'Plan my training for next week',
         'Build a multi-week plan for my priority goal',
         'How is my training load looking?',
         'Replan this week around my recovery needs'
@@ -733,6 +735,15 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
       <div className="p-4 border-t border-white/10 bg-slate-950/80 space-y-3">
         {/* Chips */}
         <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none">
+          {onPlanWeek && !focusGoal && (
+            <button
+              type="button"
+              onClick={onPlanWeek}
+              className="min-h-10 flex-shrink-0 px-3 py-2 rounded-full bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-xs text-cyan-200 transition-all font-semibold whitespace-nowrap"
+            >
+              Plan my week
+            </button>
+          )}
           {quickPrompts.map((prompt, pIdx) => (
             <button
               key={pIdx}

@@ -9,6 +9,7 @@ import { intensityCharacter, sameDayTotals } from '../intensityCharacter';
 import { evaluatePlanChecks, parsePlanChecks, type PlanCheck } from '../planChecks';
 import { buildWeekSummaries, goalProgress } from '../trainingLog';
 import { scoreSession } from '../sessionScore';
+import { parseWeekDraft, type CheckIn, type DraftSession, type WeekBudget } from '../weekBudget';
 import { buildProgressContext } from './progressContext';
 import { metricMenu, parseMetricProposals, withBaselines, type MetricContext, type TrackingMetric } from '../trackingMetrics';
 import { parseReadinessReply, type GoalReadinessAssessment } from '../goalReadiness';
@@ -813,6 +814,44 @@ class GeminiCoachEngine {
    * like a single-activity assessment, the plan's measurable checks are run on each one, and the coach sees the
    * combined totals against what was planned.
    */
+  /**
+   * Draft one week of sessions for the athlete's stated availability. The model only fills the available days; the
+   * budget (how much training the week should hold) is worked out in software and the draft is checked against it.
+   */
+  public async generateWeekPlan(checkIn: CheckIn, budget: WeekBudget, extraNote?: string): Promise<DraftSession[]> {
+    const { statusData, recentActivities, trainingLog, progress } = await gatherAthleteContext();
+    const text = await postCoach({
+      mode: 'weekly_plan',
+      message: `Draft the sessions for the week starting ${checkIn.week_start}.${extraNote?.trim() ? ` The athlete also asks: ${extraNote.trim().slice(0, 500)}` : ''}`,
+      context: {
+        check_in: {
+          week_start: checkIn.week_start,
+          availability: checkIn.days.filter((d) => d.available).map((d) => ({ date: d.date, max_minutes: d.max_minutes })),
+          unavailable: checkIn.days.filter((d) => !d.available).map((d) => d.date),
+          feeling: checkIn.feel,
+          athlete_notes_for_the_week: checkIn.notes.trim().slice(0, 600) || undefined,
+        },
+        budget: {
+          remaining_tss_min: budget.remaining_tss_min,
+          remaining_tss_target: budget.remaining_tss_target,
+          remaining_tss_max: budget.remaining_tss_max,
+          max_session_tss: budget.max_session_tss,
+          max_hard_days: budget.max_hard_days,
+          slots: budget.slots,
+          why: budget.reasons,
+          fitness_now: { ctl: budget.ctl_now, atl: budget.atl_now, tsb: budget.tsb_now },
+        },
+        athleteStatus: statusData,
+        recent_activities: recentActivities.slice(0, 6),
+        planVsActualLastWeeks: trainingLog,
+        goalProgress: progress.goal_progress,
+      },
+    });
+    const drafts = parseWeekDraft(text, checkIn.week_start);
+    if (drafts.length === 0) throw new Error('The coach did not return a usable week. Try again.');
+    return drafts;
+  }
+
   /**
    * Score a completed session against its plan with no AI call beyond the cached plan-text parse: duration, load and
    * the measurable checks run on each linked activity's recorded data. Returns the score for the caller to store.

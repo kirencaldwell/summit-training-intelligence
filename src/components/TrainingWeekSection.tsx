@@ -18,6 +18,8 @@ export interface TrainingWeekSectionProps {
   onReopenTrainingSession?: (id: string) => Promise<void>;
   /** Asks the coach to assess a completed session from its linked activities; synced is false when it could only be kept on this device */
   onAssessTrainingSession?: (id: string) => Promise<{ synced: boolean }>;
+  /** Opens the weekly check-in */
+  onPlanWeek?: () => void;
   /** Scores a completed session against its plan (software only); synced is false when it could only be kept on this device */
   onScoreTrainingSession?: (id: string) => Promise<{ synced: boolean }>;
   /** Sessions being scored right now */
@@ -39,6 +41,7 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
   onReopenTrainingSession,
   onAssessTrainingSession,
   onScoreTrainingSession,
+  onPlanWeek,
   scoringSessionIds = [],
   variant = 'plan',
   allSessions,
@@ -130,19 +133,21 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
                 </button>
               )
             )}
+            {onPlanWeek && (
+              <button
+                type="button"
+                onClick={onPlanWeek}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500 text-xs font-bold text-slate-950 hover:bg-cyan-400 transition-all"
+              >
+                <Sparkles className="w-3.5 h-3.5" /> Plan the week
+              </button>
+            )}
             <button
               type="button"
               onClick={() => onNavigateTab('coach')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/20 transition-all"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-xs font-semibold text-slate-300 hover:text-white hover:bg-white/5 transition-all"
             >
-              <Sparkles className="w-3.5 h-3.5" /> Replan with Coach
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigateTab('coach')}
-              className="text-xs font-semibold text-slate-400 hover:text-white px-2 py-1.5"
-            >
-              Review weekly plan
+              <Bot className="w-3.5 h-3.5" /> Ask the coach
             </button>
           </div>
         </div>
@@ -315,7 +320,7 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
         ) : (
           <div className="rounded-lg border border-dashed border-white/10 px-4 py-5 text-sm text-slate-400">
             {variant === 'plan'
-              ? 'Nothing left to do this week. Generate the next week in the AI Coach, or see what you did in the training log below.'
+              ? 'Nothing left to do this week. Plan the next one with "Plan the week", or see what you did in the training log below.'
               : 'No planned sessions this week.'}
           </div>
         )}
