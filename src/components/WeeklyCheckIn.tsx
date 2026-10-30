@@ -3,7 +3,7 @@ import { CalendarDays, X, Sparkles, Check, RefreshCw, AlertTriangle, Wrench } fr
 import type { Goal, PMCDayPoint, TrainingSession } from '../types';
 import { addDaysToDateOnly, getCurrentTrainingWeekStartDate, getLocalDateString, getNextTrainingWeekStartDate } from '../lib/trainingSessions';
 import {
-  buildWeekBudget, checkWeekDraft, defaultCheckIn, sessionIsHard,
+  buildWeekBudget, checkWeekDraft, defaultCheckIn, readDayNote, sessionIsHard,
   type CheckIn, type DraftSession, type Feel, type WeekCheck,
 } from '../lib/weekBudget';
 
@@ -143,11 +143,12 @@ export const WeeklyCheckIn: React.FC<WeeklyCheckInProps> = ({ pmc, goals, sessio
 
             <div>
               <p className="text-sm font-semibold text-slate-200">Which days can you train, and for how long at most?</p>
+              <p className="text-[11px] text-slate-500">Or just type each day in your own words: a time ("90 min") sets the limit, "off" turns the day off, the rest goes to the coach as written.</p>
               <ul className="mt-2 space-y-1.5">
                 {checkIn.days.map((d) => {
                   const past = d.date < today;
                   return (
-                    <li key={d.date} className={`flex items-center gap-3 rounded-lg border border-white/10 bg-slate-900/50 px-3 py-1.5 ${past ? 'opacity-40' : ''}`}>
+                    <li key={d.date} className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-white/10 bg-slate-900/50 px-3 py-1.5 ${past ? 'opacity-40' : ''}`}>
                       <label className="flex min-h-10 flex-1 items-center gap-2.5 text-sm text-slate-200">
                         <input
                           type="checkbox"
@@ -168,6 +169,17 @@ export const WeeklyCheckIn: React.FC<WeeklyCheckInProps> = ({ pmc, goals, sessio
                       >
                         {HOUR_OPTIONS.map((m) => <option key={m} value={m}>{hoursLabel(m)}</option>)}
                       </select>
+                      {!past && (
+                        <input
+                          type="text"
+                          value={d.note ?? ''}
+                          maxLength={160}
+                          onChange={(e) => setDay(d.date, { note: e.target.value, ...readDayNote(e.target.value) })}
+                          aria-label={`Note for ${dayName(d.date, { weekday: 'long' })}`}
+                          placeholder="Just type it: 1 hour, commute there and back · e-bike only · off"
+                          className="basis-full min-h-9 rounded-lg bg-slate-900/90 border border-white/10 px-3 text-base sm:text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50"
+                        />
+                      )}
                     </li>
                   );
                 })}

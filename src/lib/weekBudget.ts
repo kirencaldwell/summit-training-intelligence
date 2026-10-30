@@ -14,6 +14,8 @@ export interface DayAvailability {
   available: boolean;
   /** The longest session that day can take */
   max_minutes: number;
+  /** The athlete's own note for the day ("commute there and back", "e-bike only"), passed to the coach as written */
+  note?: string;
 }
 
 export interface CheckIn {
@@ -62,6 +64,29 @@ export interface WeekBudget {
 }
 
 const round = (n: number) => Math.round(n);
+
+/**
+ * Reads what a free-text day note says about time, so "1 hour, commute there and back" sets the day's limit and "off"
+ * turns it off, without the athlete touching the controls. Anything else in the note is left for the coach to read.
+ */
+export function readDayNote(text: string): { available?: boolean; max_minutes?: number } {
+  const t = text.toLowerCase();
+  let minutes: number | undefined;
+  const hm = t.match(/(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b(?:\s*(?:and\s*)?(\d+)\s*(?:m|min|mins|minutes)\b)?/);
+  const m = t.match(/(\d+)\s*(?:m|min|mins|minutes)\b/);
+  if (hm) minutes = Number(hm[1]) * 60 + (hm[2] ? Number(hm[2]) : 0);
+  else if (/\bhalf an hour\b|\bhalf hour\b/.test(t)) minutes = 30;
+  else if (/\ban hour\b|\bone hour\b/.test(t)) minutes = 60;
+  else if (/\bcouple of hours\b|\btwo hours\b/.test(t)) minutes = 120;
+  else if (m) minutes = Number(m[1]);
+  if (minutes !== undefined && /\b(each way|one way|per leg|each direction)\b/.test(t)) minutes *= 2;
+  if (minutes !== undefined && minutes >= 20 && minutes <= 960) {
+    return { available: true, max_minutes: Math.max(30, Math.min(480, Math.round(minutes / 30) * 30)) };
+  }
+  if (/^\s*(off|rest|rest day|day off)\s*[.!,;]?(\s|$)/.test(t) && t.trim().split(/\s+/).length <= 3) return { available: false };
+  if (/^\s*(no training|can'?t|cannot|unavailable|travell?ing|away|busy)\b/.test(t)) return { available: false };
+  return {};
+}
 
 const weekDays = (weekStart: string) => Array.from({ length: 7 }, (_, i) => addDaysToDateOnly(weekStart, i));
 

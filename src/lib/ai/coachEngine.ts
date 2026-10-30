@@ -826,7 +826,7 @@ class GeminiCoachEngine {
       context: {
         check_in: {
           week_start: checkIn.week_start,
-          availability: checkIn.days.filter((d) => d.available).map((d) => ({ date: d.date, max_minutes: d.max_minutes })),
+          availability: checkIn.days.filter((d) => d.available).map((d) => ({ date: d.date, max_minutes: d.max_minutes, athlete_note: d.note?.trim().slice(0, 160) || undefined })),
           unavailable: checkIn.days.filter((d) => !d.available).map((d) => d.date),
           feeling: checkIn.feel,
           athlete_notes_for_the_week: checkIn.notes.trim().slice(0, 600) || undefined,
