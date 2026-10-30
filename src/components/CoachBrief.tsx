@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CalendarDays, CheckCircle2, Info, Sparkles } from 'lucide-react';
+import { AlertTriangle, CalendarDays, CheckCircle2, Info, Sparkles, X } from 'lucide-react';
 import type { Activity, AthleteProfile, Goal, PMCDayPoint, TrainingSession } from '../types';
 import type { MunterParams } from '../lib/munter';
 import type { LoadProfile } from '../lib/trainingMath';
@@ -25,6 +25,13 @@ const FLAG_STYLE = {
   good: { box: 'border-emerald-500/25 bg-emerald-500/10', icon: <CheckCircle2 className="w-4 h-4 text-emerald-400" /> },
 };
 
+// A closed flag stays away for a week, then comes back if it still holds
+const DISMISS_KEY = 'summit_brief_dismissed';
+const SNOOZE_DAYS = 7;
+const readDismissed = (): Record<string, string> => {
+  try { return JSON.parse(localStorage.getItem(DISMISS_KEY) || '{}'); } catch { return {}; }
+};
+
 /** The top of the Coach tab: today, how fit and fresh you are, and what needs attention, all worked out from your data. */
 export const CoachBrief: React.FC<CoachBriefProps> = ({ sessions, activities, pmc, goals, profile, loadProfile, onPlanWeek, onNavigateTab }) => {
   const [munter, setMunter] = useState<Record<string, MunterParams>>({});
@@ -34,10 +41,26 @@ export const CoachBrief: React.FC<CoachBriefProps> = ({ sessions, activities, pm
     return () => { active = false; };
   }, []);
 
+  const [dismissed, setDismissed] = useState<Record<string, string>>(readDismissed);
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const isDismissed = (id: string) => (dismissed[id] ?? '') > todayKey;
+  const dismiss = (id: string) => {
+    const until = new Date(Date.now() + SNOOZE_DAYS * 86400000).toISOString().slice(0, 10);
+    const next = { ...dismissed, [id]: until };
+    setDismissed(next);
+    try { localStorage.setItem(DISMISS_KEY, JSON.stringify(next)); } catch { /* storage unavailable: closes for this visit only */ }
+  };
+  const restoreAll = () => {
+    setDismissed({});
+    try { localStorage.removeItem(DISMISS_KEY); } catch { /* ignore */ }
+  };
+
   const brief = useMemo(
-    () => buildBrief({ sessions, activities, pmc, goals, loadProfile, metricContext: { activities, sessions, pmc, profile, loadProfile, munter } }),
-    [sessions, activities, pmc, goals, profile, loadProfile, munter],
+    () => buildBrief({ sessions, activities, pmc, goals, loadProfile, isDismissed, metricContext: { activities, sessions, pmc, profile, loadProfile, munter } }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sessions, activities, pmc, goals, profile, loadProfile, munter, dismissed],
   );
+  const hiddenCount = Object.values(dismissed).filter((until) => until > todayKey).length;
 
   const run = (action: BriefAction) => {
     if (action.kind === 'plan_week') return onPlanWeek();
@@ -100,9 +123,24 @@ export const CoachBrief: React.FC<CoachBriefProps> = ({ sessions, activities, pm
                   {flag.action.kind === 'plan_week' ? <><Sparkles className="w-3.5 h-3.5 text-cyan-300" /> Plan the week</> : flag.action.label}
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => dismiss(flag.id)}
+                aria-label="Close this card"
+                title="Close (comes back in a week if it still applies)"
+                className="min-h-9 min-w-9 shrink-0 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/10"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </li>
           ))}
         </ul>
+      )}
+      {hiddenCount > 0 && (
+        <p className="text-[11px] text-slate-500">
+          {hiddenCount} closed card{hiddenCount === 1 ? '' : 's'} hidden for a week.{' '}
+          <button type="button" onClick={restoreAll} className="font-semibold text-cyan-300 hover:underline">Show again</button>
+        </p>
       )}
     </section>
   );

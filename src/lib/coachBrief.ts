@@ -40,12 +40,14 @@ interface BriefInput {
   goals: Goal[];
   loadProfile?: LoadProfile;
   metricContext: MetricContext;
+  /** Flags the athlete has closed: left out of the list and the count */
+  isDismissed?: (id: string) => boolean;
   today?: string;
 }
 
 const list = (items: string[], max = 3) => (items.length <= max ? items.join(', ') : `${items.slice(0, max).join(', ')} and ${items.length - max} more`);
 
-export function buildBrief({ sessions, activities, pmc, goals, loadProfile, metricContext, today = getLocalDateString() }: BriefInput): CoachBriefData {
+export function buildBrief({ sessions, activities, pmc, goals, loadProfile, metricContext, isDismissed, today = getLocalDateString() }: BriefInput): CoachBriefData {
   const flags: BriefFlag[] = [];
   const sorted = [...pmc].sort((a, b) => a.date.localeCompare(b.date));
   const last = sorted[sorted.length - 1];
@@ -74,7 +76,7 @@ export function buildBrief({ sessions, activities, pmc, goals, loadProfile, metr
   const missed = thisWeek.filter((s) => s.status === 'ACCEPTED' && s.session_date < today);
   if (missed.length > 0) {
     flags.push({
-      id: 'missed', level: 'warn',
+      id: `missed-${weekStart}`, level: 'warn',
       text: `${missed.length} planned ${missed.length === 1 ? 'session is' : 'sessions are'} not marked done: ${list(missed.map((s) => s.title))}. Mark ${missed.length === 1 ? 'it' : 'them'} complete if you did ${missed.length === 1 ? 'it' : 'them'}.`,
       action: { kind: 'tab', tab: 'training', label: 'Open the plan' },
     });
@@ -93,9 +95,9 @@ export function buildBrief({ sessions, activities, pmc, goals, loadProfile, metr
   const nextWeek = getNextTrainingWeekStartDate(new Date(`${today}T12:00:00`));
   const nextPlanned = plan.some((s) => s.week_start_date === nextWeek);
   if ((dow === 0 || dow >= 5) && !nextPlanned) {
-    flags.push({ id: 'next-week', level: 'warn', text: "Next week isn't planned yet. A two-minute check-in sets it up around your schedule.", action: { kind: 'plan_week' } });
+    flags.push({ id: `next-week-${nextWeek}`, level: 'warn', text: "Next week isn't planned yet. A two-minute check-in sets it up around your schedule.", action: { kind: 'plan_week' } });
   } else if (!thisWeek.some((s) => s.session_date >= today && s.status === 'ACCEPTED') && dow >= 1 && dow <= 4 && thisWeek.length === 0) {
-    flags.push({ id: 'week-empty', level: 'info', text: 'Nothing is planned for the rest of this week.', action: { kind: 'plan_week' } });
+    flags.push({ id: `week-empty-${weekStart}`, level: 'info', text: 'Nothing is planned for the rest of this week.', action: { kind: 'plan_week' } });
   }
 
   // Habits over the last weeks
@@ -133,6 +135,9 @@ export function buildBrief({ sessions, activities, pmc, goals, loadProfile, metr
   }
 
   const order = { warn: 0, info: 1, good: 2 } as const;
+  if (isDismissed) {
+    for (let i = flags.length - 1; i >= 0; i--) if (isDismissed(flags[i].id)) flags.splice(i, 1);
+  }
   flags.sort((a, b) => order[a.level] - order[b.level]);
 
   const done = thisWeek.filter((s) => s.status === 'COMPLETED').length;
