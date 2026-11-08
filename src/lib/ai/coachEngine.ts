@@ -845,6 +845,7 @@ class GeminiCoachEngine {
           slots: budget.slots,
           why: budget.reasons,
           fitness_now: { ctl: budget.ctl_now, atl: budget.atl_now, tsb: budget.tsb_now },
+          recent_weekly_tss: { last_week: budget.recent.last_week_tss, usual_week: budget.recent.usual_week_tss },
         },
         athleteStatus: statusData,
         recent_activities: recentActivities.slice(0, 6),
