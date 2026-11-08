@@ -58,12 +58,15 @@ export interface WeekBudget {
   capacity_tss: number;
   max_session_tss: number;
   max_hard_days: number;
-  slots: { date: string; max_minutes: number; role: 'long' | 'standard' | 'short' }[];
+  slots: { date: string; weekday: string; max_minutes: number; role: 'long' | 'standard' | 'short'; note?: string; /** A note like "commute there and back" means the day holds two sessions */ sessions_allowed: 1 | 2 }[];
   /** Plain-language reasons for the numbers, shown to the athlete */
   reasons: string[];
 }
 
 const round = (n: number) => Math.round(n);
+
+/** A day note that describes two trips or two sessions ("commute there and back", "ride in and home"). */
+const TWO_SESSIONS = /commut|there and back|and back\b|round[- ]trip|each way|both ways|in and (?:home|back)|twice|two (?:rides|sessions|trips)|double/i;
 
 /**
  * Reads what a free-text day note says about time, so "1 hour, commute there and back" sets the day's limit and "off"
@@ -198,7 +201,14 @@ export function buildWeekBudget({ checkIn, pmc, goals, sessions, today = getLoca
     : 0;
   const maxHard = checkIn.feel === 'tired' || tsb < -20 ? 1 : 2;
   const slots = available
-    .map((d) => ({ date: d.date, max_minutes: d.max_minutes, role: (d.max_minutes >= 150 ? 'long' : d.max_minutes >= 60 ? 'standard' : 'short') as 'long' | 'standard' | 'short' }))
+    .map((d) => ({
+      date: d.date,
+      weekday: new Date(`${d.date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long' }),
+      max_minutes: d.max_minutes,
+      role: (d.max_minutes >= 150 ? 'long' : d.max_minutes >= 60 ? 'standard' : 'short') as 'long' | 'standard' | 'short',
+      note: d.note?.trim() || undefined,
+      sessions_allowed: (TWO_SESSIONS.test(d.note ?? '') ? 2 : 1) as 1 | 2,
+    }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
   return {
@@ -298,29 +308,44 @@ export function checkWeekDraft(drafts: DraftSession[], budget: WeekBudget, today
   const issues: WeekIssue[] = [];
   const slotByDate = new Map(budget.slots.map((s) => [s.date, s]));
   const weekEnd = addDaysToDateOnly(budget.week_start, 6);
-  const taken = new Set<string>();
+  const used = new Map<string, number>();
   const placed: DraftSession[] = [];
+  const room = (date: string) => (slotByDate.get(date)?.sessions_allowed ?? 1) - (used.get(date) ?? 0);
 
-  // Keep the longest sessions first when days collide, so the key session is not the one that is moved
+  // Keep the longest sessions first when days collide, so the key session is not the one that is moved. Sessions
+  // that fit on their own day are placed first; only the overflow is moved, so it cannot take a day another session wanted.
   const ordered = [...drafts].sort((a, b) => b.duration_minutes - a.duration_minutes);
+  const overflow: DraftSession[] = [];
   for (const d of ordered) {
-    let date = d.session_date;
-    const inWeek = date >= budget.week_start && date <= weekEnd;
-    if (!inWeek || !slotByDate.has(date) || taken.has(date)) {
-      // Move it to the nearest free available day that can hold it, else drop it
-      const candidates = budget.slots
-        .filter((s) => !taken.has(s.date) && s.max_minutes >= Math.min(d.duration_minutes, 30))
-        .sort((a, b) => Math.abs(Date.parse(a.date) - Date.parse(d.session_date)) - Math.abs(Date.parse(b.date) - Date.parse(d.session_date)));
-      const to = candidates[0];
-      if (!to) {
-        issues.push({ level: 'fixed', text: `Dropped "${d.title}": no free available day for it.` });
-        continue;
-      }
-      issues.push({ level: 'fixed', text: `Moved "${d.title}" from ${inWeek ? dayLabel(d.session_date) : 'outside the week'} to ${dayLabel(to.date)}, a day you are available.` });
-      date = to.date;
+    const inWeek = d.session_date >= budget.week_start && d.session_date <= weekEnd;
+    if (inWeek && slotByDate.has(d.session_date) && room(d.session_date) > 0) {
+      used.set(d.session_date, (used.get(d.session_date) ?? 0) + 1);
+      placed.push({ ...d, week_start_date: budget.week_start });
+    } else {
+      overflow.push(d);
     }
-    taken.add(date);
-    placed.push({ ...d, session_date: date, week_start_date: budget.week_start });
+  }
+  for (const d of overflow) {
+    const inWeek = d.session_date >= budget.week_start && d.session_date <= weekEnd;
+    // The nearest available day with room that can hold it: an empty day, and one without a note of its own, first
+    const candidates = budget.slots
+      .filter((s) => room(s.date) > 0 && s.max_minutes >= Math.min(d.duration_minutes, 30))
+      .sort((a, b) =>
+        ((used.get(a.date) ?? 0) - (used.get(b.date) ?? 0))
+        || ((a.note ? 1 : 0) - (b.note ? 1 : 0))
+        || (Math.abs(Date.parse(a.date) - Date.parse(d.session_date)) - Math.abs(Date.parse(b.date) - Date.parse(d.session_date))));
+    const to = candidates[0];
+    if (!to) {
+      issues.push({ level: 'fixed', text: `Dropped "${d.title}": no available day with room for it.` });
+      continue;
+    }
+    const note = slotByDate.get(d.session_date)?.note;
+    issues.push({
+      level: note ? 'warning' : 'fixed',
+      text: `Moved "${d.title}" from ${inWeek ? dayLabel(d.session_date) : 'outside the week'} to ${dayLabel(to.date)}, a day you are available.${note ? ` It was planned around your note for that day ("${note}"), so check it still makes sense.` : ''}`,
+    });
+    used.set(to.date, (used.get(to.date) ?? 0) + 1);
+    placed.push({ ...d, session_date: to.date, week_start_date: budget.week_start });
   }
 
   // Each session must fit its day and be a believable load for its length
@@ -328,6 +353,7 @@ export function checkWeekDraft(drafts: DraftSession[], budget: WeekBudget, today
     const slot = slotByDate.get(s.session_date)!;
     if (s.duration_minutes > slot.max_minutes) {
       issues.push({ level: 'fixed', text: `Shortened "${s.title}" from ${s.duration_minutes} to ${slot.max_minutes} min (your limit for ${dayLabel(s.session_date)}).` });
+      s.details = `${s.details} (Trimmed from ${s.duration_minutes} to ${slot.max_minutes} min to fit your day: scale the work to match.)`.trim();
       s.duration_minutes = slot.max_minutes;
     }
     const cap = (s.duration_minutes / 60) * tssPerHourCap(s.duration_minutes);
@@ -345,8 +371,10 @@ export function checkWeekDraft(drafts: DraftSession[], budget: WeekBudget, today
   if (total > budget.remaining_tss_max * 1.1 && budget.remaining_tss_max > 0) {
     const factor = Math.max(0.7, budget.remaining_tss_target / total);
     for (const s of placed) {
+      const was = s.duration_minutes;
       s.target_tss = round(s.target_tss * factor);
       s.duration_minutes = Math.max(20, round(s.duration_minutes * (factor + (1 - factor) / 2)));
+      if (s.duration_minutes !== was) s.details = `${s.details} (Trimmed from ${was} to ${s.duration_minutes} min to fit the week's load: scale the work to match.)`.trim();
     }
     issues.push({ level: 'fixed', text: `The draft was ${round(total)} TSS against a budget of about ${budget.remaining_tss_target}: all sessions were trimmed by ${round((1 - factor) * 100)}%.` });
     total = placed.reduce((s, x) => s + x.target_tss, 0);
@@ -358,7 +386,7 @@ export function checkWeekDraft(drafts: DraftSession[], budget: WeekBudget, today
   placed.sort((a, b) => a.session_date.localeCompare(b.session_date));
 
   // Hard days: how many, and never back to back
-  const hardDates = placed.filter((s) => sessionIsHard(s.duration_minutes, s.target_tss)).map((s) => s.session_date);
+  const hardDates = [...new Set(placed.filter((s) => sessionIsHard(s.duration_minutes, s.target_tss)).map((s) => s.session_date))];
   if (hardDates.length > budget.max_hard_days) {
     issues.push({ level: 'warning', text: `${hardDates.length} hard sessions (${hardDates.map(dayLabel).join(', ')}); ${budget.max_hard_days} is the limit for how you are feeling. Regenerate, or soften one.` });
   }
@@ -372,7 +400,8 @@ export function checkWeekDraft(drafts: DraftSession[], budget: WeekBudget, today
   }
 
   // Where fitness ends up if it is all done
-  const byDate = new Map(placed.map((s) => [s.session_date, s.target_tss]));
+  const byDate = new Map<string, number>();
+  for (const s of placed) byDate.set(s.session_date, (byDate.get(s.session_date) ?? 0) + s.target_tss);
   const days = Array.from({ length: 7 }, (_, i) => addDaysToDateOnly(budget.week_start, i)).filter((d) => d >= today);
   const projected = projectLoad({ ctl: budget.ctl_now, atl: budget.atl_now }, days.map((d) => byDate.get(d) ?? 0));
 

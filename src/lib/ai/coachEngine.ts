@@ -831,8 +831,8 @@ class GeminiCoachEngine {
       context: {
         check_in: {
           week_start: checkIn.week_start,
-          availability: checkIn.days.filter((d) => d.available).map((d) => ({ date: d.date, max_minutes: d.max_minutes, athlete_note: d.note?.trim().slice(0, 160) || undefined })),
-          unavailable: checkIn.days.filter((d) => !d.available).map((d) => d.date),
+          availability: budget.slots.map((slot) => ({ date: slot.date, weekday: slot.weekday, max_minutes: slot.max_minutes, sessions_allowed: slot.sessions_allowed, athlete_note: slot.note?.slice(0, 160) })),
+          unavailable: checkIn.days.filter((d) => !d.available).map((d) => `${new Date(`${d.date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long' })} ${d.date}`),
           feeling: checkIn.feel,
           athlete_notes_for_the_week: checkIn.notes.trim().slice(0, 600) || undefined,
         },
