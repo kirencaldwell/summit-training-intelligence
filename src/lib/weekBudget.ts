@@ -59,11 +59,16 @@ export interface WeekBudget {
   max_session_tss: number;
   max_hard_days: number;
   slots: { date: string; weekday: string; max_minutes: number; role: 'long' | 'standard' | 'short'; note?: string; /** A note like "commute there and back" means the day holds two sessions */ sessions_allowed: 1 | 2 }[];
+  /** TSS actually done in the week before this one, and in a usual week of the three before that (for context) */
+  recent: { last_week_tss: number; usual_week_tss: number };
   /** Plain-language reasons for the numbers, shown to the athlete */
   reasons: string[];
 }
 
 const round = (n: number) => Math.round(n);
+
+/** Words in the athlete's own notes that mean the body is not at its best: illness, poor sleep, pain, exhaustion. */
+const UNWELL = /\b(ill|illness|sick|congest\w*|cold|flu|covid|fever|cough|infection|injur\w*|sore|soreness|pain|painful|hurt\w*|not sleeping|poor sleep|bad sleep|exhaust\w*|run down)\b/i;
 
 /** A day note that describes two trips or two sessions ("commute there and back", "ride in and home"). */
 const TWO_SESSIONS = /commut|there and back|and back\b|round[- ]trip|each way|both ways|in and (?:home|back)|twice|two (?:rides|sessions|trips)|double/i;
@@ -178,6 +183,30 @@ export function buildWeekBudget({ checkIn, pmc, goals, sessions, today = getLoca
   // A week at d TSS/day moves CTL by (d - CTL) x factor: solve for d, then the weekly total
   let target = Math.max(0, 7 * (ctl + change / WEEK_CTL_FACTOR));
 
+  // Coming back after a quiet or unwell week: fitness has dropped and form looks "fresh" only because training stopped,
+  // so the week eases back in at part of the usual load instead of jumping to the full ramp
+  const weekTss = (from: string) => sorted.filter((p) => p.date >= from && p.date <= addDaysToDateOnly(from, 6)).reduce((a, p) => a + p.tss, 0);
+  const lastWeekTss = weekTss(addDaysToDateOnly(weekStart, -7));
+  const usualWeekTss = [14, 21, 28].map((d) => weekTss(addDaysToDateOnly(weekStart, -d))).filter((x) => x > 0);
+  const usual = usualWeekTss.length ? usualWeekTss.reduce((a, b) => a + b, 0) / usualWeekTss.length : 0;
+  const droppedOff = usual >= 150 && lastWeekTss < usual * 0.5;
+  const unwell = UNWELL.test(checkIn.notes);
+  let easingBack = false;
+  if (droppedOff || unwell) {
+    easingBack = true;
+    const share = unwell ? 0.7 : 0.75;
+    const cap = usual > 0 ? usual * share : target;
+    if (target > cap) {
+      target = cap;
+      reasons.push(
+        droppedOff
+          ? `Last week held only ${round(lastWeekTss)} TSS against a usual ${round(usual)}${unwell ? ' and your notes mention feeling unwell' : ''}, so this week eases back in at about ${round(share * 100)}% of usual (${round(cap)} TSS) with one hard day at most, before the build resumes.`
+          : `Your notes mention feeling unwell or sore, so this week is held to about ${round(share * 100)}% of a usual week (${round(cap)} TSS) with one hard day at most.`,
+      );
+      change = (target / 7 - ctl) * WEEK_CTL_FACTOR;
+    }
+  }
+
   // Sessions already booked on days the check-in leaves out count toward the week
   const availableDates = new Set(available.map((d) => d.date));
   const booked = sessions.filter((s) => s.week_start_date === weekStart && (s.status === 'ACCEPTED' || s.status === 'COMPLETED') && !availableDates.has(s.session_date));
@@ -199,7 +228,7 @@ export function buildWeekBudget({ checkIn, pmc, goals, sessions, today = getLoca
   const maxSession = available.length
     ? Math.min(Math.max(...available.map((d) => (d.max_minutes / 60) * tssPerHourCap(d.max_minutes))), Math.max(remaining * (available.length <= 2 ? 0.7 : 0.45), 40))
     : 0;
-  const maxHard = checkIn.feel === 'tired' || tsb < -20 ? 1 : 2;
+  const maxHard = checkIn.feel === 'tired' || tsb < -20 || easingBack ? 1 : 2;
   const slots = available
     .map((d) => ({
       date: d.date,
@@ -222,6 +251,7 @@ export function buildWeekBudget({ checkIn, pmc, goals, sessions, today = getLoca
     max_session_tss: round(maxSession),
     max_hard_days: maxHard,
     slots,
+    recent: { last_week_tss: round(lastWeekTss), usual_week_tss: round(usual) },
     reasons,
   };
 }
