@@ -5,7 +5,7 @@ import { decodePolyline, routeOutline } from '../lib/routePreview';
 
 const COLORS: Record<string, string> = {
   cycling: '#34D399', zwift: '#2DD4BF', skimo: '#38BDF8', backcountry_skiing: '#60A5FA',
-  resort_skiing: '#F472B6', scrambling: '#A78BFA', weighted_hiking: '#FBBF24',
+  resort_skiing: '#F472B6', scrambling: '#A78BFA', weighted_hiking: '#FBBF24', workout: '#FB923C',
 };
 
 // Older activities have no stored outline yet: work them out a couple at a time as their cards come into view

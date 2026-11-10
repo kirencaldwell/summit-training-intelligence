@@ -42,6 +42,7 @@ const SPORT_OPTIONS: { value: SportType; label: string }[] = [
   { value: 'resort_skiing', label: 'Resort Skiing' },
   { value: 'scrambling', label: 'Peak Scramble' },
   { value: 'weighted_hiking', label: 'Weighted Hike' },
+  { value: 'workout', label: 'Workout / Gym' },
 ];
 
 /** Inline editor for the activity name, sport and custom tags. */

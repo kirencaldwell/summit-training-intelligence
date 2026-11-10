@@ -268,7 +268,7 @@ Output ONLY a JSON object, no prose and no markdown: { "metrics": [ ... ] } with
 - { "kind": "fitness_ctl" } : fitness (CTL) now
 - { "kind": "travel_pace", "pace": "ascent" | "descent" | "flat" | "units", "sports": ["weighted_hiking" | "skimo" | "backcountry_skiing"] } : median climbing rate (ft/h), descending rate (ft/h), flat speed (mph) or Munter effort units per hour over the last 42 days
 - { "kind": "plan_adherence" } : percent of planned sessions completed over the last 28 days
-"sports" is optional (leave it out for all sports) and uses: cycling, zwift, skimo, backcountry_skiing, resort_skiing, scrambling, weighted_hiking.
+"sports" is optional (leave it out for all sports) and uses: cycling, zwift, skimo, backcountry_skiing, resort_skiing, scrambling, weighted_hiking, workout.
 Every metric also has: "name" (short, 60 characters at most), "why" (one sentence on what about the goal this protects against or builds toward), "target" (a number in the metric's own unit: hours per week, miles, feet, watts, CTL, ft/h, mph, units/h or percent) and "target_date" (YYYY-MM-DD, no later than the goal date; use an earlier date for a checkpoint metric such as the biggest long day 3-4 weeks before the event, so there is time to taper).
 
 How to choose:
@@ -329,7 +329,7 @@ Rules:
 - Use only dates listed in budget.slots, at most one session per date, and never longer than that slot's max_minutes. You need not use every slot: a rest day is fine, and the athlete's notes may rule days out.
 - Total target_tss across your sessions should land inside budget.remaining_tss_min to budget.remaining_tss_max. No session may exceed budget.max_session_tss. Use at most budget.max_hard_days hard sessions (a session at 70 or more TSS per hour is hard), never on back-to-back days, and put easy days around them.
 - Build the week toward the goals: where a tracked metric is behind (for example weekly vert, a long climbing day, or long-effort duration), aim a session at it without breaking the load budget. Respect the athlete's notes, injuries and the way they feel.
-- Choose the sport for each session from: cycling, zwift, skimo, backcountry_skiing, resort_skiing, scrambling, weighted_hiking. Match the goal's sport and what the athlete does recently.
+- Choose the sport for each session from: cycling, zwift, skimo, backcountry_skiing, resort_skiing, scrambling, weighted_hiking, workout (gym or strength work). Match the goal's sport and what the athlete does recently.
 - Write each session's "details" so the result can be measured afterwards: state the targets explicitly, for example "3 x 10 min at 250 W with 5 min easy between", "stay under 195 W", "keep heart rate in Zone 2", "climb at about 1,500 ft/h", "4,000 ft of vertical". Use feet, miles and pounds. Say nothing the athlete cannot check against their recording.
 - Each session object has exactly: { "session_date": "YYYY-MM-DD", "title": string, "sport_type": string, "duration_minutes": number, "focus": string, "details": string, "target_tss": number }. Do not add other fields.
 
@@ -413,7 +413,7 @@ When the user asks you to:
   "summary": "1-line summary of the long-term plan",
   "goal": {
     "name": "Goal Name (e.g. Mount Rainier Alpine Push)",
-    "sport_type": "cycling" | "zwift" | "skimo" | "backcountry_skiing" | "resort_skiing" | "scrambling" | "weighted_hiking" | "general",
+    "sport_type": "cycling" | "zwift" | "skimo" | "backcountry_skiing" | "resort_skiing" | "scrambling" | "weighted_hiking" | "workout" | "general",
     "target_date": "YYYY-MM-DD",
     "timeframe_text": "12-Week Progressive Build (Spring 2027)",
     "objective_summary": "Comprehensive description of the target objective",
@@ -476,7 +476,7 @@ When the context includes a <focus_goal> block, the conversation is about that s
       "week_start_date": "YYYY-MM-DD",
       "session_date": "YYYY-MM-DD",
       "title": "Workout Title",
-      "sport_type": "cycling" | "zwift" | "skimo" | "backcountry_skiing" | "resort_skiing" | "scrambling" | "weighted_hiking",
+      "sport_type": "cycling" | "zwift" | "skimo" | "backcountry_skiing" | "resort_skiing" | "scrambling" | "weighted_hiking" | "workout",
       "duration_minutes": 60,
       "focus": "Main focus (e.g. Sweetspot, Active Recovery, VAM Climbing)",
       "details": "Specific structured interval breakdown or instructions",
@@ -544,7 +544,7 @@ const FILTER_PROMPT = `You are a data-retrieval planner for an endurance coachin
     "include": boolean,
     "start_date": "YYYY-MM-DD" | null,
     "end_date": "YYYY-MM-DD" | null,
-    "sport_types": string[] | null,   // from: cycling, zwift, skimo, backcountry_skiing, resort_skiing, scrambling, weighted_hiking
+    "sport_types": string[] | null,   // from: cycling, zwift, skimo, backcountry_skiing, resort_skiing, scrambling, weighted_hiking, workout
     "keywords": string[] | null,      // match activity title / gear notes / athlete tags
     "min_tss": number | null,
     "min_knee_discomfort": number | null, // 0-10

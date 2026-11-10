@@ -51,14 +51,15 @@ export function sourceRank(origin: string): number {
   return 1;
 }
 
-/** Null for records that can't be used: no id, an unsupported sport (swim, strength, yoga...), or no time. */
+/** Null for records that can't be used: no id or no time. Any sport the app has no name for (gym, yoga, swim...) comes in as a generic workout. */
 export function toCandidate(raw: IntervalsRaw): IntervalsCandidate | null {
   const id = str(raw.id) || (num(raw.id) !== undefined ? String(raw.id) : '');
   if (!id) return null;
 
   const type = str(raw.type);
-  const { sport, ebike } = mapStravaType(type);
-  if (!sport) return null;
+  const mapped = mapStravaType(type);
+  const sport: SportType = mapped.sport ?? 'workout';
+  const ebike = mapped.ebike;
 
   const movingSeconds = num(raw.moving_time) ?? num(raw.icu_recording_time) ?? 0;
   const elapsedSeconds = num(raw.elapsed_time) ?? movingSeconds;

@@ -119,6 +119,8 @@ export function mapStravaType(type: string): { sport?: SportType; ebike: boolean
   if (t === 'hike' || t === 'walk' || t === 'run' || t === 'trailrun' || t === 'snowshoe' || t === 'virtualrun') {
     return { sport: 'weighted_hiking', ebike: false };
   }
+  // Gym, studio and other indoor training (Intervals.icu "Workout", "WeightTraining", "Yoga" ...)
+  if (/^(workout|weighttraining|strengthtraining|crossfit|hiit|highintensityintervaltraining|yoga|pilates|elliptical|stairstepper|rowing|swim|exercise|cardio|circuittraining|core|stretching|dance|boxing)$/.test(t)) return { sport: 'workout', ebike: false };
   return { ebike: false };
 }
 

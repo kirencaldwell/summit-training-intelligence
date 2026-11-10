@@ -7,6 +7,7 @@ export type SportType =
   | 'skimo' 
   | 'backcountry_skiing' 
   | 'resort_skiing'
+  | 'workout'
   | 'scrambling' 
   | 'weighted_hiking';
 

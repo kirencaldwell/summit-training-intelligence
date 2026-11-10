@@ -247,6 +247,7 @@ const BASE_INTENSITY: Record<string, number> = {
   resort_skiing: 0.35,
   scrambling: 0.7,
   weighted_hiking: 0.58,
+  workout: 0.55,
 };
 
 /**
