@@ -6,6 +6,7 @@ import {
   IntervalsError,
   clearIntervalsSettings,
   describeSync,
+  type SyncReportLine,
   getIntervalsAccountStatus,
   getIntervalsSettings,
   isIntervalsSyncRunning,
@@ -89,6 +90,8 @@ export const IntervalsTab: React.FC<IntervalsTabProps> = ({ onActivitiesImported
     void saveIntervalsToAccount(next).then(refreshAccount);
   };
 
+  const [report, setReport] = useState<SyncReportLine[]>([]);
+
   const sync = async (days: number) => {
     if (!settings) return;
     if (isIntervalsSyncRunning()) {
@@ -101,6 +104,7 @@ export const IntervalsTab: React.FC<IntervalsTabProps> = ({ onActivitiesImported
     setProgress(null);
     setError('');
     setMessage('');
+    setReport([]);
     try {
       const oldest = days > 0 ? isoDate(new Date(Date.now() - days * 24 * 3600 * 1000)) : '2000-01-01';
       const result = await syncFromIntervals({ apiKey: settings.apiKey, oldest, onProgress: setProgress, signal: controller.signal });
@@ -113,6 +117,7 @@ export const IntervalsTab: React.FC<IntervalsTabProps> = ({ onActivitiesImported
         setSettings(next);
       }
       setMessage(describeSync(result));
+      setReport(result.report);
       if (result.failed.length) setError(`Could not import: ${result.failed.slice(0, 3).map((f) => `${f.name} (${f.error})`).join('; ')}${result.failed.length > 3 ? '…' : ''}`);
     } catch (err) {
       if (err instanceof IntervalsError && err.status === 401) {
@@ -253,6 +258,22 @@ export const IntervalsTab: React.FC<IntervalsTabProps> = ({ onActivitiesImported
       )}
 
       {message && <p className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-xs text-emerald-200">{message}</p>}
+      {report.length > 0 && (
+        <details className="rounded-xl border border-white/10 bg-slate-900/50 p-3">
+          <summary className="cursor-pointer text-xs font-semibold text-slate-200">What happened to each activity ({report.length})</summary>
+          <ul className="mt-2 max-h-64 overflow-y-auto space-y-1.5">
+            {report.slice(0, 80).map((line, i) => (
+              <li key={i} className="text-[11px] leading-snug text-slate-300">
+                <span className={`font-semibold ${line.outcome === 'imported' ? 'text-emerald-300' : line.outcome === 'already' ? 'text-slate-400' : line.outcome === 'failed' ? 'text-rose-300' : 'text-amber-300'}`}>
+                  {line.outcome === 'imported' ? 'Imported' : line.outcome === 'already' ? 'Already had' : line.outcome === 'failed' ? 'Failed' : 'Skipped'}
+                </span>
+                {' · '}{line.date || 'no date'} · {line.name || 'untitled'}{line.type ? ` (${line.type})` : ''}
+                {line.detail && <span className="block text-slate-500">{line.detail}</span>}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       {error && <p role="alert" className="p-3 rounded-xl border border-rose-500/30 bg-rose-500/10 text-xs text-rose-300">{error}</p>}
     </div>
   );
