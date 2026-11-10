@@ -6,7 +6,7 @@ import { ActivityTotals } from './ActivityTotals';
 import { RouteThumb } from './RouteThumb';
 import { canImproveWithAi, resolveTss, type TssSource } from '../lib/trainingMath';
 import type { GroupScore, ModelSummary } from '../lib/intensityModel';
-import { Mountain, Bike, Compass, Footprints, ShieldAlert, Zap, Calendar, Search, Trash2, Tag, X } from 'lucide-react';
+import { Mountain, Bike, Compass, Footprints, Dumbbell, ShieldAlert, Zap, Calendar, Search, Trash2, Tag, X } from 'lucide-react';
 
 interface BulkEstimateState {
   running: boolean;
@@ -88,6 +88,7 @@ export const ActivityList: React.FC<ActivityListProps> = ({
     { key: 'resort_skiing', label: 'Resort Ski', icon: Mountain },
     { key: 'scrambling', label: 'Peak Scramble', icon: Compass },
     { key: 'weighted_hiking', label: 'Weighted Hike', icon: Footprints },
+    { key: 'workout', label: 'Workout / Gym', icon: Dumbbell },
   ];
 
   // Date range first: the totals panel follows only the dates, the list also follows sport, tags and search
@@ -124,6 +125,7 @@ export const ActivityList: React.FC<ActivityListProps> = ({
       case 'resort_skiing': return 'bg-pink-500/10 text-pink-400 border-pink-500/30';
       case 'scrambling': return 'bg-purple-500/10 text-purple-400 border-purple-500/30';
       case 'weighted_hiking': return 'bg-amber-500/10 text-amber-400 border-amber-500/30';
+      case 'workout': return 'bg-orange-500/10 text-orange-400 border-orange-500/30';
     }
   };
 

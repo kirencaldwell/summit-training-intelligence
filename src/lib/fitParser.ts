@@ -55,6 +55,8 @@ function mapFitSport(sport?: string, subSport?: string): SportType {
   if (isFitSkiing(s) || s === 'snowboarding') return 'resort_skiing';
   if (s === 'hiking' || ss.includes('hiking')) return 'weighted_hiking';
   if (s === 'mountaineering' || ss.includes('scramble') || ss.includes('rock_climbing')) return 'scrambling';
+  // Gym and studio training recorded by a watch
+  if (s === 'training' || s === 'fitness_equipment' || ss.includes('strength') || ss.includes('cardio_training') || ss.includes('yoga') || ss.includes('pilates') || ss.includes('hiit')) return 'workout';
 
   // Default unmapped types → cycling if power data present, else weighted hiking
   return 'cycling';

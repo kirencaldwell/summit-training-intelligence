@@ -287,7 +287,7 @@ export interface WeekCheck {
   projected: { ctl: number; atl: number; tsb: number };
 }
 
-const SPORTS: TrainingSession['sport_type'][] = ['cycling', 'zwift', 'skimo', 'backcountry_skiing', 'resort_skiing', 'scrambling', 'weighted_hiking'];
+const SPORTS: TrainingSession['sport_type'][] = ['cycling', 'zwift', 'skimo', 'backcountry_skiing', 'resort_skiing', 'scrambling', 'weighted_hiking', 'workout'];
 
 /** Turns the model's reply into draft sessions: anything malformed is dropped and numbers are bounded (the reply is only data). */
 export function parseWeekDraft(raw: string, weekStart: string): DraftSession[] {

@@ -60,7 +60,7 @@ export interface MetricEvaluation {
   percentToTarget?: number;
 }
 
-export const SPORT_KEYS: SportType[] = ['cycling', 'zwift', 'skimo', 'backcountry_skiing', 'resort_skiing', 'scrambling', 'weighted_hiking'];
+export const SPORT_KEYS: SportType[] = ['cycling', 'zwift', 'skimo', 'backcountry_skiing', 'resort_skiing', 'scrambling', 'weighted_hiking', 'workout'];
 
 export function metricUnit(m: Pick<TrackingMetric, 'kind' | 'measure' | 'pace'>): string {
   switch (m.kind) {

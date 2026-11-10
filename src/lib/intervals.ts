@@ -263,7 +263,7 @@ export interface SyncResult {
   alreadyHave: number;
   /** Workouts recorded on more than one device: the extra recordings were not counted again */
   duplicatesHandled: number;
-  /** Swim, strength, yoga and other sports this app doesn't track */
+  /** Records with no id or no duration, which cannot be imported */
   unsupported: number;
   /** Imported from the summary because the recording file wasn't available */
   summaryOnly: number;
@@ -465,7 +465,7 @@ export function describeSync(result: SyncResult): string {
   if (result.updated.length) parts.push(`${result.updated.length} improved with data from a second device`);
   if (result.duplicatesHandled) parts.push(`${result.duplicatesHandled} duplicate recording${result.duplicatesHandled === 1 ? '' : 's'} from other devices counted once`);
   if (result.alreadyHave) parts.push(`${result.alreadyHave} already in your log`);
-  if (result.unsupported) parts.push(`${result.unsupported} of other sports skipped`);
+  if (result.unsupported) parts.push(`${result.unsupported} skipped (no usable time or id)`);
   if (result.summaryOnly) parts.push(`${result.summaryOnly} imported without a recording file (no map or charts)`);
   if (result.failed.length) parts.push(`${result.failed.length} failed`);
   if (result.cancelled) parts.push('stopped early');
