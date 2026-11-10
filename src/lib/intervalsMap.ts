@@ -91,6 +91,16 @@ export function toCandidate(raw: IntervalsRaw): IntervalsCandidate | null {
   };
 }
 
+/** Why a listed record cannot be imported, in words for the athlete; null when it can. */
+export function skipReason(raw: IntervalsRaw): string | null {
+  if (toCandidate(raw)) return null;
+  const id = str(raw.id) || (num(raw.id) !== undefined ? String(raw.id) : '');
+  if (!id) return 'it has no id';
+  const note = typeof raw._note === 'string' ? raw._note : '';
+  if (/strava/i.test(`${note} ${str(raw.source)}`)) return 'Intervals.icu does not share Strava-sourced activities with other apps';
+  return 'it has no recorded duration';
+}
+
 /** The candidate as an Activity-shaped record, enough for the duplicate check. */
 function asActivity(c: IntervalsCandidate): Activity | null {
   if (!c.start) return null;

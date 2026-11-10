@@ -13,6 +13,7 @@ import {
   applyCandidate,
   couldAdd,
   planImport,
+  skipReason,
   toCandidate,
   type IntervalsCandidate,
   type IntervalsRaw,
@@ -33,7 +34,7 @@ const DAY_MS = 24 * 3600 * 1000;
 const LIST_FIELDS = [
   'id', 'name', 'type', 'start_date', 'start_date_local', 'distance', 'moving_time', 'elapsed_time',
   'total_elevation_gain', 'average_heartrate', 'max_heartrate', 'icu_average_watts', 'icu_weighted_avg_watts',
-  'source', 'device_name', 'external_id', 'description', 'commute',
+  'source', 'device_name', 'external_id', 'description', 'commute', 'icu_recording_time', '_note',
 ].join(',');
 
 export interface IntervalsSettings {
@@ -268,7 +269,17 @@ export interface SyncResult {
   /** Imported from the summary because the recording file wasn't available */
   summaryOnly: number;
   failed: { name: string; error: string }[];
+  /** What happened to every listed activity, newest first, so a missing one can be traced */
+  report: SyncReportLine[];
   cancelled: boolean;
+}
+
+export interface SyncReportLine {
+  name: string;
+  date: string;
+  type: string;
+  outcome: 'imported' | 'already' | 'skipped' | 'failed';
+  detail?: string;
 }
 
 // What this browser remembers about activities it imported: which source was preferred for each (so a
@@ -344,8 +355,16 @@ async function runSync(options: {
     unsupported: raw.length - usable.length,
     summaryOnly: 0,
     failed: [],
+    report: [],
     cancelled: false,
   };
+  const dayOf = (iso?: string) => (iso ? iso.slice(0, 10) : '');
+  for (const r of raw) {
+    const why = skipReason(r);
+    if (why) {
+      result.report.push({ name: String(r.name ?? r.id ?? ''), date: dayOf(String(r.start_date_local ?? r.start_date ?? '')), type: String(r.type ?? ''), outcome: 'skipped', detail: `Skipped: ${why}.` });
+    }
+  }
 
   // Matches first (cheap, usually nothing to do), then new workouts
   const total = plan.matches.length + plan.groups.length;
@@ -373,6 +392,7 @@ async function runSync(options: {
     // Skip the download unless this recording could add heart rate or power, or is the preferred source
     if (ledger.merged.includes(candidate.id) || !(takesOver || couldAdd(activityHas(match), candidate))) {
       result.alreadyHave += 1;
+      result.report.push({ name: candidate.name, date: dayOf(candidate.start), type: candidate.type, outcome: 'already', detail: `Already in your log as "${match.title}".` });
       continue;
     }
     try {
@@ -386,15 +406,18 @@ async function runSync(options: {
         const index = existing.findIndex((e) => e.id === match.id);
         if (index >= 0) existing[index] = { ...existing[index], ...saved };
         result.updated.push(saved);
+        result.report.push({ name: candidate.name, date: dayOf(candidate.start), type: candidate.type, outcome: 'already', detail: `Matched "${match.title}" and added data from this recording.` });
         result.duplicatesHandled += 1;
         if (takesOver) ledger.ranks[match.id] = candidate.rank;
       } else {
         result.alreadyHave += 1;
+        result.report.push({ name: candidate.name, date: dayOf(candidate.start), type: candidate.type, outcome: 'already', detail: `Already in your log as "${match.title}".` });
       }
       ledger.merged.push(candidate.id);
     } catch (err) {
       rethrowFatal(err);
       result.failed.push({ name: candidate.name || candidate.id, error: err instanceof Error ? err.message : 'Merge failed.' });
+      result.report.push({ name: candidate.name, date: dayOf(candidate.start), type: candidate.type, outcome: 'failed', detail: err instanceof Error ? err.message : 'Merge failed.' });
     }
   }
 
@@ -422,24 +445,29 @@ async function runSync(options: {
         }
       }
       // A recording without a UTC start couldn't be matched earlier; check again with the real start time
-      if (existing.some((e) => isDuplicateActivity(activity, e))) {
+      const twin = existing.find((e) => isDuplicateActivity(activity, e));
+      if (twin) {
         result.alreadyHave += 1;
+        result.report.push({ name: group.primary.name, date: dayOf(group.primary.start), type: group.primary.type, outcome: 'already', detail: `Matches "${twin.title}" already in your log.` });
         continue;
       }
       const saved = await dataService.addActivity(activity);
       existing.push(saved);
       result.imported.push(saved);
+      result.report.push({ name: group.primary.name, date: dayOf(group.primary.start), type: group.primary.type, outcome: 'imported', detail: `Imported as ${saved.sport_type.replace('_', ' ')}${fromFile ? '' : ' (summary only, no recording file)'}.` });
       ledger.ranks[saved.id] = group.primary.rank;
       ledger.merged.push(group.primary.id);
       if (!fromFile) result.summaryOnly += 1;
     } catch (err) {
       rethrowFatal(err);
       result.failed.push({ name: group.primary.name || group.primary.id, error: err instanceof Error ? err.message : 'Import failed.' });
+      result.report.push({ name: group.primary.name, date: dayOf(group.primary.start), type: group.primary.type, outcome: 'failed', detail: err instanceof Error ? err.message : 'Import failed.' });
     }
   }
 
   writeLedger(ledger);
   options.onProgress?.({ done: total, total });
+  result.report.sort((a, b) => b.date.localeCompare(a.date));
   return result;
 }
 
