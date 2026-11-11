@@ -1,3 +1,4 @@
+import { readEbikeChecks } from '../lib/ebikeChecks';
 import { parseStructuredAssessment } from '../lib/coachMemory';
 import { StructuredAssessmentView } from './StructuredAssessmentView';
 import React, { useMemo, useState } from 'react';
@@ -69,6 +70,7 @@ const ActivityEditor: React.FC<{
   };
   const removeTag = (tag: string) => setTags((prev) => prev.filter((t) => t !== tag));
   const ebike = isEbike({ tags });
+  const ebikeCheck = readEbikeChecks()[activity.id];
   // One switch for motor assist: adds the canonical tag, or removes every e-bike spelling
   const toggleEbike = (on: boolean) =>
     setTags((prev) => (on ? normalizeTags([...prev, EBIKE_TAG]) : prev.filter((t) => !isEbikeTag(t))));
@@ -140,6 +142,11 @@ const ActivityEditor: React.FC<{
             <span className="block text-xs text-slate-400">
               Adds the "{EBIKE_TAG}" tag. Training load is then estimated from your heart rate and notes rather than speed and climbing.
             </span>
+            {ebike && ebikeCheck?.state === 'tagged' && ebikeCheck.reasons?.length ? (
+              <span className="mt-1 block text-[11px] text-cyan-300/90">
+                Tagged automatically: {ebikeCheck.reasons.join(' ')} Untick this if it is wrong and it will not be tagged again.
+              </span>
+            ) : null}
           </span>
         </label>
       )}

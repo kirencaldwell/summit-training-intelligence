@@ -6,6 +6,7 @@ import { ActivityTotals } from './ActivityTotals';
 import { RouteThumb } from './RouteThumb';
 import { canImproveWithAi, resolveTss, type TssSource } from '../lib/trainingMath';
 import type { GroupScore, ModelSummary } from '../lib/intensityModel';
+import { ebikeCandidates } from '../lib/ebikeChecks';
 import { Mountain, Bike, Compass, Footprints, Dumbbell, ShieldAlert, Zap, Calendar, Search, Trash2, Tag, X } from 'lucide-react';
 
 interface BulkEstimateState {
@@ -28,6 +29,9 @@ interface ActivityListProps {
   onCancelBulkEstimate?: () => void;
   /** Saves a route outline worked out for an older activity that had none */
   onRoutePreview?: (id: string, outline: string) => void;
+  /** Looks at every ride never judged and tags the ones that pass the e-bike detector */
+  onScanEbikes?: () => Promise<{ scanned: number; tagged: Activity[] }>;
+  isScanningEbikes?: boolean;
 }
 
 export const ActivityList: React.FC<ActivityListProps> = ({
@@ -40,7 +44,11 @@ export const ActivityList: React.FC<ActivityListProps> = ({
   bulkEstimate,
   onBulkEstimate,
   onCancelBulkEstimate,
+  onScanEbikes,
+  isScanningEbikes = false,
 }) => {
+  const [ebikeMessage, setEbikeMessage] = useState('');
+  const unjudgedRides = ebikeCandidates(activities).length;
   // Where each activity's training load comes from, and how many the AI could still improve
   const loadProfile = profile ? { ftp: profile.ftp, lthr: profile.lthr, weight_kg: profile.weight_kg } : undefined;
   const sourceCounts: Record<TssSource, number> = { power: 0, ai: 0, model: 0, heart_rate: 0, baseline: 0 };
@@ -198,6 +206,28 @@ export const ActivityList: React.FC<ActivityListProps> = ({
               )
             )}
           </div>
+          {onScanEbikes && (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/5 pt-2">
+              <p className="text-[11px] text-slate-400 min-w-0 flex-1 basis-56">
+                <span className="font-semibold text-white">E-bike rides:</span>{' '}
+                {ebikeMessage || (unjudgedRides > 0
+                  ? `${unjudgedRides} ${unjudgedRides === 1 ? 'ride has' : 'rides have'} not been checked for motor assist. Rides that pass the detector are tagged e-bike.`
+                  : 'Every ride has been checked. New rides are checked as they arrive.')}
+              </p>
+              <button
+                type="button"
+                disabled={isScanningEbikes || unjudgedRides === 0}
+                onClick={async () => {
+                  setEbikeMessage('');
+                  const r = await onScanEbikes();
+                  setEbikeMessage(r.scanned === 0 ? 'Nothing to check.' : `Checked ${r.scanned} ${r.scanned === 1 ? 'ride' : 'rides'}: ${r.tagged.length === 0 ? 'none looked like an e-bike' : `${r.tagged.length} tagged as e-bike`}.`);
+                }}
+                className="px-3 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-semibold disabled:opacity-50"
+              >
+                {isScanningEbikes ? 'Checking…' : 'Detect e-bike rides'}
+              </button>
+            </div>
+          )}
           {bulkEstimate?.running && (
             <div className="space-y-1">
               <div className="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">

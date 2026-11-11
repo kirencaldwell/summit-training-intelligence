@@ -32,7 +32,9 @@ import { GoalsManager } from './components/GoalsManager';
 import { GoogleSignInScreen } from './components/GoogleSignInScreen';
 import { coachEngine } from './lib/ai/coachEngine';
 import { formatLbFromKg } from './lib/units';
-import { collectTags, isEbike } from './lib/tags';
+import { collectTags, isEbike, EBIKE_TAG, normalizeTags } from './lib/tags';
+import { detectEbike } from './lib/ebikeDetect';
+import { ebikeCandidates, writeEbikeCheck } from './lib/ebikeChecks';
 import {
   IntervalsError,
   clearIntervalsSettings,
@@ -244,6 +246,10 @@ export function App() {
       || ('perceived_exertion' in updates && (updates.perceived_exertion ?? null) !== (before?.perceived_exertion ?? null));
     const notesCleared = notesChanged && !updates.effort_notes?.trim();
     const ebikeChanged = Boolean(before) && 'tags' in updates && isEbike({ tags: updates.tags }) !== isEbike(before!);
+    // Un-tagging a ride the detector tagged is a no for good: it is never auto-tagged again
+    if (before && 'tags' in updates && isEbike(before) && !isEbike({ tags: updates.tags })) {
+      writeEbikeCheck(id, { state: 'rejected', at: new Date().toISOString() });
+    }
 
     // Removing the description drops the AI estimate so the activity falls back to heart rate / baseline
     const toSave = notesCleared && before?.tss_source === 'ai'
@@ -394,10 +400,71 @@ export function App() {
     }
   };
 
+  // E-bike detection: look at rides that were never judged and tag the ones that pass the detector
+  const [isScanningEbikes, setIsScanningEbikes] = useState(false);
+  const scanEbikes = async (list: Activity[]): Promise<{ scanned: number; tagged: Activity[] }> => {
+    const tagged: Activity[] = [];
+    let scanned = 0;
+    if (!profile) return { scanned, tagged };
+    const thresholds = { weight_kg: profile.weight_kg, ftp: profile.ftp, lthr: profile.lthr, max_hr: profile.max_hr };
+    for (const activity of list) {
+      let points = activity.streams_data;
+      if (!points?.length) {
+        try { points = (await dataService.getActivityById(activity.id))?.streams_data; } catch { continue; }
+      }
+      const result = detectEbike(activity, points, thresholds);
+      scanned += 1;
+      if (result.ebike) {
+        try {
+          await handleUpdateActivity(activity.id, { tags: normalizeTags([...(activity.tags ?? []), EBIKE_TAG]) });
+          writeEbikeCheck(activity.id, { state: 'tagged', at: new Date().toISOString(), reasons: result.reasons });
+          tagged.push(activity);
+        } catch (err) {
+          console.warn('Could not tag the e-bike ride:', err);
+        }
+      } else {
+        writeEbikeCheck(activity.id, { state: 'clear', at: new Date().toISOString() });
+      }
+    }
+    return { scanned, tagged };
+  };
+  const announceEbikes = (tagged: Activity[]) => {
+    if (tagged.length === 0) return;
+    setSyncNotice({
+      text: `Tagged ${tagged.length} ${tagged.length === 1 ? 'ride' : 'rides'} as e-bike: ${tagged.slice(0, 3).map((a) => a.title).join(', ')}${tagged.length > 3 ? '…' : ''}. Not right? Open the ride and switch off E-bike, and it will not be tagged again.`,
+      tone: 'ok',
+    });
+  };
+  const scanNewEbikes = (imported: Activity[]) => {
+    const candidates = ebikeCandidates(imported);
+    if (candidates.length === 0) return;
+    void scanEbikes(candidates).then(({ tagged }) => announceEbikes(tagged)).catch((err) => console.warn('E-bike detection failed:', err));
+  };
+  const handleScanAllEbikes = async () => {
+    setIsScanningEbikes(true);
+    try {
+      const result = await scanEbikes(ebikeCandidates(activities));
+      announceEbikes(result.tagged);
+      return result;
+    } finally {
+      setIsScanningEbikes(false);
+    }
+  };
+
+  // Once the data is in, check the newest rides nobody has judged yet (anything imported on another device or earlier)
+  const ebikeLoadScanRef = useRef(false);
+  useEffect(() => {
+    if (ebikeLoadScanRef.current || !profile || activities.length === 0) return;
+    ebikeLoadScanRef.current = true;
+    scanNewEbikes(ebikeCandidates(activities, undefined, 10));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile, activities.length > 0]);
+
   const handleFitImport = (importedActivities: Activity[]) => {
     if (importedActivities.length > 0) {
       setActivities((prev) => [...importedActivities, ...prev]);
       setSelectedActivity(importedActivities[0]);
+      scanNewEbikes(importedActivities);
     }
   };
 
@@ -724,7 +791,10 @@ export function App() {
     try {
       const result = await syncFromIntervals({ apiKey: settings.apiKey, oldest: autoSyncStart(settings) });
       saveIntervalsSettings({ ...settings, lastSyncAt: new Date().toISOString() });
-      if (result.imported.length > 0) setActivities((previous) => [...result.imported, ...previous]);
+      if (result.imported.length > 0) {
+        setActivities((previous) => [...result.imported, ...previous]);
+        scanNewEbikes(result.imported);
+      }
       if (result.updated.length > 0) handleActivitiesUpdated(result.updated);
       if (result.imported.length > 0 || result.updated.length > 0) {
         setSyncNotice({ text: `Intervals.icu: ${describeSync(result)}`, tone: 'ok' });
@@ -947,6 +1017,8 @@ export function App() {
               onBulkEstimate={() => void handleBulkEstimate()}
               onCancelBulkEstimate={handleCancelBulkEstimate}
               onRoutePreview={handleRoutePreview}
+              onScanEbikes={handleScanAllEbikes}
+              isScanningEbikes={isScanningEbikes}
             />
           </div>
         )}
