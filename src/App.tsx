@@ -955,7 +955,7 @@ export function App() {
             </div>
             <div className={trainingView === 'week' ? '' : 'hidden xl:block'}>
             <TrainingWeekSection
-              trainingSessions={upcomingSessions.filter((session) => session.status !== 'COMPLETED')}
+              trainingSessions={upcomingSessions}
               allSessions={trainingSessions}
               activities={activities}
               onOpenActivity={handleOpenActivity}
