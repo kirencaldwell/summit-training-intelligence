@@ -1,8 +1,11 @@
 import { useIsDesktop } from '../lib/useMediaQuery';
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Flag, Sparkles, CheckCircle2, Circle } from 'lucide-react';
 import type { Activity, AthleteProfile, Goal, PeriodizationPhase, TrainingSession } from '../types';
-import type { TrackingMetric } from '../lib/trackingMetrics';
+import { evaluateMetric, summarizeMetrics, type MetricContext, type TrackingMetric } from '../lib/trackingMetrics';
+import type { MunterParams } from '../lib/munter';
+import { calculatePMC } from '../lib/trainingMath';
+import { dataService } from '../lib/supabase';
 import { GoalMetrics } from './GoalMetrics';
 import { addDaysToDateOnly, getLocalDateString } from '../lib/trainingSessions';
 
@@ -63,6 +66,31 @@ export const LongTermPlan: React.FC<LongTermPlanProps> = ({ goals, currentCtl, o
   const active = goals
     .filter((g) => g.status === 'ACTIVE')
     .sort((a, b) => (a.target_date ?? '9999').localeCompare(b.target_date ?? '9999'));
+
+  // How each goal's metrics are doing, for the headline of its card (the cards themselves show the detail)
+  const [munter, setMunter] = useState<Record<string, MunterParams>>({});
+  const needsMunter = active.some((g) => (g.tracking_metrics ?? []).some((m) => m.kind === 'travel_pace'));
+  useEffect(() => {
+    if (!needsMunter) return;
+    let live = true;
+    dataService.getMunterParams().then((p) => { if (live) setMunter(p); }).catch(() => undefined);
+    return () => { live = false; };
+  }, [needsMunter]);
+  const loadProfile = useMemo(() => (profile ? { ftp: profile.ftp, lthr: profile.lthr, weight_kg: profile.weight_kg } : undefined), [profile]);
+  const metricContext = useMemo<MetricContext | null>(
+    () => (activities && sessions && profile ? { activities, sessions, pmc: calculatePMC(activities, 400, loadProfile), profile, loadProfile, munter } : null),
+    [activities, sessions, profile, loadProfile, munter],
+  );
+  const metricSummaries = useMemo(() => {
+    const out: Record<string, ReturnType<typeof summarizeMetrics>> = {};
+    if (!metricContext) return out;
+    for (const goal of active) {
+      const metrics = goal.tracking_metrics ?? [];
+      if (metrics.length > 0) out[goal.id] = summarizeMetrics(metrics.map((m) => evaluateMetric(m, metricContext).status));
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [goals, metricContext]);
 
   if (active.length === 0) {
     return (
@@ -142,6 +170,19 @@ export const LongTermPlan: React.FC<LongTermPlanProps> = ({ goals, currentCtl, o
                   {goal.target_date ? `${new Date(`${goal.target_date}T12:00:00`).toLocaleDateString([], { month: 'long', day: 'numeric', year: 'numeric' })}` : goal.timeframe_text || 'No date set'}
                   {daysLeft !== undefined && daysLeft >= 0 ? ` · ${Math.ceil(daysLeft / 7)} weeks to go` : ''}
                 </p>
+                {metricSummaries[goal.id] && (
+                  <span
+                    className={`mt-1.5 inline-block rounded-full border px-2.5 py-0.5 text-[11px] font-semibold tabular-nums ${
+                      metricSummaries[goal.id].tone === 'good' ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                      : metricSummaries[goal.id].tone === 'warn' ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                      : 'border-rose-500/30 bg-rose-500/10 text-rose-300'
+                    }`}
+                  >
+                    {metricSummaries[goal.id].onTarget}/{metricSummaries[goal.id].total} metrics on target
+                    {metricSummaries[goal.id].behind > 0 ? ` · ${metricSummaries[goal.id].behind} behind` : ''}
+                    {metricSummaries[goal.id].noData > 0 ? ` · ${metricSummaries[goal.id].noData} no data yet` : ''}
+                  </span>
+                )}
               </div>
               {current && (
                 <div className="text-right">
