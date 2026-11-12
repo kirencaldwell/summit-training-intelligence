@@ -84,6 +84,11 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
   const [deletingIds, setDeletingIds] = useState<string[]>([]);
   const [deleteError, setDeleteError] = useState('');
   const pendingSessions = trainingSessions.filter((session) => session.status !== 'COMPLETED');
+  // The plan view keeps finished sessions, at the bottom with their Completed tag, most recent first
+  const completedSessions = trainingSessions.filter((session) => session.status === 'COMPLETED');
+  const shownSessions = variant === 'plan'
+    ? [...pendingSessions, ...completedSessions.slice().sort((a, b) => b.session_date.localeCompare(a.session_date))]
+    : trainingSessions;
 
   const deleteSessions = async (ids: string[]) => {
     if (!onDeleteTrainingSessions || ids.length === 0) return;
@@ -107,7 +112,7 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
               <CalendarDays className="w-4 h-4 text-cyan-400" /> This week
             </h2>
-            <p className="text-xs text-slate-400 mt-1">Sessions still to do. Completed ones move to the training log.</p>
+            <p className="text-xs text-slate-400 mt-1">Sessions still to do come first; completed ones stay at the bottom.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {onDeleteTrainingSessions && pendingSessions.length > 0 && (
@@ -176,9 +181,14 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
           <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{deleteError}</p>
         )}
 
-        {trainingSessions.length > 0 ? (
+        {variant === 'plan' && pendingSessions.length === 0 && completedSessions.length > 0 && (
+          <p className="rounded-lg border border-dashed border-white/10 px-4 py-3 text-sm text-slate-400">
+            Nothing left to do this week. Plan the next one with "Plan the week".
+          </p>
+        )}
+        {shownSessions.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {trainingSessions.map((session) => (
+            {shownSessions.map((session) => (
               <article key={session.id} className="rounded-lg border border-white/10 bg-slate-900/50 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
