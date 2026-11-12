@@ -338,3 +338,13 @@ export function metricMenu(ctx: MetricContext) {
     plan_adherence_percent_last_28_days: adherence !== undefined ? Math.round(adherence) : 'no planned sessions',
   };
 }
+
+/** How a goal's metrics are doing overall: those at or ahead of their path, those behind, and those with no data yet. */
+export function summarizeMetrics(statuses: MetricStatus[]): { total: number; onTarget: number; behind: number; noData: number; tone: 'good' | 'warn' | 'bad' | 'none' } {
+  const onTarget = statuses.filter((s) => s === 'met' || s === 'ahead' || s === 'on_track').length;
+  const behind = statuses.filter((s) => s === 'behind' || s === 'well_behind').length;
+  const noData = statuses.length - onTarget - behind;
+  const total = statuses.length;
+  const tone = total === 0 ? 'none' : behind === 0 ? 'good' : behind * 2 >= total ? 'bad' : 'warn';
+  return { total, onTarget, behind, noData, tone };
+}
