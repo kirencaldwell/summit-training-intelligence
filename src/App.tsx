@@ -516,6 +516,14 @@ export function App() {
   // The weekly check-in: availability in, a checked week out
   const [isCheckInOpen, setIsCheckInOpen] = useState(false);
 
+  // The Training tab is three views on a phone; a link to a goal or metric opens the one that holds it
+  type TrainingView = 'week' | 'log' | 'plan';
+  const [trainingView, setTrainingView] = useState<TrainingView>('week');
+  const handleNavigate = (tab: AppTab, target?: string) => {
+    if (tab === 'training' && target && /^(goal|metric)-/.test(target)) setTrainingView('plan');
+    setActiveTab(tab);
+  };
+
   const handleAcceptWeekPlan = async (weekStart: string, drafts: DraftSession[], replaceIds: string[]) => {
     for (const id of replaceIds) await dataService.deleteTrainingSession(id);
     const proposed = await dataService.replaceProposedTrainingSessions(weekStart, drafts);
@@ -925,11 +933,27 @@ export function App() {
         )}
 
         {activeTab === 'training' && (
-          <div className="space-y-8">
-            <header className="border-b border-white/10 pb-4">
+          <div className="space-y-4 xl:space-y-8">
+            <header className="border-b border-white/10 pb-3 xl:pb-4">
               <h1 className="text-2xl font-extrabold text-white tracking-tight">Training</h1>
-              <p className="text-xs text-slate-400">What's left this week, the log of what you've done, and the long-term plan toward your goals.</p>
+              <p className="hidden sm:block text-xs text-slate-400">What's left this week, the log of what you've done, and the long-term plan toward your goals.</p>
             </header>
+            {/* On a phone or tablet the three parts are separate views; the full desktop layout shows them all */}
+            <div role="tablist" aria-label="Training sections" className="xl:hidden sticky top-0 z-30 -mx-1 flex gap-1 rounded-xl border border-white/10 bg-slate-950/90 p-1 backdrop-blur">
+              {([['week', 'This week'], ['log', 'Log'], ['plan', 'Long-term']] as [TrainingView, string][]).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={trainingView === id}
+                  onClick={() => setTrainingView(id)}
+                  className={`min-h-10 flex-1 rounded-lg px-2 text-sm font-semibold transition-colors ${trainingView === id ? 'bg-cyan-500/20 text-cyan-200' : 'text-slate-400 hover:text-white'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className={trainingView === 'week' ? '' : 'hidden xl:block'}>
             <TrainingWeekSection
               trainingSessions={upcomingSessions.filter((session) => session.status !== 'COMPLETED')}
               allSessions={trainingSessions}
@@ -944,6 +968,8 @@ export function App() {
               onReopenTrainingSession={handleReopenTrainingSession}
               onAssessTrainingSession={handleAssessTrainingSession}
             />
+            </div>
+            <div className={trainingView === 'log' ? '' : 'hidden xl:block'}>
             <TrainingLog
               sessions={trainingSessions}
               goals={goals}
@@ -957,7 +983,8 @@ export function App() {
               onReopenTrainingSession={handleReopenTrainingSession}
               onAssessTrainingSession={handleAssessTrainingSession}
             />
-            <section className="space-y-3">
+            </div>
+            <section className={`space-y-3 ${trainingView === 'plan' ? '' : 'hidden xl:block'}`}>
               <div>
                 <h2 className="text-lg font-bold text-white">Long-term plan</h2>
                 <p className="text-xs text-slate-400 mt-1">The phases and milestones leading to each active goal. Edit them on the Goals tab, or ask the coach to replan.</p>
@@ -1095,7 +1122,7 @@ export function App() {
               profile={profile}
               loadProfile={loadProfile}
               onPlanWeek={() => setIsCheckInOpen(true)}
-              onNavigateTab={setActiveTab}
+              onNavigateTab={handleNavigate}
             />
             <CoachMemoryPanel memory={coachMemory} onChange={updateCoachMemory} />
             <AICoachPanel

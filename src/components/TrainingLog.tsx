@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { useIsDesktop } from '../lib/useMediaQuery';
 import { History, Target, TrendingUp } from 'lucide-react';
 import type { AthleteProfile, Goal, TrainingSession } from '../types';
 import { calculatePMC } from '../lib/trainingMath';
@@ -30,20 +31,26 @@ const STATUS_META: Record<GoalProgress['status'], { label: string; cls: string }
 const GoalProgressCard: React.FC<{ progress: GoalProgress }> = ({ progress: p }) => {
   const meta = STATUS_META[p.status];
   const ramp = p.recentRampPerWeek;
+  // On a phone the card is a headline you can open; on the desktop layout it starts open
+  const desktop = useIsDesktop();
   return (
-    <div className="rounded-xl border border-white/10 bg-slate-900/50 p-4 space-y-2">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-bold text-white flex items-center gap-2"><Target className="w-4 h-4 text-amber-400" /> {p.goal.name}</p>
-        <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${meta.cls}`}>{meta.label}</span>
-      </div>
-      {p.expectedCtl !== undefined && p.actualCtl !== undefined ? (
-        <p className="text-xs text-slate-300">
-          Fitness (CTL) is <span className="font-semibold text-white">{Math.round(p.actualCtl)}</span>; the plan expects about{' '}
-          <span className="font-semibold text-white">{Math.round(p.expectedCtl)}</span> today.
-        </p>
-      ) : p.actualCtl !== undefined ? (
-        <p className="text-xs text-slate-300">Fitness (CTL) is <span className="font-semibold text-white">{Math.round(p.actualCtl)}</span>.</p>
-      ) : null}
+    <details open={desktop} className="group rounded-xl border border-white/10 bg-slate-900/50 p-4">
+      <summary className="cursor-pointer list-none space-y-1.5">
+        <span className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-sm font-bold text-white flex items-center gap-2"><Target className="w-4 h-4 text-amber-400" /> {p.goal.name}</span>
+          <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${meta.cls}`}>{meta.label}</span>
+        </span>
+        {p.expectedCtl !== undefined && p.actualCtl !== undefined ? (
+          <span className="block text-xs text-slate-300">
+            Fitness (CTL) is <span className="font-semibold text-white">{Math.round(p.actualCtl)}</span>; the plan expects about{' '}
+            <span className="font-semibold text-white">{Math.round(p.expectedCtl)}</span> today.
+          </span>
+        ) : p.actualCtl !== undefined ? (
+          <span className="block text-xs text-slate-300">Fitness (CTL) is <span className="font-semibold text-white">{Math.round(p.actualCtl)}</span>.</span>
+        ) : null}
+        <span className="block text-[11px] font-semibold text-cyan-300 xl:hidden group-open:hidden">More</span>
+      </summary>
+      <div className="mt-2 space-y-2">
       {p.nextTarget && p.neededRampPerWeek !== undefined && (
         <p className="text-xs text-slate-400">
           Next target: {p.nextTarget.phase} CTL {p.nextTarget.ctl} by {fmtDay(p.nextTarget.by)}. That needs {signed(p.neededRampPerWeek)} per week
@@ -57,7 +64,8 @@ const GoalProgressCard: React.FC<{ progress: GoalProgress }> = ({ progress: p })
           {ramp !== undefined ? ` Your fitness has changed ${signed(ramp)} per week over the last 4 weeks.` : ''}
         </p>
       )}
-    </div>
+      </div>
+    </details>
   );
 };
 
@@ -162,7 +170,7 @@ export const TrainingLog: React.FC<TrainingLogProps> = ({ sessions, goals, profi
                 )}
                 {week.isCurrent && week.upcoming.length + week.missed.length > 0 && (
                   <p className="text-[11px] text-slate-500">
-                    {week.upcoming.length + week.missed.length} more planned this week, listed under This week above.
+                    {week.upcoming.length + week.missed.length} more planned this week, listed under This week.
                   </p>
                 )}
                 {week.unplanned.length > 0 && (
