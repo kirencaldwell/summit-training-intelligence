@@ -6,7 +6,11 @@ export function scrollToTarget(id: string, timeoutMs = 2000) {
   const started = Date.now();
   const find = () => {
     const el = document.getElementById(id);
-    if (el) {
+    // Hidden because a collapsed card holds it: open that card and look again
+    if (el && el.offsetParent === null) {
+      const toggle = el.closest('article')?.querySelector<HTMLButtonElement>('[data-expand][aria-expanded="false"]');
+      toggle?.click();
+    } else if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       const ring = ['ring-2', 'ring-cyan-400', 'ring-offset-2', 'ring-offset-slate-950'];
       el.classList.add(...ring);

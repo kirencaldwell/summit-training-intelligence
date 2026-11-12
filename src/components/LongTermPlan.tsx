@@ -1,3 +1,4 @@
+import { useIsDesktop } from '../lib/useMediaQuery';
 import React, { useState } from 'react';
 import { Flag, Sparkles, CheckCircle2, Circle } from 'lucide-react';
 import type { Activity, AthleteProfile, Goal, PeriodizationPhase, TrainingSession } from '../types';
@@ -53,6 +54,9 @@ function placePhases(goal: Goal, today: string): PlacedPhase[] {
 const PHASE_COLORS = ['#38BDF8', '#34D399', '#FBBF24', '#F97316', '#F43F5E', '#A78BFA'];
 
 export const LongTermPlan: React.FC<LongTermPlanProps> = ({ goals, currentCtl, onPlanWithCoach, activities, sessions, profile, onSuggestMetrics, onSaveMetrics, onBackfillMetrics }) => {
+  // On a phone only one goal is open at a time (the first, to start with); the desktop layout shows every goal in full
+  const [openGoal, setOpenGoal] = useState<string | null | undefined>(undefined);
+  const desktop = useIsDesktop();
   const [backfilling, setBackfilling] = useState(false);
   const [backfillResults, setBackfillResults] = useState<{ goal: string; count?: number; synced?: boolean; error?: string }[] | null>(null);
   const today = getLocalDateString();
@@ -122,9 +126,16 @@ export const LongTermPlan: React.FC<LongTermPlanProps> = ({ goals, currentCtl, o
           : undefined;
         const current = phases.find((p) => p.current);
         const milestones = [...(goal.milestones ?? [])].sort((a, b) => (a.target_date ?? '9999').localeCompare(b.target_date ?? '9999'));
+        const isOpen = (openGoal === undefined ? active[0]?.id : openGoal) === goal.id;
         return (
           <article key={goal.id} id={`goal-${goal.id}`} className="scroll-mt-24 glass-panel rounded-2xl border border-white/10 p-4 space-y-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
+            <button
+              type="button"
+              data-expand
+              aria-expanded={isOpen}
+              onClick={() => setOpenGoal(isOpen ? null : goal.id)}
+              className="flex w-full flex-wrap items-start justify-between gap-3 text-left xl:pointer-events-none"
+            >
               <div>
                 <h3 className="text-base font-bold text-white flex items-center gap-2"><Flag className="w-4 h-4 text-amber-400" /> {goal.name}</h3>
                 <p className="text-xs text-slate-400">
@@ -139,7 +150,9 @@ export const LongTermPlan: React.FC<LongTermPlanProps> = ({ goals, currentCtl, o
                   {current.end && <p className="text-[11px] text-slate-400">until {fmtDate(current.end)}</p>}
                 </div>
               )}
-            </div>
+              <span className="basis-full text-[11px] font-semibold text-cyan-300 xl:hidden">{isOpen ? 'Hide' : 'Show the plan, milestones and metrics'}</span>
+            </button>
+            <div className={`space-y-4 ${isOpen ? '' : 'max-xl:hidden'}`}>
 
             {phases.length === 0 ? (
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-white/10 px-3 py-3">
@@ -176,7 +189,11 @@ export const LongTermPlan: React.FC<LongTermPlanProps> = ({ goals, currentCtl, o
                   </div>
                 )}
 
-                <ol className="space-y-2">
+                <details open={desktop} className="group">
+                <summary className="cursor-pointer list-none text-xs font-semibold text-slate-300 xl:hidden">
+                  Phases ({phases.length}) <span className="text-cyan-300 group-open:hidden">· show</span>
+                </summary>
+                <ol className="mt-2 xl:mt-0 space-y-2">
                   {phases.map((p, i) => (
                     <li key={i} className={`rounded-lg border px-3 py-2 ${p.current ? 'border-white/30 bg-white/5' : 'border-white/10 bg-slate-900/40'} ${p.past ? 'opacity-60' : ''}`}>
                       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -201,6 +218,7 @@ export const LongTermPlan: React.FC<LongTermPlanProps> = ({ goals, currentCtl, o
                     </li>
                   ))}
                 </ol>
+                </details>
               </>
             )}
 
@@ -225,6 +243,7 @@ export const LongTermPlan: React.FC<LongTermPlanProps> = ({ goals, currentCtl, o
             {onSuggestMetrics && onSaveMetrics && activities && sessions && profile && (
               <GoalMetrics goal={goal} activities={activities} sessions={sessions} profile={profile} onSuggest={onSuggestMetrics} onSave={onSaveMetrics} />
             )}
+            </div>
           </article>
         );
       })}

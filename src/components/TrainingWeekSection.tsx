@@ -51,6 +51,9 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
   const [sessionNotice, setSessionNotice] = useState('');
   const [assessingSessionId, setAssessingSessionId] = useState<string | null>(null);
   const [assessErrors, setAssessErrors] = useState<Record<string, string>>({});
+  // On a phone a card shows its essentials; the rest opens with Details (the desktop layout always shows everything)
+  const [openIds, setOpenIds] = useState<string[]>([]);
+  const toggleOpen = (id: string) => setOpenIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   const scoreSession = async (id: string) => {
     if (!onScoreTrainingSession) return;
@@ -104,7 +107,7 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
               <CalendarDays className="w-4 h-4 text-cyan-400" /> This week
             </h2>
-            <p className="text-xs text-slate-400 mt-1">Sessions still to do. Completed ones move to the training log below.</p>
+            <p className="text-xs text-slate-400 mt-1">Sessions still to do. Completed ones move to the training log.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {onDeleteTrainingSessions && pendingSessions.length > 0 && (
@@ -127,7 +130,7 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
                 <button
                   type="button"
                   onClick={() => setConfirmDelete('all')}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-xs font-semibold text-slate-300 hover:text-rose-300 hover:border-rose-500/30 transition-all"
+                  className="max-sm:order-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-xs font-semibold text-slate-300 hover:text-rose-300 hover:border-rose-500/30 transition-all"
                 >
                   <Trash2 className="w-3.5 h-3.5" /> Delete all
                 </button>
@@ -137,7 +140,7 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
               <button
                 type="button"
                 onClick={onPlanWeek}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500 text-xs font-bold text-slate-950 hover:bg-cyan-400 transition-all"
+                className="max-sm:order-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500 text-xs font-bold text-slate-950 hover:bg-cyan-400 transition-all"
               >
                 <Sparkles className="w-3.5 h-3.5" /> Plan the week
               </button>
@@ -145,7 +148,7 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
             <button
               type="button"
               onClick={() => onNavigateTab('coach')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-xs font-semibold text-slate-300 hover:text-white hover:bg-white/5 transition-all"
+              className="max-sm:order-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-xs font-semibold text-slate-300 hover:text-white hover:bg-white/5 transition-all"
             >
               <Bot className="w-3.5 h-3.5" /> Ask the coach
             </button>
@@ -190,10 +193,24 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
                     {session.status === 'COMPLETED' ? 'Completed' : session.session_date < today ? (variant === 'log' && session.session_date < getWeekStartDate(today) ? 'Missed' : 'Not done yet') : 'Planned'}
                   </span>
                 </div>
-                <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-300">
+                <p className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-slate-300">
                   <Clock3 className="w-3.5 h-3.5 text-slate-500" /> {session.duration_minutes} min
                   {session.target_tss != null && <span className="ml-2 text-amber-300">{session.target_tss} TSS</span>}
+                  {session.status === 'COMPLETED' && session.auto_score && (
+                    <span className={`ml-2 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${VERDICT_STYLE[session.auto_score.verdict].box} ${VERDICT_STYLE[session.auto_score.verdict].text}`}>
+                      {VERDICT_STYLE[session.auto_score.verdict].label}
+                    </span>
+                  )}
                 </p>
+                <button
+                  type="button"
+                  onClick={() => toggleOpen(session.id)}
+                  aria-expanded={openIds.includes(session.id)}
+                  className="md:hidden mt-2 min-h-8 text-xs font-semibold text-cyan-300"
+                >
+                  {openIds.includes(session.id) ? 'Hide details' : 'Details'}
+                </button>
+                <div className={openIds.includes(session.id) ? '' : 'max-md:hidden'}>
                 <p className="mt-2 text-xs leading-relaxed text-slate-400">{session.details}</p>
                 {session.status === 'COMPLETED' && (session.completed_activity_ids?.length ?? 0) > 0 && (
                   <div className="mt-3 flex flex-wrap gap-1.5">
@@ -236,6 +253,7 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
                     <div className="mt-2"><AssessmentText text={session.coach_assessment} /></div>
                   </details>
                 )}
+                </div>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                   <span className="flex flex-wrap items-center gap-1">
                     {session.status === 'COMPLETED' ? (
@@ -256,7 +274,7 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
                           <button
                             type="button"
                             onClick={() => setCompleting(session)}
-                            className="min-h-9 inline-flex items-center gap-1.5 px-2 text-xs font-semibold text-slate-400 hover:text-white"
+                            className={`min-h-9 inline-flex items-center gap-1.5 px-2 text-xs font-semibold text-slate-400 hover:text-white ${openIds.includes(session.id) ? '' : 'max-md:hidden'}`}
                           >
                             <Link2 className="w-3.5 h-3.5" /> Edit links
                           </button>
@@ -265,7 +283,7 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
                           <button
                             type="button"
                             onClick={() => void onReopenTrainingSession(session.id)}
-                            className="min-h-9 inline-flex items-center gap-1.5 px-2 text-xs font-semibold text-slate-400 hover:text-white"
+                            className={`min-h-9 inline-flex items-center gap-1.5 px-2 text-xs font-semibold text-slate-400 hover:text-white ${openIds.includes(session.id) ? '' : 'max-md:hidden'}`}
                           >
                             <RotateCcw className="w-3.5 h-3.5" /> Mark not done
                           </button>

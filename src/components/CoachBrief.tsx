@@ -16,7 +16,7 @@ interface CoachBriefProps {
   profile: AthleteProfile;
   loadProfile?: LoadProfile;
   onPlanWeek: () => void;
-  onNavigateTab: (tab: AppTab) => void;
+  onNavigateTab: (tab: AppTab, target?: string) => void;
 }
 
 const FLAG_STYLE = {
@@ -64,7 +64,7 @@ export const CoachBrief: React.FC<CoachBriefProps> = ({ sessions, activities, pm
 
   const run = (action: BriefAction) => {
     if (action.kind === 'plan_week') return onPlanWeek();
-    onNavigateTab(action.tab);
+    onNavigateTab(action.tab, action.target);
     if (action.target) scrollToTarget(action.target);
   };
   const f = brief.fitness;
