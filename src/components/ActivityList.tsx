@@ -7,6 +7,7 @@ import { RouteThumb } from './RouteThumb';
 import { canImproveWithAi, resolveTss, type TssSource } from '../lib/trainingMath';
 import type { GroupScore, ModelSummary } from '../lib/intensityModel';
 import { ebikeCandidates } from '../lib/ebikeChecks';
+import { movingCandidates } from '../lib/movingChecks';
 import { Mountain, Bike, Compass, Footprints, Dumbbell, ShieldAlert, Zap, Calendar, Search, Trash2, Tag, X } from 'lucide-react';
 
 interface BulkEstimateState {
@@ -32,6 +33,9 @@ interface ActivityListProps {
   /** Looks at every ride never judged and tags the ones that pass the e-bike detector */
   onScanEbikes?: () => Promise<{ scanned: number; tagged: Activity[] }>;
   isScanningEbikes?: boolean;
+  /** Works out the real moving time (without breaks) for activities that saved the whole elapsed time */
+  onFixMovingTimes?: () => Promise<{ scanned: number; fixed: Activity[] }>;
+  isFixingMovingTimes?: boolean;
 }
 
 export const ActivityList: React.FC<ActivityListProps> = ({
@@ -46,7 +50,11 @@ export const ActivityList: React.FC<ActivityListProps> = ({
   onCancelBulkEstimate,
   onScanEbikes,
   isScanningEbikes = false,
+  onFixMovingTimes,
+  isFixingMovingTimes = false,
 }) => {
+  const [movingMessage, setMovingMessage] = useState('');
+  const unmeasuredTimes = movingCandidates(activities).length;
   const [ebikeMessage, setEbikeMessage] = useState('');
   const unjudgedRides = ebikeCandidates(activities).length;
   // Where each activity's training load comes from, and how many the AI could still improve
@@ -206,6 +214,28 @@ export const ActivityList: React.FC<ActivityListProps> = ({
               )
             )}
           </div>
+          {onFixMovingTimes && (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/5 pt-2">
+              <p className="text-[11px] text-slate-400 min-w-0 flex-1 basis-56">
+                <span className="font-semibold text-white">Moving time:</span>{' '}
+                {movingMessage || (unmeasuredTimes > 0
+                  ? `${unmeasuredTimes} ${unmeasuredTimes === 1 ? 'activity has' : 'activities have'} not been checked for breaks. Moving time leaves out time spent stopped; training load and the coach use it.`
+                  : 'Every activity has been checked. New ones are measured as they are imported.')}
+              </p>
+              <button
+                type="button"
+                disabled={isFixingMovingTimes || unmeasuredTimes === 0}
+                onClick={async () => {
+                  setMovingMessage('');
+                  const r = await onFixMovingTimes();
+                  setMovingMessage(r.scanned === 0 ? 'Nothing to check.' : `Checked ${r.scanned} ${r.scanned === 1 ? 'activity' : 'activities'}: ${r.fixed.length === 0 ? 'none had real breaks to remove' : `corrected ${r.fixed.length}`}.`);
+                }}
+                className="px-3 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-semibold disabled:opacity-50"
+              >
+                {isFixingMovingTimes ? 'Measuring…' : 'Measure moving time'}
+              </button>
+            </div>
+          )}
           {onScanEbikes && (
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/5 pt-2">
               <p className="text-[11px] text-slate-400 min-w-0 flex-1 basis-56">

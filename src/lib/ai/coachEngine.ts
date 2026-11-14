@@ -151,7 +151,8 @@ function activityBlock(
     duration_minutes: Math.round(a.duration_seconds / 60),
     ...activityUnitsForAI(a),
     tss: Math.round(resolveTss(a, loadProfile).tss),
-    moving_time_minutes: Math.round(a.moving_time_seconds / 60),
+    moving_time_minutes: Math.round((a.moving_time_seconds || a.duration_seconds) / 60),
+    stopped_minutes: a.moving_time_seconds > 0 && a.moving_time_seconds < a.duration_seconds * 0.97 ? Math.round((a.duration_seconds - a.moving_time_seconds) / 60) : undefined,
     avg_power: a.avg_power,
     max_power: a.max_power,
     normalized_power: a.normalized_power,
@@ -308,6 +309,7 @@ async function gatherAthleteContext(focusGoalId?: string) {
     // The athlete's local day: the UTC start_date puts an evening activity on the next day
     date: getLocalDateString(new Date(a.start_date)),
     duration_minutes: Math.round(a.duration_seconds / 60),
+    moving_time_minutes: Math.round((a.moving_time_seconds || a.duration_seconds) / 60),
     ...activityUnitsForAI(a),
     normalized_power: a.normalized_power,
     intensity_factor: a.intensity_factor,
@@ -353,6 +355,7 @@ async function gatherAthleteContext(focusGoalId?: string) {
     start_date: a.start_date,
     date: getLocalDateString(new Date(a.start_date)),
     duration_minutes: Math.round(a.duration_seconds / 60),
+    moving_time_minutes: Math.round((a.moving_time_seconds || a.duration_seconds) / 60),
     ...activityUnitsForAI(a),
     avg_power: a.avg_power,
     normalized_power: a.normalized_power,
@@ -983,7 +986,7 @@ class GeminiCoachEngine {
             : undefined,
         ),
       })),
-      combined_actual: { activities: linked.length, duration_minutes: totals.minutes, tss: totals.tss },
+      combined_actual: { activities: linked.length, duration_minutes: totals.minutes, moving_time_minutes: Math.round(linked.reduce((n, a) => n + (a.moving_time_seconds || a.duration_seconds) / 60, 0)), tss: totals.tss },
       training_load_after: pmcAfter ? { ctl: pmcAfter.ctl, atl: pmcAfter.atl, tsb: pmcAfter.tsb, day_tss: pmcAfter.tss } : null,
       active_goals: goals
         .filter((g) => g.status === 'ACTIVE')

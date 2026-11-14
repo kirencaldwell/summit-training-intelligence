@@ -5,6 +5,7 @@
  */
 import FitParser from 'fit-file-parser';
 import { EBIKE_TAG } from './tags';
+import { adoptMovingTime } from './movingTime';
 import { lookupStravaMeta, stravaFileKey, stravaMetaToPatch, type StravaMetaIndex } from './stravaCsv';
 import type { Activity, MetricStreamPoint, SportType } from '../types';
 import { classifySkiFromTrack } from './munter';
@@ -208,6 +209,10 @@ export async function parseFitFile(file: File): Promise<Activity> {
             lng: r.position_long,
           }));
 
+        // Many devices never pause their timer, so "moving time" is the whole elapsed time: take the real moving time
+        // from the recording, without the breaks. Power-based TSS above keeps the timer time it was computed with.
+        const movingSeconds = adoptMovingTime(movingTimeSec, durationSec, streamPoints)?.moving_seconds ?? movingTimeSec;
+
         // Skiing the file does not classify: lift-served or self-propelled, from how fast the climbing is
         const sportType: SportType = fitSkiIsAmbiguous(session.sport, session.sub_sport)
           ? classifySkiFromTrack(streamPoints) ?? baseSportType
@@ -224,7 +229,7 @@ export async function parseFitFile(file: File): Promise<Activity> {
           sport_type: sportType,
           start_date: startDate,
           duration_seconds: Math.round(durationSec),
-          moving_time_seconds: Math.round(movingTimeSec),
+          moving_time_seconds: Math.round(movingSeconds),
           distance_meters: Math.round(distanceM),
           total_elevation_gain_m: Math.round(elevM),
           avg_power: avgWatts,
@@ -237,7 +242,7 @@ export async function parseFitFile(file: File): Promise<Activity> {
           max_hr: maxHr,
           avg_cadence: avgCadence,
           max_speed_kmh: maxSpeedKmh ? Math.round(maxSpeedKmh * 10) / 10 : undefined,
-          avg_vam_mh: vam > 0 ? Math.round(vam) : undefined,
+          avg_vam_mh: movingSeconds !== movingTimeSec ? (calculateVAM(elevM, movingSeconds) > 0 ? Math.round(calculateVAM(elevM, movingSeconds)) : undefined) : vam > 0 ? Math.round(vam) : undefined,
           time_in_hr_zones: hrZones,
           time_in_power_zones: powerZones,
           streams_data: streamPoints.length > 0 ? streamPoints : undefined,
@@ -380,13 +385,16 @@ export async function parseGpxFile(file: File): Promise<Activity> {
     ? classifySkiFromTrack(streamPoints) ?? gpxSport
     : gpxSport;
 
+  // A GPX track has no timer: the moving time comes from the recording, without the breaks
+  const gpxMoving = adoptMovingTime(durationSeconds, durationSeconds, streamPoints)?.moving_seconds ?? durationSeconds;
+
   return {
     id: crypto.randomUUID(),
     title: trackName || file.name.replace(/\.gpx$/i, ''),
     sport_type: sportType,
     start_date: startDate,
     duration_seconds: Math.round(durationSeconds),
-    moving_time_seconds: Math.round(durationSeconds),
+    moving_time_seconds: Math.round(gpxMoving),
     distance_meters: Math.round(distanceMeters),
     total_elevation_gain_m: elevationGainMeters,
     avg_power: averagePower,
@@ -399,7 +407,7 @@ export async function parseGpxFile(file: File): Promise<Activity> {
     avg_cadence: cadences.length > 0
       ? Math.round(cadences.reduce((sum, value) => sum + value, 0) / cadences.length)
       : undefined,
-    avg_vam_mh: calculateVAM(elevationGainMeters, durationSeconds) || undefined,
+    avg_vam_mh: calculateVAM(elevationGainMeters, gpxMoving) || undefined,
     time_in_hr_zones: heartRates.length > 10 ? calculateHRZones(heartRates, profile.lthr) : undefined,
     time_in_power_zones: watts.length > 10 ? calculatePowerZones(watts, profile.ftp) : undefined,
     streams_data: streamPoints,
