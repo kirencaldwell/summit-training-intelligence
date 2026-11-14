@@ -376,6 +376,11 @@ const ActivityDetailContent: React.FC<Omit<ActivityDetailModalProps, 'activity'>
               <Clock className="w-3.5 h-3.5 mr-1 text-cyan-400" /> Duration
             </span>
             <span className="text-lg font-extrabold text-white">{durationMin} min</span>
+            {activity.moving_time_seconds > 0 && activity.moving_time_seconds < activity.duration_seconds * 0.97 && (
+              <span className="mt-0.5 block text-[11px] text-slate-400">
+                {Math.round(activity.moving_time_seconds / 60)} min moving · {Math.round((activity.duration_seconds - activity.moving_time_seconds) / 60)} min stopped
+              </span>
+            )}
           </div>
 
           <div className="p-3 rounded-xl bg-slate-900/60 border border-white/5">

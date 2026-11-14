@@ -4,7 +4,7 @@ import type { AICoachMessage, Activity, AthleteProfile, Goal, PMCDayPoint, Power
 import { dataService, isSupabaseConfigured, supabase } from './lib/supabase';
 import type { GoalReadinessAssessment } from './lib/goalReadiness';
 import { installIntensityModel } from './lib/intensityModel';
-import { calculatePMC, calculatePowerCurve, calculateVAM, canImproveWithAi, hasPowerCurveData } from './lib/trainingMath';
+import { calculatePMC, calculatePowerCurve, calculateVAM, canImproveWithAi, hasPowerCurveData, tssFromIntensity } from './lib/trainingMath';
 import { addDaysToDateOnly, getCurrentTrainingWeekStartDate, getLocalDateString } from './lib/trainingSessions';
 import { addFindings, addNote, EMPTY_MEMORY, parseStructuredAssessment, type CoachMemory } from './lib/coachMemory';
 import { CoachMemoryContext } from './components/CoachMemoryContext';
@@ -35,6 +35,8 @@ import { formatLbFromKg } from './lib/units';
 import { collectTags, isEbike, EBIKE_TAG, normalizeTags } from './lib/tags';
 import { detectEbike } from './lib/ebikeDetect';
 import { ebikeCandidates, writeEbikeCheck } from './lib/ebikeChecks';
+import { adoptMovingTime } from './lib/movingTime';
+import { movingCandidates, writeMovingCheck } from './lib/movingChecks';
 import {
   IntervalsError,
   clearIntervalsSettings,
@@ -399,6 +401,70 @@ export function App() {
       setAssessingIds((prev) => prev.filter((id) => id !== activity.id));
     }
   };
+
+  // Moving time: devices that never paused their timer saved the whole elapsed time, breaks included. Work the real
+  // moving time out of the recording and rescale what depended on it (the VAM, and an AI estimate's load from its intensity).
+  const [isFixingMovingTimes, setIsFixingMovingTimes] = useState(false);
+  const fixMovingTimes = async (list: Activity[]): Promise<{ scanned: number; fixed: Activity[] }> => {
+    const fixed: Activity[] = [];
+    let scanned = 0;
+    for (const activity of list) {
+      let points = activity.streams_data;
+      if (!points?.length) {
+        try { points = (await dataService.getActivityById(activity.id))?.streams_data; } catch { continue; }
+      }
+      scanned += 1;
+      const adopted = adoptMovingTime(activity.moving_time_seconds || activity.duration_seconds, activity.duration_seconds, points);
+      if (!adopted) {
+        writeMovingCheck(activity.id, { state: 'clear', at: new Date().toISOString() });
+        continue;
+      }
+      const seconds = adopted.moving_seconds;
+      const updates: Partial<Activity> = { moving_time_seconds: seconds };
+      if (activity.total_elevation_gain_m > 0) updates.avg_vam_mh = calculateVAM(activity.total_elevation_gain_m, seconds) || undefined;
+      if (activity.tss_source === 'ai' && (activity.estimated_if ?? 0) > 0) updates.estimated_tss = tssFromIntensity(seconds / 3600, activity.estimated_if!);
+      try {
+        const saved = await dataService.updateActivity(activity.id, updates);
+        const patch: Partial<Activity> = {
+          moving_time_seconds: saved.moving_time_seconds, avg_vam_mh: saved.avg_vam_mh, estimated_tss: saved.estimated_tss,
+        };
+        setActivities((prev) => prev.map((a) => (a.id === activity.id ? { ...a, ...patch } : a)));
+        setSelectedActivity((prev) => (prev?.id === activity.id ? { ...prev, ...patch } : prev));
+        writeMovingCheck(activity.id, { state: 'fixed', at: new Date().toISOString(), from: activity.moving_time_seconds, to: seconds });
+        fixed.push(activity);
+      } catch (err) {
+        console.warn('Could not save the moving time:', err);
+      }
+    }
+    return { scanned, fixed };
+  };
+  const announceMovingTimes = (fixed: Activity[]) => {
+    if (fixed.length === 0) return;
+    setSyncNotice({
+      text: `Corrected the moving time of ${fixed.length} ${fixed.length === 1 ? 'activity' : 'activities'} (${fixed.slice(0, 2).map((a) => a.title).join(', ')}${fixed.length > 2 ? '…' : ''}) to leave out the breaks. Training load and the coach now use it.`,
+      tone: 'ok',
+    });
+  };
+  const handleFixAllMovingTimes = async () => {
+    setIsFixingMovingTimes(true);
+    try {
+      const result = await fixMovingTimes(movingCandidates(activities));
+      announceMovingTimes(result.fixed);
+      return result;
+    } finally {
+      setIsFixingMovingTimes(false);
+    }
+  };
+  // Once the data is in, look at the newest activities nobody has checked yet
+  const movingLoadScanRef = useRef(false);
+  useEffect(() => {
+    if (movingLoadScanRef.current || activities.length === 0) return;
+    movingLoadScanRef.current = true;
+    const candidates = movingCandidates(activities, undefined, 10);
+    if (candidates.length === 0) return;
+    void fixMovingTimes(candidates).then(({ fixed }) => announceMovingTimes(fixed)).catch((err) => console.warn('Moving-time check failed:', err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activities.length > 0]);
 
   // E-bike detection: look at rides that were never judged and tag the ones that pass the detector
   const [isScanningEbikes, setIsScanningEbikes] = useState(false);
@@ -1046,6 +1112,8 @@ export function App() {
               onRoutePreview={handleRoutePreview}
               onScanEbikes={handleScanAllEbikes}
               isScanningEbikes={isScanningEbikes}
+              onFixMovingTimes={handleFixAllMovingTimes}
+              isFixingMovingTimes={isFixingMovingTimes}
             />
           </div>
         )}

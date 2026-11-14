@@ -129,7 +129,8 @@ export const TravelPaceView: React.FC<TravelPaceViewProps> = ({ activities, onOp
   const cancelled = useRef(false);
 
   const eligible = useMemo(
-    () => activities.filter((a) => MUNTER_SPORTS.includes(a.sport_type) && (a.moving_time_seconds || a.duration_seconds) >= 20 * 60),
+    // Judged on the total time: the estimator works from the whole recording and enforces its own moving-time minimum
+    () => activities.filter((a) => MUNTER_SPORTS.includes(a.sport_type) && a.duration_seconds >= 20 * 60),
     [activities],
   );
 
