@@ -157,7 +157,8 @@ export function personalBests(activities: Activity[], formatters: { distance: (m
     for (const a of pool) if (score(a) > 0 && (!best || score(a) > score(best))) best = a;
     if (best) out.push({ label, value: show(best), activity: best });
   };
-  pick('Longest outing', (a) => a.duration_seconds || 0, (a) => formatters.duration(a.duration_seconds));
+  // Moving time, so a backpacking trip's nights in camp and long breaks do not count
+  pick('Longest moving time', (a) => seconds(a), (a) => formatters.duration(seconds(a)));
   pick('Longest distance', (a) => a.distance_meters || 0, (a) => formatters.distance(a.distance_meters));
   pick('Most vert in a day', (a) => a.total_elevation_gain_m || 0, (a) => formatters.vert(a.total_elevation_gain_m));
   return out;
