@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import type { Activity, AthleteProfile, SportType } from '../types';
 import { formatFeetFromMeters, formatMilesFromMeters } from '../lib/units';
 import { collectTags } from '../lib/tags';
-import { ActivityTotals } from './ActivityTotals';
 import { RouteThumb } from './RouteThumb';
 import { canImproveWithAi, resolveTss, type TssSource } from '../lib/trainingMath';
 import type { GroupScore, ModelSummary } from '../lib/intensityModel';
@@ -357,8 +356,6 @@ export const ActivityList: React.FC<ActivityListProps> = ({
           )}
         </div>
       </div>
-
-      {activities.length > 0 && <ActivityTotals activities={activities} />}
 
       {deleteError && <p role="alert" className="text-sm text-rose-300">{deleteError}</p>}
 

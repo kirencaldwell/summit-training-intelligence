@@ -23,6 +23,7 @@ import { HeartRateDistributionPage } from './components/HeartRateDistributionPag
 import { AICoachPanel, INITIAL_COACH_MESSAGES } from './components/AICoachPanel';
 import { WeeklyCheckIn } from './components/WeeklyCheckIn';
 import { CoachBrief } from './components/CoachBrief';
+import { ProfilePage } from './components/ProfilePage';
 import { CoachMemoryPanel } from './components/CoachMemoryPanel';
 import type { DraftSession } from './lib/weekBudget';
 import { ActivityDetailModal } from './components/ActivityDetailModal';
@@ -1071,6 +1072,17 @@ export function App() {
               />
             </section>
           </div>
+        )}
+
+        {activeTab === 'profile' && profile && (
+          <ProfilePage
+            profile={profile}
+            activities={activities}
+            sessions={trainingSessions}
+            pmc={pmcData}
+            onOpenActivity={handleOpenActivity}
+            onEditProfile={() => setIsProfileModalOpen(true)}
+          />
         )}
 
         {activeTab === 'goals' && (
