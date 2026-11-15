@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Activity, Mountain, ShieldCheck, Gauge, CalendarDays, User, Upload, Sparkles, LogOut, MoreHorizontal } from 'lucide-react';
+import { Activity, Mountain, ShieldCheck, Gauge, CalendarDays, User, Upload, Sparkles, LogOut, MoreHorizontal, UserRound } from 'lucide-react';
 import type { AthleteProfile } from '../types';
 import type { AppTab } from './TrainingWeekSection';
 
@@ -64,10 +64,18 @@ export const Navbar: React.FC<NavbarProps> = ({
       <button
         type="button"
         role="menuitem"
+        onClick={() => { setIsProfileMenuOpen(false); setActiveTab('profile'); }}
+        className="w-full min-h-10 flex items-center gap-2 px-3 rounded-lg text-sm text-slate-200 hover:bg-white/5 text-left"
+      >
+        <UserRound className="w-4 h-4" /> My profile
+      </button>
+      <button
+        type="button"
+        role="menuitem"
         onClick={() => { setIsProfileMenuOpen(false); onOpenProfile(); }}
         className="w-full min-h-10 flex items-center gap-2 px-3 rounded-lg text-sm text-slate-200 hover:bg-white/5 text-left"
       >
-        <User className="w-4 h-4" /> Athlete profile & settings
+        <User className="w-4 h-4" /> Settings &amp; thresholds
       </button>
       {isAuthenticated && (
         <button

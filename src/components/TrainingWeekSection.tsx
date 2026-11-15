@@ -5,7 +5,7 @@ import { SessionCompleteModal } from './SessionCompleteModal';
 import { getLocalDateString, getWeekStartDate } from '../lib/trainingSessions';
 import { AssessmentText } from './ActivityDetailModal';
 
-export type AppTab = 'dashboard' | 'goals' | 'activities' | 'training' | 'performance' | 'coach';
+export type AppTab = 'dashboard' | 'goals' | 'activities' | 'training' | 'performance' | 'coach' | 'profile';
 
 export interface TrainingWeekSectionProps {
   trainingSessions: TrainingSession[];
