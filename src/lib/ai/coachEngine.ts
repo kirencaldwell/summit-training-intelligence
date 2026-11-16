@@ -15,6 +15,7 @@ import { validateEdit, type ProposedEdit, type ReadinessAssessment } from '../mo
 import type { ReadinessFacts } from '../readiness';
 import { parseWorkout, storeWorkout, type StructuredWorkout } from '../workoutStructure';
 import { parseSessionEdit, type SessionEditProposal } from '../sessionEditing';
+import { parseGymPlan, type GymPlan } from '../corosGym';
 import { validateCorosArgs } from '../corosWorkout';
 import type { CorosTool } from '../coros';
 import { buildProgressContext } from './progressContext';
@@ -927,6 +928,17 @@ class GeminiCoachEngine {
     const workout = parseWorkout(text);
     if (workout) storeWorkout(session, workout);
     return workout;
+  }
+
+  /** Matches a gym workout's exercises to COROS's own exercise list. Null when the reply is unusable. */
+  public async matchGymExercises(workout: StructuredWorkout, list: string[]): Promise<GymPlan | null> {
+    const items = workout.blocks.flatMap((b) => b.items.map((i) => ({ ...i, block: b.title, rounds: b.rounds })));
+    const text = await postCoach({
+      mode: 'coros_gym_map',
+      message: 'Match each workout item to an exercise in exercise_list.',
+      context: { workout_name: workout.name, items, exercise_list: list },
+    });
+    return parseGymPlan(text, list);
   }
 
   /** Asks the coach to fill the COROS tool's arguments from the workout; the result is checked against the tool's schema. */
