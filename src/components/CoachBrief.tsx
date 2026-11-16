@@ -7,6 +7,7 @@ import { dataService } from '../lib/supabase';
 import { buildBrief, type BriefAction } from '../lib/coachBrief';
 import { scrollToTarget } from '../lib/scrollToTarget';
 import type { AppTab } from './TrainingWeekSection';
+import { readinessLine, type ReadinessSnapshot } from '../lib/readiness';
 
 interface CoachBriefProps {
   sessions: TrainingSession[];
@@ -16,6 +17,8 @@ interface CoachBriefProps {
   profile: AthleteProfile;
   loadProfile?: LoadProfile;
   onPlanWeek: () => void;
+  /** Today's COROS sleep and recovery, when connected */
+  readiness?: ReadinessSnapshot;
   onNavigateTab: (tab: AppTab, target?: string) => void;
 }
 
@@ -33,7 +36,7 @@ const readDismissed = (): Record<string, string> => {
 };
 
 /** The top of the Coach tab: today, how fit and fresh you are, and what needs attention, all worked out from your data. */
-export const CoachBrief: React.FC<CoachBriefProps> = ({ sessions, activities, pmc, goals, profile, loadProfile, onPlanWeek, onNavigateTab }) => {
+export const CoachBrief: React.FC<CoachBriefProps> = ({ sessions, activities, pmc, goals, profile, loadProfile, onPlanWeek, readiness, onNavigateTab }) => {
   const [munter, setMunter] = useState<Record<string, MunterParams>>({});
   useEffect(() => {
     let active = true;
@@ -107,6 +110,16 @@ export const CoachBrief: React.FC<CoachBriefProps> = ({ sessions, activities, pm
           <p className="text-[11px] text-slate-400">{brief.week.tssPlanned > 0 ? `${brief.week.tssDone} of ${brief.week.tssPlanned} TSS` : `${brief.week.tssDone} TSS so far`}</p>
         </div>
       </div>
+
+      {readiness && (
+        <div className="rounded-lg border border-white/10 bg-slate-900/50 p-3">
+          <p className="text-[10px] font-semibold uppercase text-slate-400">Sleep and recovery (COROS)</p>
+          {readinessLine(readiness.facts)
+            ? <p className="mt-1 text-sm text-white">{readinessLine(readiness.facts).charAt(0).toUpperCase() + readinessLine(readiness.facts).slice(1)}</p>
+            : <p className="mt-1 text-sm text-slate-300">Read from COROS; open Import data, COROS to see what it said.</p>}
+          {readiness.facts.notes.length > 0 && <p className="text-[11px] text-slate-400">{readiness.facts.notes.join(' · ')}</p>}
+        </div>
+      )}
 
       {brief.flags.length > 0 && (
         <ul className="space-y-2" aria-label="Needs attention">
