@@ -930,13 +930,13 @@ class GeminiCoachEngine {
   }
 
   /** Asks the coach to fill the COROS tool's arguments from the workout; the result is checked against the tool's schema. */
-  public async corosWorkoutArgs(workout: StructuredWorkout, tool: CorosTool, date: string): Promise<{ args: Record<string, unknown> } | { error: string }> {
+  public async corosWorkoutArgs(workout: StructuredWorkout, tool: CorosTool, date: string, libraryExample?: string): Promise<{ args: Record<string, unknown>; problem?: string; raw: string } | { error: string; raw: string }> {
     const text = await postCoach({
       mode: 'coros_workout_args',
       message: `Fill in the arguments for ${tool.name}. The workout is for ${date}.`,
-      context: { tool: { name: tool.name, description: tool.description, inputSchema: tool.inputSchema }, date, workout },
+      context: { tool: { name: tool.name, description: tool.description, inputSchema: tool.inputSchema }, date, workout, library_example: libraryExample || undefined },
     });
-    return validateCorosArgs(text, tool);
+    return { ...validateCorosArgs(text, tool), raw: text };
   }
 
   /**

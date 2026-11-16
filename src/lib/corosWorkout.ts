@@ -25,12 +25,17 @@ const typeOk = (value: unknown, type?: string): boolean => {
 };
 
 /** Parses the reply and returns the arguments, or the first reason they cannot be used. */
-export function validateCorosArgs(raw: string, tool: CorosTool): { args: Record<string, unknown> } | { error: string } {
+export function validateCorosArgs(raw: string, tool: CorosTool): { args: Record<string, unknown>; problem?: string } | { error: string } {
   const start = raw.indexOf('{');
   const end = raw.lastIndexOf('}');
-  let args: any;
-  try { args = JSON.parse(start >= 0 && end > start ? raw.slice(start, end + 1) : raw); } catch { return { error: 'The reply was not readable.' }; }
-  if (!args || typeof args !== 'object' || Array.isArray(args)) return { error: 'The reply was not an object.' };
+  let reply: any;
+  try { reply = JSON.parse(start >= 0 && end > start ? raw.slice(start, end + 1) : raw); } catch { return { error: 'The reply was not readable.' }; }
+  if (!reply || typeof reply !== 'object' || Array.isArray(reply)) return { error: 'The reply was not an object.' };
+  // { args, problem }; an older bare-arguments reply is still read
+  const wrapped = reply.args && typeof reply.args === 'object' && !Array.isArray(reply.args);
+  const problem = typeof reply.problem === 'string' ? reply.problem.trim().slice(0, 500) : typeof reply.error === 'string' && !wrapped ? reply.error.trim().slice(0, 500) : '';
+  if (!wrapped && typeof reply.error === 'string') return { error: problem || 'The coach could not fill in the COROS workout.' };
+  const args = wrapped ? reply.args : reply;
   const schema = tool.inputSchema;
   const props = schema?.properties;
   if (props) {
@@ -43,5 +48,5 @@ export function validateCorosArgs(raw: string, tool: CorosTool): { args: Record<
   }
   for (const key of schema?.required ?? []) if (!(key in args)) return { error: `"${key}" is required by ${tool.name} but missing.` };
   if (JSON.stringify(args).length > 20000) return { error: 'The workout is too large to send.' };
-  return { args };
+  return { args, ...(problem ? { problem } : {}) };
 }
