@@ -69,6 +69,13 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
   // Proposed sessions start collapsed on a phone, where they would otherwise take the whole screen from the chat
   const [showProposed, setShowProposed] = useState(() => typeof window === 'undefined' || !window.matchMedia || window.matchMedia('(min-width: 640px)').matches);
 
+  // The account's settings can arrive after the page has loaded (another device changed them): refresh the model label
+  useEffect(() => {
+    const onChange = () => setSettingsVersion((v) => v + 1);
+    window.addEventListener('summit:coach-settings', onChange);
+    return () => window.removeEventListener('summit:coach-settings', onChange);
+  }, []);
+
   useEffect(() => {
     // Scroll the feed itself: scrollIntoView would also drag the whole page (and the header) along on a phone
     feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: 'smooth' });

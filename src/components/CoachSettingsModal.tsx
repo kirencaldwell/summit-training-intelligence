@@ -3,11 +3,16 @@ import { createPortal } from 'react-dom';
 import { X, KeyRound, Eye, EyeOff, CheckCircle2, Loader2, ShieldCheck, Trash2 } from 'lucide-react';
 import {
   CLAUDE_MODEL_OPTIONS,
+  getCoachAccountStatus,
   getCoachSettings,
+  getCoachSyncEnabled,
   saveCoachSettings,
+  saveCoachSettingsToAccount,
+  setCoachSyncEnabled,
   testAnthropicKey,
   type CoachProvider,
 } from '../lib/coachSettings';
+import { isSupabaseConfigured } from '../lib/supabase';
 
 interface CoachSettingsModalProps {
   onClose: () => void;
@@ -22,6 +27,10 @@ export const CoachSettingsModal: React.FC<CoachSettingsModalProps> = ({ onClose,
   const [apiKey, setApiKey] = useState(initial.anthropicKey);
   const [workspaceId, setWorkspaceId] = useState(initial.workspaceId ?? '');
   const [showKey, setShowKey] = useState(false);
+  // Whether this device keeps the settings and key on the account, so the athlete's other devices use them too
+  const [sync, setSync] = useState(getCoachSyncEnabled());
+  const [saving, setSaving] = useState(false);
+  const [accountMessage, setAccountMessage] = useState('');
   const [status, setStatus] = useState<{ kind: 'idle' | 'testing' | 'ok' | 'error'; message?: string }>({ kind: 'idle' });
 
   const keyLooksValid = apiKey.trim().startsWith('sk-ant-');
@@ -37,20 +46,45 @@ export const CoachSettingsModal: React.FC<CoachSettingsModalProps> = ({ onClose,
     }
   };
 
-  const handleSave = () => {
-    saveCoachSettings({ provider, claudeModel, anthropicKey: apiKey, workspaceId });
-    onSaved();
-    onClose();
+  /** Pushes the settings to the account and reports a problem, if any, instead of closing over it. Returns true when fine. */
+  const pushToAccount = async (settings: { provider: CoachProvider; claudeModel: string; anthropicKey: string; workspaceId: string }): Promise<boolean> => {
+    if (!isSupabaseConfigured) return true;
+    await saveCoachSettingsToAccount(settings, undefined, { available: true, sync });
+    const result = getCoachAccountStatus();
+    if (result.state === 'unavailable') {
+      setAccountMessage('Saved on this device only. To keep it on your account, run the latest supabase/schema.sql (it adds the coach settings columns), then save again.');
+      return false;
+    }
+    if (result.state === 'error') {
+      setAccountMessage(`Saved on this device, but not on your account: ${result.detail}`);
+      return false;
+    }
+    return true;
   };
 
-  const handleRemoveKey = () => {
+  const handleSave = async () => {
+    setSaving(true);
+    setAccountMessage('');
+    setCoachSyncEnabled(sync);
+    const settings = { provider, claudeModel, anthropicKey: apiKey, workspaceId };
+    saveCoachSettings(settings);
+    onSaved();
+    const ok = await pushToAccount(settings);
+    setSaving(false);
+    if (ok) onClose();
+  };
+
+  const handleRemoveKey = async () => {
     setApiKey('');
     setWorkspaceId('');
     setStatus({ kind: 'idle' });
     // Removing the key must not leave Claude selected with nothing to call it with
-    saveCoachSettings({ provider: 'gemini', claudeModel, anthropicKey: '', workspaceId: '' });
+    const settings = { provider: 'gemini' as CoachProvider, claudeModel, anthropicKey: '', workspaceId: '' };
+    saveCoachSettings(settings);
     setProvider('gemini');
     onSaved();
+    // Removed from the account too, so no other device keeps using it
+    await pushToAccount(settings);
   };
 
   // Portal to <body>: the coach panel has overflow-hidden and a backdrop filter, which would clip a fixed overlay
@@ -154,7 +188,7 @@ export const CoachSettingsModal: React.FC<CoachSettingsModalProps> = ({ onClose,
                 Test key
               </button>
               {apiKey && (
-                <button type="button" onClick={handleRemoveKey} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-xs font-semibold text-rose-300 border border-rose-500/20">
+                <button type="button" onClick={() => void handleRemoveKey()} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-xs font-semibold text-rose-300 border border-rose-500/20">
                   <Trash2 className="w-3.5 h-3.5" /> Remove key
                 </button>
               )}
@@ -162,25 +196,39 @@ export const CoachSettingsModal: React.FC<CoachSettingsModalProps> = ({ onClose,
               {status.kind === 'error' && <span role="alert" className="text-xs text-rose-400">{status.message}</span>}
             </div>
 
+            {isSupabaseConfigured && (
+              <label className="flex items-start gap-2.5 rounded-xl border border-white/10 bg-slate-900/60 p-3 cursor-pointer">
+                <input type="checkbox" checked={sync} onChange={(e) => setSync(e.target.checked)} className="mt-0.5 h-4 w-4 accent-cyan-500" />
+                <span>
+                  <span className="block text-sm font-semibold text-white">Use on all my devices</span>
+                  <span className="block text-xs text-slate-400">
+                    Keeps the AI choice, model and key on your account so your other devices use them too. Turning this off removes the key from your account; other devices will then need their own.
+                  </span>
+                </span>
+              </label>
+            )}
+
             <p className="flex items-start gap-2 rounded-xl bg-slate-900/70 border border-white/5 p-3 text-[11px] text-slate-400 leading-relaxed">
               <ShieldCheck className="w-4 h-4 flex-shrink-0 text-emerald-400 mt-0.5" />
               <span>
-                Your key is stored only in this browser and sent with each coach request to this app's server, which forwards it to Anthropic.
-                It is never saved on the server or in the database. Remove it on shared computers. It does not sync to your other devices.
+                {isSupabaseConfigured && sync
+                  ? 'Your key is saved on your account (plain text, readable only by you through the database rules, like your Intervals.icu key; anyone with admin access to your database could read it) and sent with each coach request to this app\'s server, which forwards it to Anthropic without storing it. Use a key made just for this app, with a spend limit. Remove it on shared computers.'
+                  : 'Your key is stored only in this browser and sent with each coach request to this app\'s server, which forwards it to Anthropic. It is never saved on the server or in the database. Remove it on shared computers. It does not sync to your other devices.'}
               </span>
             </p>
           </div>
         )}
 
+        {accountMessage && <p role="alert" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">{accountMessage}</p>}
         <div className="flex justify-end gap-2 pt-3 border-t border-white/10">
-          <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl bg-white/5 text-xs font-semibold text-slate-300">Cancel</button>
+          <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl bg-white/5 text-xs font-semibold text-slate-300">{accountMessage ? 'Close' : 'Cancel'}</button>
           <button
             type="button"
-            onClick={handleSave}
-            disabled={!canSave}
+            onClick={() => void handleSave()}
+            disabled={!canSave || saving}
             className="min-h-10 px-5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 font-bold text-xs hover:opacity-90 disabled:opacity-50"
           >
-            Save
+            {saving ? 'Saving…' : 'Save'}
           </button>
         </div>
       </div>

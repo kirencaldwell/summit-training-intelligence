@@ -32,6 +32,7 @@ import { DataSyncModal } from './components/ImportDataModal';
 import { GoalsManager } from './components/GoalsManager';
 import { GoogleSignInScreen } from './components/GoogleSignInScreen';
 import { coachEngine } from './lib/ai/coachEngine';
+import { syncCoachSettings } from './lib/coachSettings';
 import { formatLbFromKg } from './lib/units';
 import { collectTags, isEbike, EBIKE_TAG, normalizeTags } from './lib/tags';
 import { detectEbike } from './lib/ebikeDetect';
@@ -889,6 +890,8 @@ export function App() {
     if (!dataReady) return;
     // Bring the key in line with the account first, so a device that was never set up still syncs
     void syncIntervalsSettings().finally(() => void intervalsAutoSyncRef.current());
+    // The coach's AI choice and key follow the account too, so a new device is ready to use
+    void syncCoachSettings();
     const refresh = () => { if (document.visibilityState === 'visible') void intervalsAutoSyncRef.current(); };
     document.addEventListener('visibilitychange', refresh);
     window.addEventListener('focus', refresh);
