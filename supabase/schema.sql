@@ -237,6 +237,12 @@ ALTER TABLE public.integration_settings
   ADD COLUMN IF NOT EXISTS anthropic_workspace_id TEXT,
   ADD COLUMN IF NOT EXISTS coach_settings_at TIMESTAMPTZ;
 
+-- The COROS connection (sign-in tokens), kept on the account so every device is connected. Plain text like the other keys
+-- here, readable only by the athlete through the row-level security below; coros_connection_at says when it was last saved.
+ALTER TABLE public.integration_settings
+  ADD COLUMN IF NOT EXISTS coros_connection JSONB,
+  ADD COLUMN IF NOT EXISTS coros_connection_at TIMESTAMPTZ;
+
 -- One row per AI model call (sizes, counts and the full prompt/reply text), so the athlete can see what the coach costs
 -- and which features are worth replacing with plain algorithms.
 CREATE TABLE IF NOT EXISTS public.llm_usage (

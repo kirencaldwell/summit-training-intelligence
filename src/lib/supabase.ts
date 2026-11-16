@@ -25,6 +25,12 @@ export interface CoachIntegration {
   updated_at: string | null;
 }
 
+/** The COROS sign-in tokens as stored on the account (null connection with a time: disconnected on purpose). */
+export interface CorosConnectionRow {
+  connection: Record<string, unknown> | null;
+  updated_at: string | null;
+}
+
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
 export const supabase = isSupabaseConfigured 
@@ -565,6 +571,32 @@ class DataService {
       updated_at: new Date().toISOString(),
     }, { onConflict: 'user_id' });
     if (error) throw new Error(`Coach settings could not be saved: ${error.message}`);
+  }
+
+  public async getCorosConnection(): Promise<CorosConnectionRow | null> {
+    if (!(this.mode === 'supabase' && supabase)) return null;
+    const profile = await this.getAuthenticatedProfile();
+    const { data, error } = await supabase
+      .from('integration_settings')
+      .select('coros_connection, coros_connection_at')
+      .eq('user_id', profile.id)
+      .maybeSingle();
+    if (error) throw new Error(`The COROS connection could not be loaded: ${error.message}`);
+    if (!data) return null;
+    return {
+      connection: data.coros_connection && typeof data.coros_connection === 'object' ? data.coros_connection as Record<string, unknown> : null,
+      updated_at: typeof data.coros_connection_at === 'string' ? data.coros_connection_at : null,
+    };
+  }
+
+  public async saveCorosConnection(connection: Record<string, unknown> | null, at: string): Promise<void> {
+    if (!(this.mode === 'supabase' && supabase)) return;
+    const profile = await this.getAuthenticatedProfile();
+    const { error } = await supabase.from('integration_settings').upsert(
+      { user_id: profile.id, coros_connection: connection, coros_connection_at: at, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' },
+    );
+    if (error) throw new Error(`The COROS connection could not be saved: ${error.message}`);
   }
 
   public async saveIntegrationSettings(settings: Partial<IntegrationSettings>): Promise<void> {

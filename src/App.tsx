@@ -33,6 +33,8 @@ import { GoalsManager } from './components/GoalsManager';
 import { GoogleSignInScreen } from './components/GoogleSignInScreen';
 import { coachEngine } from './lib/ai/coachEngine';
 import { syncCoachSettings } from './lib/coachSettings';
+import { isCorosConnected, syncCorosConnection } from './lib/coros';
+import { refreshReadiness, snapshotFor, type ReadinessSnapshot } from './lib/readiness';
 import { formatLbFromKg } from './lib/units';
 import { collectTags, isEbike, EBIKE_TAG, normalizeTags } from './lib/tags';
 import { detectEbike } from './lib/ebikeDetect';
@@ -136,7 +138,11 @@ export function App() {
   // After first sign-in, open the profile once so the athlete can enter their thresholds
   const hasPromptedProfileRef = useRef(false);
   const [profileNeedsSetup, setProfileNeedsSetup] = useState(false);
-  const [isStravaModalOpen, setIsStravaModalOpen] = useState<boolean>(false);
+  // Coming back from COROS's approval page opens the Import data window on its COROS tab
+  const [cameFromCoros] = useState<boolean>(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('coros') === 'connected');
+  const [isStravaModalOpen, setIsStravaModalOpen] = useState<boolean>(cameFromCoros);
+  // Today's sleep and recovery from COROS, when it is connected
+  const [corosSnapshot, setCorosSnapshot] = useState<ReadinessSnapshot | undefined>(() => snapshotFor());
 
   // Load active data
   const loadAppData = async () => {
@@ -892,6 +898,16 @@ export function App() {
     void syncIntervalsSettings().finally(() => void intervalsAutoSyncRef.current());
     // The coach's AI choice and key follow the account too, so a new device is ready to use
     void syncCoachSettings();
+    // The COROS connection follows the account too; then today's sleep and recovery are read (again in the morning,
+    // when the night's figures are final)
+    void syncCorosConnection().then(async () => {
+      if (!isCorosConnected()) return;
+      const today = snapshotFor();
+      const stale = !today || (new Date().getHours() < 12 && Date.now() - new Date(today.fetched_at).getTime() > 90 * 60 * 1000);
+      if (!stale) return;
+      try { setCorosSnapshot(await refreshReadiness()); } catch (err) { console.warn('COROS could not be read:', err); }
+    });
+    if (cameFromCoros) window.history.replaceState(null, '', window.location.pathname);
     const refresh = () => { if (document.visibilityState === 'visible') void intervalsAutoSyncRef.current(); };
     document.addEventListener('visibilitychange', refresh);
     window.addEventListener('focus', refresh);
@@ -1205,6 +1221,7 @@ export function App() {
               profile={profile}
               loadProfile={loadProfile}
               onPlanWeek={() => setIsCheckInOpen(true)}
+              readiness={corosSnapshot}
               onNavigateTab={handleNavigate}
             />
             <CoachMemoryPanel memory={coachMemory} onChange={updateCoachMemory} />
@@ -1270,6 +1287,9 @@ export function App() {
         onActivitiesImported={handleFitImport}
         onActivitiesUpdated={handleActivitiesUpdated}
         onActivitiesAdded={(added) => setActivities((previous) => [...added, ...previous])}
+        initialTab={cameFromCoros ? 'coros' : undefined}
+        corosSnapshot={corosSnapshot}
+        onCorosSnapshot={setCorosSnapshot}
       />
 
       {/* Modern Footer */}

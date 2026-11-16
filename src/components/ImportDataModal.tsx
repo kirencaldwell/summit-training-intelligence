@@ -5,16 +5,19 @@
  */
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
-  X, Upload, CheckCircle2, AlertCircle, Loader2, RefreshCw, CopyCheck, FileCode2, Waypoints,
+  X, Upload, CheckCircle2, AlertCircle, Loader2, RefreshCw, CopyCheck, FileCode2, Waypoints, HeartPulse,
 } from 'lucide-react';
 import type { Activity } from '../types';
 import { parseActivityFiles, applyStravaCsvToExisting, type FitImportResult, type ImportProgress } from '../lib/fitParser';
 import { parseStravaActivitiesCsv, type StravaMetaIndex } from '../lib/stravaCsv';
 import { formatFeetFromMeters } from '../lib/units';
 import { IntervalsTab } from './IntervalsTab';
+import { CorosTab } from './CorosTab';
+import { isCorosConnected } from '../lib/coros';
+import type { ReadinessSnapshot } from '../lib/readiness';
 import { getIntervalsSettings } from '../lib/intervals';
 
-type Tab = 'intervals' | 'files';
+export type Tab = 'intervals' | 'files' | 'coros';
 
 interface DataSyncModalProps {
   isOpen: boolean;
@@ -23,6 +26,11 @@ interface DataSyncModalProps {
   onActivitiesUpdated?: (activities: Activity[]) => void;
   /** New activities that shouldn't open a detail view (a bulk sync from Intervals.icu) */
   onActivitiesAdded?: (activities: Activity[]) => void;
+  /** Which tab to open on (after coming back from COROS, the COROS tab) */
+  initialTab?: Tab;
+  /** Today's COROS sleep and recovery reading, and where a new one goes */
+  corosSnapshot?: ReadinessSnapshot;
+  onCorosSnapshot?: (snapshot: ReadinessSnapshot | undefined) => void;
 }
 
 // ─── FIT Upload Tab ────────────────────────────────────────────────────────────
@@ -300,8 +308,11 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   onActivitiesImported,
   onActivitiesUpdated,
   onActivitiesAdded,
+  initialTab,
+  corosSnapshot,
+  onCorosSnapshot,
 }) => {
-  const [activeTab, setActiveTab] = useState<Tab>('intervals');
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab ?? 'intervals');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -320,6 +331,12 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       label: 'Intervals.icu',
       icon: <Waypoints className="w-3.5 h-3.5" />,
       badge: getIntervalsSettings() ? '●' : 'Recommended',
+    },
+    {
+      id: 'coros',
+      label: 'COROS',
+      icon: <HeartPulse className="w-3.5 h-3.5" />,
+      badge: isCorosConnected() ? '●' : undefined,
     },
     {
       id: 'files',
@@ -395,6 +412,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           {activeTab === 'intervals' && (
             <IntervalsTab onActivitiesImported={onActivitiesAdded ?? onActivitiesImported} onActivitiesUpdated={onActivitiesUpdated} />
           )}
+          {activeTab === 'coros' && <CorosTab snapshot={corosSnapshot} onSnapshot={(s) => onCorosSnapshot?.(s)} />}
           {activeTab === 'files' && (
             <FitUploadTab
               onActivitiesImported={onActivitiesImported}
