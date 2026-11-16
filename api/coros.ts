@@ -28,6 +28,8 @@ const TIMEOUT_MS = 20_000;
 const MAX_CALLS = 8;
 const MAX_TEXT = 60_000;
 const READ_ONLY_TOOL = /^query[A-Za-z0-9]{1,60}$/;
+// The only writes the app may ask for: put one workout on the athlete's own account (always after they confirm it)
+const WORKOUT_TOOL = /^(createSingleWorkout|createScheduledWorkout)$/;
 
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 const b64 = (buf: Buffer) => buf.toString('base64url');
@@ -192,7 +194,7 @@ async function call(req: VercelRequest, res: VercelResponse) {
     }
     const calls = (Array.isArray(body.calls) ? body.calls : []).slice(0, MAX_CALLS);
     for (const c of calls) {
-      if (typeof c.tool !== 'string' || !READ_ONLY_TOOL.test(c.tool)) return res.status(400).json({ error: 'Only read-only COROS queries are allowed.' });
+      if (typeof c.tool !== 'string' || !(READ_ONLY_TOOL.test(c.tool) || (WORKOUT_TOOL.test(c.tool) && calls.length === 1))) return res.status(400).json({ error: 'Only COROS queries and sending one workout are allowed.' });
     }
     const results = await withSession(token, async (rpcCall) => {
       const out: { tool: string; ok: boolean; text: string }[] = [];

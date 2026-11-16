@@ -167,8 +167,14 @@ export async function queryCoros(calls: { tool: string; args?: Record<string, un
   return (await callCoros<{ results: CorosToolResult[] }>({ calls })).results ?? [];
 }
 
-export interface CorosTool { name: string; description: string; inputSchema?: { properties?: Record<string, { type?: string; description?: string }> } }
+export interface CorosTool { name: string; description: string; inputSchema?: { type?: string; required?: string[]; properties?: Record<string, { type?: string; description?: string; enum?: unknown[] }> } }
 
 export async function listCorosTools(): Promise<CorosTool[]> {
   return (await callCoros<{ tools: CorosTool[] }>({ list: true })).tools ?? [];
+}
+
+/** Puts one workout on the athlete's COROS account. Only ever called after they confirm exactly what will be sent. */
+export async function sendCorosWorkout(tool: string, args: Record<string, unknown>): Promise<CorosToolResult> {
+  const [result] = await queryCoros([{ tool, args }]);
+  return result ?? { tool, ok: false, text: 'COROS did not answer.' };
 }

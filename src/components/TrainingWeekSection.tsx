@@ -4,6 +4,7 @@ import { Sparkles, CalendarDays, Clock3, Trash2, Check, RotateCcw, Bot, RefreshC
 import { SessionCompleteModal } from './SessionCompleteModal';
 import { getLocalDateString, getWeekStartDate } from '../lib/trainingSessions';
 import { AssessmentText } from './ActivityDetailModal';
+import { WorkoutCard } from './WorkoutCard';
 
 export type AppTab = 'dashboard' | 'goals' | 'activities' | 'training' | 'performance' | 'coach' | 'profile';
 
@@ -222,6 +223,7 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
                 </button>
                 <div className={openIds.includes(session.id) ? '' : 'max-md:hidden'}>
                 <p className="mt-2 text-xs leading-relaxed text-slate-400">{session.details}</p>
+                {session.status !== 'COMPLETED' && <WorkoutCard session={session} />}
                 {session.status === 'COMPLETED' && (session.completed_activity_ids?.length ?? 0) > 0 && (
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     {session.completed_activity_ids!.map((id) => {

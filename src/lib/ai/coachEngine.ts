@@ -13,6 +13,9 @@ import { memoryForAI } from '../coachMemory';
 import { parseWeekDraft, type CheckIn, type DraftSession, type WeekBudget } from '../weekBudget';
 import { validateEdit, type ProposedEdit, type ReadinessAssessment } from '../morningCheck';
 import type { ReadinessFacts } from '../readiness';
+import { parseWorkout, storeWorkout, type StructuredWorkout } from '../workoutStructure';
+import { validateCorosArgs } from '../corosWorkout';
+import type { CorosTool } from '../coros';
 import { buildProgressContext } from './progressContext';
 import { metricMenu, parseMetricProposals, withBaselines, type MetricContext, type TrackingMetric } from '../trackingMetrics';
 import { parseReadinessReply, type GoalReadinessAssessment } from '../goalReadiness';
@@ -884,6 +887,32 @@ class GeminiCoachEngine {
       },
     });
     return validateEdit(session, text, assessment.level);
+  }
+
+  /** Turns a session's text into structured steps (exercises, sets, reps, load). Null when the reply is unusable. */
+  public async structureSession(session: TrainingSession): Promise<StructuredWorkout | null> {
+    const profile: any = (await dataService.getProfile?.()) ?? {};
+    const text = await postCoach({
+      mode: 'structure_workout',
+      message: 'Convert this planned session into structured steps.',
+      context: {
+        planned_session: { title: session.title, sport_type: session.sport_type, duration_minutes: session.duration_minutes, focus: session.focus, details: session.details },
+        athlete_notes: [profile?.notes, ...(profile?.injury_notes ?? [])].filter(Boolean).join(' | ').slice(0, 600) || undefined,
+      },
+    });
+    const workout = parseWorkout(text);
+    if (workout) storeWorkout(session, workout);
+    return workout;
+  }
+
+  /** Asks the coach to fill the COROS tool's arguments from the workout; the result is checked against the tool's schema. */
+  public async corosWorkoutArgs(workout: StructuredWorkout, tool: CorosTool, date: string): Promise<{ args: Record<string, unknown> } | { error: string }> {
+    const text = await postCoach({
+      mode: 'coros_workout_args',
+      message: `Fill in the arguments for ${tool.name}. The workout is for ${date}.`,
+      context: { tool: { name: tool.name, description: tool.description, inputSchema: tool.inputSchema }, date, workout },
+    });
+    return validateCorosArgs(text, tool);
   }
 
   /**
