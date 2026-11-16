@@ -36,13 +36,43 @@ export async function gymLogin(email: string, password: string, region: 'us' | '
 export interface GymExercise { source: string; name: string; sets?: number; reps?: number; duration_s?: number; weight_kg?: number; /** The same load in pounds, as the athlete wrote it, for display */ weight_lb?: number; rest_s?: number }
 export interface GymPlan { exercises: GymExercise[]; unmatched: string[] }
 
-let names: string[] | undefined;
-export async function gymExerciseNames(): Promise<string[]> {
-  if (names) return names;
+interface CatalogName { n: string; m: string; q: string }
+let catalogNames: CatalogName[] | undefined;
+async function loadCatalogNames(): Promise<CatalogName[]> {
+  if (catalogNames) return catalogNames;
   const res = await fetch('/coros-exercise-names.json');
   if (!res.ok) throw new Error('The COROS exercise list could not be loaded.');
-  names = ((await res.json()) as { n: string }[]).map((e) => e.n);
-  return names;
+  catalogNames = (await res.json()) as CatalogName[];
+  return catalogNames;
+}
+export async function gymExerciseNames(): Promise<string[]> {
+  return (await loadCatalogNames()).map((e) => e.n);
+}
+
+// What the athlete's own notes say they have; the list is cut to those (plus bodyweight) when the notes say anything
+const EQUIPMENT_WORDS: [RegExp, string[]][] = [
+  [/dumbbell|\bdb\b/i, ['Dumbbells']],
+  [/barbell|squat rack|power rack|olympic/i, ['Barbells']],
+  [/kettlebell|\bkb\b/i, ['Kettlebell']],
+  [/\bbands?\b|resistance band/i, ['Bands']],
+  [/bench/i, ['Bench']],
+  [/medicine ball|med ball/i, ['Medicine Ball']],
+  [/bosu/i, ['Bosu Ball']],
+  [/exercise ball|swiss ball|stability ball/i, ['Exercise Ball']],
+  [/foam roll/i, ['Foam Roller']],
+];
+const FULL_GYM = /full gym|commercial gym|gym membership|\bgym equipment|machines?|cables?/i;
+
+/** COROS exercise names the athlete can do with what they have; every name when their notes don't say. */
+export async function exercisesForAthlete(notes: string): Promise<string[]> {
+  const all = await loadCatalogNames();
+  if (FULL_GYM.test(notes)) return all.map((e) => e.n);
+  const allowed = new Set<string>(['Bodyweight']);
+  let any = false;
+  for (const [re, kinds] of EQUIPMENT_WORDS) if (re.test(notes)) { any = true; kinds.forEach((k) => allowed.add(k)); }
+  if (!any) return all.map((e) => e.n);
+  const known = new Set(['Dumbbells', 'Gym Equipment', 'Medicine Ball', 'Barbells', 'Bosu Ball', 'Kettlebell', 'Bench', 'Bands', 'Exercise Ball', 'Foam Roller', 'Bodyweight']);
+  return all.filter((e) => e.q.split(',').map((k) => k.trim()).filter(Boolean).every((k) => allowed.has(k) || !known.has(k))).map((e) => e.n);
 }
 
 const num = (v: unknown, min: number, max: number) => (typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max ? Math.round(v) : undefined);
