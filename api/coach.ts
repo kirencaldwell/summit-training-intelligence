@@ -372,6 +372,7 @@ Rules:
 - If the text is only a description of intent with no exercises (for example "full body strength"), build a sensible session of 5 to 8 common exercises that fits the duration and the athlete's equipment notes, with moderate loads described as RPE or percentage, not invented weights.
 - "kind": "strength" for gym work, otherwise "endurance" (steps with duration or distance and a target such as "Zone 2" or "250 W" in load).
 - Group into blocks (Warm-up, Main, Accessory, Cool-down, or one block per interval set). A circuit repeated several times is one block with "rounds".
+- When "coros_exercises" is given and the session is gym work, every exercise "name" MUST be copied exactly from that list (the athlete's COROS watch only knows these). Choose the closest one to what the text asks for; when the closest is a different movement (for example the text says Zercher squat and the list has none), use it and say so in that item's "notes" (for example "COROS has no Zercher squat; using Front squat"). Never invent a name outside the list.
 - Use feet, miles and pounds as the text does. Loads stay free text ("135 lb", "bodyweight", "RPE 7").
 - Shape: { "name": string, "kind": "strength"|"endurance", "notes": string, "blocks": [ { "title": string, "rounds": number, "items": [ { "name": string, "sets": number, "reps": number, "duration_s": number, "distance_m": number, "load": string, "rest_s": number, "notes": string } ] } ] }. Leave out fields that do not apply.`;
 

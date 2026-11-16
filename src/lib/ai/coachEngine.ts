@@ -15,7 +15,7 @@ import { validateEdit, type ProposedEdit, type ReadinessAssessment } from '../mo
 import type { ReadinessFacts } from '../readiness';
 import { parseWorkout, storeWorkout, type StructuredWorkout } from '../workoutStructure';
 import { parseSessionEdit, type SessionEditProposal } from '../sessionEditing';
-import { parseGymPlan, type GymPlan } from '../corosGym';
+import { exercisesForAthlete, parseGymPlan, readGymAuth, type GymPlan } from '../corosGym';
 import { validateCorosArgs } from '../corosWorkout';
 import type { CorosTool } from '../coros';
 import { buildProgressContext } from './progressContext';
@@ -917,12 +917,19 @@ class GeminiCoachEngine {
   /** Turns a session's text into structured steps (exercises, sets, reps, load). Null when the reply is unusable. */
   public async structureSession(session: TrainingSession): Promise<StructuredWorkout | null> {
     const profile: any = (await dataService.getProfile?.()) ?? {};
+    const notesText = [profile?.notes, ...(profile?.injury_notes ?? [])].filter(Boolean).join(' | ');
+    // Gym work for an athlete signed in to COROS for gym workouts: write it with COROS's own exercises (cut to their equipment)
+    let corosExercises: string[] | undefined;
+    if (readGymAuth() && (session.sport_type === 'workout' || /gym|strength|weights?|lift|squat|deadlift|bench|press/i.test(`${session.title} ${session.focus} ${session.details}`))) {
+      try { corosExercises = await exercisesForAthlete(String(profile?.notes ?? '')); } catch { /* the coach writes it in its own words */ }
+    }
     const text = await postCoach({
       mode: 'structure_workout',
       message: 'Convert this planned session into structured steps.',
       context: {
         planned_session: { title: session.title, sport_type: session.sport_type, duration_minutes: session.duration_minutes, focus: session.focus, details: session.details },
-        athlete_notes: [profile?.notes, ...(profile?.injury_notes ?? [])].filter(Boolean).join(' | ').slice(0, 600) || undefined,
+        athlete_notes: notesText.slice(0, 600) || undefined,
+        coros_exercises: corosExercises,
       },
     });
     const workout = parseWorkout(text);
