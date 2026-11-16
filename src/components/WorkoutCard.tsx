@@ -4,6 +4,7 @@ import type { TrainingSession } from '../types';
 import { coachEngine } from '../lib/ai/coachEngine';
 import { CorosError, isCorosConnected, listCorosTools, queryCoros, sendCorosWorkout, type CorosTool } from '../lib/coros';
 import { pickWorkoutTool } from '../lib/corosWorkout';
+import { gymExerciseNames, gymLogin, readGymAuth, sendGymWorkout, type GymPlan } from '../lib/corosGym';
 import { itemLine, fmtSeconds, storedWorkout, type StructuredWorkout } from '../lib/workoutStructure';
 
 const FACTS = (w: StructuredWorkout) => w.blocks.reduce((n, b) => n + b.items.length, 0);
@@ -15,6 +16,47 @@ export const WorkoutCard: React.FC<{ session: TrainingSession }> = ({ session })
   const [error, setError] = useState('');
   const [prepared, setPrepared] = useState<{ tool: CorosTool; args: Record<string, unknown>; problem?: string } | null>(null);
   const [debug, setDebug] = useState('');
+  // Gym workouts go through the COROS Training Hub (its official MCP takes only running and cycling workouts)
+  const [gymPlan, setGymPlan] = useState<GymPlan | null>(null);
+  const [needLogin, setNeedLogin] = useState(false);
+  const [login, setLogin] = useState({ email: '', password: '', region: 'eu' as 'eu' | 'us' });
+
+  const prepareGym = async () => {
+    if (!workout) return;
+    setBusy('prepare'); setError(''); setSent(''); setGymPlan(null);
+    try {
+      if (!readGymAuth()) { setNeedLogin(true); setBusy(null); return; }
+      const list = await gymExerciseNames();
+      const plan = await coachEngine.matchGymExercises(workout, list);
+      if (!plan) setError('The coach could not match these exercises to COROS\'s list. Try again.');
+      else setGymPlan(plan);
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not prepare the workout.'); }
+    setBusy(null);
+  };
+
+  const signIn = async () => {
+    setBusy('prepare'); setError('');
+    try {
+      await gymLogin(login.email.trim(), login.password, login.region);
+      setLogin({ ...login, password: '' });
+      setNeedLogin(false);
+      setBusy(null);
+      await prepareGym();
+      return;
+    } catch (e) { setError(e instanceof Error ? e.message : 'Sign-in failed.'); }
+    setBusy(null);
+  };
+
+  const sendGym = async () => {
+    if (!workout || !gymPlan) return;
+    setBusy('send'); setError('');
+    try {
+      const r = await sendGymWorkout(workout, gymPlan);
+      setSent(`${r.totalSets} sets${r.duration ? `, about ${Math.round(r.duration / 60)} min` : ''}. Find it in COROS under Workouts and sync your watch.`);
+      setGymPlan(null);
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not send the workout.'); setNeedLogin(!readGymAuth()); }
+    setBusy(null);
+  };
   const [sent, setSent] = useState('');
 
   const structure = async () => {
@@ -85,8 +127,8 @@ export const WorkoutCard: React.FC<{ session: TrainingSession }> = ({ session })
           ))}
           {workout.notes && <p className="text-[11px] text-slate-400">{workout.notes}</p>}
           <div className="flex flex-wrap items-center gap-2 pt-1">
-            {isCorosConnected() && !prepared && (
-              <button type="button" onClick={() => void prepare()} disabled={busy !== null} className="min-h-9 inline-flex items-center gap-1.5 rounded-lg bg-cyan-500 px-3 text-xs font-bold text-slate-950 hover:bg-cyan-400 disabled:opacity-50">
+            {(workout.kind === 'strength' || isCorosConnected()) && !prepared && !gymPlan && !needLogin && (
+              <button type="button" onClick={() => void (workout.kind === 'strength' ? prepareGym() : prepare())} disabled={busy !== null} className="min-h-9 inline-flex items-center gap-1.5 rounded-lg bg-cyan-500 px-3 text-xs font-bold text-slate-950 hover:bg-cyan-400 disabled:opacity-50">
                 {busy === 'prepare' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />} {busy === 'prepare' ? 'Preparing…' : 'Send to COROS'}
               </button>
             )}
@@ -94,6 +136,43 @@ export const WorkoutCard: React.FC<{ session: TrainingSession }> = ({ session })
               <Sparkles className="w-3.5 h-3.5" /> {busy === 'structure' ? 'Rebuilding…' : 'Rebuild steps'}
             </button>
             <span className="text-[10px] text-slate-500">{FACTS(workout)} exercises</span>
+          </div>
+        </div>
+      )}
+
+      {needLogin && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 space-y-2" aria-label="COROS sign-in">
+          <p className="text-xs font-semibold text-amber-200">Gym workouts go to COROS through its Training Hub, which needs your COROS sign-in.</p>
+          <p className="text-[11px] text-slate-400">Your password is used once to get a token and is not stored. Signing in this way signs you out of the COROS website. It's an unofficial route that COROS could change.</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input type="email" autoComplete="username" placeholder="COROS email" value={login.email} onChange={(e) => setLogin({ ...login, email: e.target.value })} className="rounded-lg border border-white/10 bg-slate-950/60 p-2 text-sm text-white" />
+            <input type="password" autoComplete="current-password" placeholder="COROS password" value={login.password} onChange={(e) => setLogin({ ...login, password: e.target.value })} className="rounded-lg border border-white/10 bg-slate-950/60 p-2 text-sm text-white" />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select aria-label="COROS region" value={login.region} onChange={(e) => setLogin({ ...login, region: e.target.value as 'eu' | 'us' })} className="rounded-lg border border-white/10 bg-slate-950/60 p-2 text-xs text-white">
+              <option value="eu">Europe</option><option value="us">United States</option>
+            </select>
+            <button type="button" onClick={() => void signIn()} disabled={busy !== null || !login.email || !login.password} className="min-h-9 rounded-lg bg-amber-400 px-3 text-xs font-bold text-slate-950 hover:bg-amber-300 disabled:opacity-50">{busy ? 'Signing in…' : 'Sign in and continue'}</button>
+            <button type="button" onClick={() => setNeedLogin(false)} disabled={busy !== null} className="min-h-9 rounded-lg border border-white/15 px-3 text-xs font-semibold text-slate-200 hover:bg-white/10">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {gymPlan && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 space-y-2" aria-label="Confirm COROS gym workout">
+          <p className="text-xs font-semibold text-amber-200">This is what will be created in COROS:</p>
+          <ul className="divide-y divide-white/5">
+            {gymPlan.exercises.map((e, i) => (
+              <li key={i} className="flex flex-wrap items-baseline justify-between gap-x-3 py-1 text-xs">
+                <span className="text-white">{e.name}{e.source.toLowerCase() !== e.name.toLowerCase() && <span className="ml-1 text-slate-500">(your "{e.source}")</span>}</span>
+                <span className="text-amber-200">{e.sets ?? '—'} × {e.reps ?? (e.duration_s ? `${e.duration_s}s` : '—')}{e.weight_kg ? ` @ ${e.weight_kg} kg` : ''}{e.rest_s ? <span className="ml-2 text-slate-400">rest {e.rest_s}s</span> : null}</span>
+              </li>
+            ))}
+          </ul>
+          {gymPlan.unmatched.length > 0 && <p className="text-[11px] font-semibold text-rose-300">Left out, no match in COROS's exercise list: {gymPlan.unmatched.join(', ')}.</p>}
+          <div className="flex gap-2">
+            <button type="button" onClick={() => void sendGym()} disabled={busy !== null} className="min-h-9 rounded-lg bg-amber-400 px-3 text-xs font-bold text-slate-950 hover:bg-amber-300 disabled:opacity-50">{busy === 'send' ? 'Sending…' : 'Send it'}</button>
+            <button type="button" onClick={() => setGymPlan(null)} disabled={busy !== null} className="min-h-9 rounded-lg border border-white/15 px-3 text-xs font-semibold text-slate-200 hover:bg-white/10">Cancel</button>
           </div>
         </div>
       )}
