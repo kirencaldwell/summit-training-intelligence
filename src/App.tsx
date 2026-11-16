@@ -34,7 +34,11 @@ import { GoogleSignInScreen } from './components/GoogleSignInScreen';
 import { coachEngine } from './lib/ai/coachEngine';
 import { syncCoachSettings } from './lib/coachSettings';
 import { isCorosConnected, syncCorosConnection } from './lib/coros';
-import { refreshReadiness, snapshotFor, type ReadinessSnapshot } from './lib/readiness';
+import { readSnapshots, refreshReadiness, snapshotFor, type ReadinessSnapshot } from './lib/readiness';
+import {
+  assessReadiness, markMorningChecked, morningAutoApply, morningCheckedToday, readRecords, recordFor, sessionEdit, sessionsForToday, writeRecord,
+  type MorningRecord, type SessionEdit,
+} from './lib/morningCheck';
 import { formatLbFromKg } from './lib/units';
 import { collectTags, isEbike, EBIKE_TAG, normalizeTags } from './lib/tags';
 import { detectEbike } from './lib/ebikeDetect';
@@ -609,6 +613,51 @@ export function App() {
       ...accepted,
     ]);
   };
+
+  // The morning check: how recovered the athlete is (COROS sleep, HRV, recovery), and if poorly, an easier version of
+  // today's session, applied by itself or suggested (the athlete's choice), with the original kept so it can be restored
+  const [morningRecords, setMorningRecords] = useState<Record<string, MorningRecord>>(() => readRecords());
+  const saveMorningRecord = (record: MorningRecord) => {
+    writeRecord(record);
+    setMorningRecords((prev) => ({ ...prev, [record.session_id]: record }));
+  };
+  const applySessionEdit = async (session: TrainingSession, edit: SessionEdit) => {
+    const [saved] = await dataService.saveTrainingSessions([{ ...session, ...edit }]);
+    setTrainingSessions((prev) => prev.map((s) => (s.id === session.id ? { ...s, ...edit, ...(saved ?? {}), id: s.id, status: s.status, completed_activity_ids: s.completed_activity_ids, coach_assessment: s.coach_assessment, coach_assessment_at: s.coach_assessment_at, auto_score: s.auto_score } : s)));
+  };
+  const handleMorningDecision = async (record: MorningRecord, action: 'apply' | 'keep' | 'undo') => {
+    const session = trainingSessions.find((s) => s.id === record.session_id);
+    if (action === 'keep') return saveMorningRecord({ ...record, status: 'kept' });
+    if (!session) return;
+    if (action === 'apply') await applySessionEdit(session, record.proposed);
+    else await applySessionEdit(session, record.original);
+    saveMorningRecord({ ...record, status: action === 'apply' ? 'applied' : 'undone' });
+  };
+  const runMorningCheck = async (snapshot: ReadinessSnapshot) => {
+    const today = getLocalDateString();
+    const assessment = assessReadiness(snapshot.facts, Object.values(readSnapshots()), today);
+    const todays = sessionsForToday(trainingSessions, today).filter((s) => !recordFor(s.id, today));
+    if ((assessment.level === 'low' || assessment.level === 'poor') && todays.length > 0) {
+      for (const session of todays.slice(0, 2)) {
+        const edit = await coachEngine.proposeMorningEdit(session, snapshot.facts, assessment);
+        const base = { date: today, session_id: session.id, level: assessment.level, reasons: assessment.reasons, original: sessionEdit(session) };
+        if (!edit) { saveMorningRecord({ ...base, reason: 'The coach kept today\'s session as planned.', status: 'kept', proposed: sessionEdit(session) }); continue; }
+        const { decision: _d, reason, ...proposed } = edit;
+        const record: MorningRecord = { ...base, reason, status: morningAutoApply() ? 'applied' : 'proposed', proposed };
+        if (record.status === 'applied') await applySessionEdit(session, proposed);
+        saveMorningRecord(record);
+      }
+    }
+    markMorningChecked(today);
+  };
+  const morningRunRef = useRef(false);
+  useEffect(() => {
+    if (morningRunRef.current || !corosSnapshot || !profile || trainingSessions.length === 0) return;
+    if (corosSnapshot.date !== getLocalDateString() || morningCheckedToday() || new Date().getHours() >= 14) return;
+    morningRunRef.current = true;
+    runMorningCheck(corosSnapshot).catch((err) => console.warn('The morning check could not finish:', err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [corosSnapshot, profile, trainingSessions.length > 0]);
 
   // Sessions being scored right now (software only: duration, load and the plan's measurable checks)
   const [scoringSessionIds, setScoringSessionIds] = useState<string[]>([]);
@@ -1222,6 +1271,8 @@ export function App() {
               loadProfile={loadProfile}
               onPlanWeek={() => setIsCheckInOpen(true)}
               readiness={corosSnapshot}
+              morning={Object.values(morningRecords).filter((r) => r.date === getLocalDateString())}
+              onMorningDecision={(record, action) => void handleMorningDecision(record, action)}
               onNavigateTab={handleNavigate}
             />
             <CoachMemoryPanel memory={coachMemory} onChange={updateCoachMemory} />
