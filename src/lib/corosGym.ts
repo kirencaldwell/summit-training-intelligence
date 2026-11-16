@@ -33,7 +33,7 @@ export async function gymLogin(email: string, password: string, region: 'us' | '
   return auth;
 }
 
-export interface GymExercise { source: string; name: string; sets?: number; reps?: number; duration_s?: number; weight_kg?: number; rest_s?: number }
+export interface GymExercise { source: string; name: string; sets?: number; reps?: number; duration_s?: number; weight_kg?: number; /** The same load in pounds, as the athlete wrote it, for display */ weight_lb?: number; rest_s?: number }
 export interface GymPlan { exercises: GymExercise[]; unmatched: string[] }
 
 let names: string[] | undefined;
@@ -66,7 +66,7 @@ export function parseGymPlan(raw: string, list: string[]): GymPlan | null {
     if (sets) item.sets = sets;
     if (dur && !reps) item.duration_s = dur; else if (reps) item.reps = reps;
     if (rest !== undefined) item.rest_s = rest;
-    if (typeof e.weight_lb === 'number' && e.weight_lb > 0 && e.weight_lb <= 1000) item.weight_kg = Math.round(e.weight_lb * 0.45359237 * 10) / 10;
+    if (typeof e.weight_lb === 'number' && e.weight_lb > 0 && e.weight_lb <= 1000) { item.weight_kg = Math.round(e.weight_lb * 0.45359237 * 100) / 100; item.weight_lb = Math.round(e.weight_lb * 10) / 10; }
     exercises.push(item);
   }
   return exercises.length ? { exercises, unmatched } : null;
@@ -75,5 +75,5 @@ export function parseGymPlan(raw: string, list: string[]): GymPlan | null {
 export function sendGymWorkout(workout: StructuredWorkout, plan: GymPlan): Promise<{ ok: boolean; duration: number; totalSets: number; trainingLoad: number }> {
   const auth = readGymAuth();
   if (!auth) return Promise.reject(new Error('Sign in to COROS first.'));
-  return post('send', { auth, name: workout.name.slice(0, 60), overview: (workout.notes ?? '').slice(0, 300), exercises: plan.exercises.map(({ source: _s, ...e }) => e) });
+  return post('send', { auth, name: workout.name.slice(0, 60), overview: (workout.notes ?? '').slice(0, 300), exercises: plan.exercises.map(({ source: _s, weight_lb: _w, ...e }) => e) });
 }

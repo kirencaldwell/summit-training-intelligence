@@ -165,7 +165,7 @@ export const WorkoutCard: React.FC<{ session: TrainingSession }> = ({ session })
             {gymPlan.exercises.map((e, i) => (
               <li key={i} className="flex flex-wrap items-baseline justify-between gap-x-3 py-1 text-xs">
                 <span className="text-white">{e.name}{e.source.toLowerCase() !== e.name.toLowerCase() && <span className="ml-1 text-slate-500">(your "{e.source}")</span>}</span>
-                <span className="text-amber-200">{e.sets ?? '—'} × {e.reps ?? (e.duration_s ? `${e.duration_s}s` : '—')}{e.weight_kg ? ` @ ${e.weight_kg} kg` : ''}{e.rest_s ? <span className="ml-2 text-slate-400">rest {e.rest_s}s</span> : null}</span>
+                <span className="text-amber-200">{e.sets ?? '—'} × {e.reps ?? (e.duration_s ? `${e.duration_s}s` : '—')}{e.weight_lb ? ` @ ${e.weight_lb} lb` : ''}{e.rest_s ? <span className="ml-2 text-slate-400">rest {e.rest_s}s</span> : null}</span>
               </li>
             ))}
           </ul>
