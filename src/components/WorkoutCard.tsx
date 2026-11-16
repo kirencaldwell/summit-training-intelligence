@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Dumbbell, Loader2, Send, Sparkles } from 'lucide-react';
 import type { TrainingSession } from '../types';
 import { coachEngine } from '../lib/ai/coachEngine';
-import { CorosError, isCorosConnected, listCorosTools, sendCorosWorkout, type CorosTool } from '../lib/coros';
+import { CorosError, isCorosConnected, listCorosTools, queryCoros, sendCorosWorkout, type CorosTool } from '../lib/coros';
 import { pickWorkoutTool } from '../lib/corosWorkout';
 import { itemLine, fmtSeconds, storedWorkout, type StructuredWorkout } from '../lib/workoutStructure';
 
@@ -13,7 +13,8 @@ export const WorkoutCard: React.FC<{ session: TrainingSession }> = ({ session })
   const [workout, setWorkout] = useState<StructuredWorkout | undefined>(() => storedWorkout(session));
   const [busy, setBusy] = useState<'structure' | 'prepare' | 'send' | null>(null);
   const [error, setError] = useState('');
-  const [prepared, setPrepared] = useState<{ tool: CorosTool; args: Record<string, unknown> } | null>(null);
+  const [prepared, setPrepared] = useState<{ tool: CorosTool; args: Record<string, unknown>; problem?: string } | null>(null);
+  const [debug, setDebug] = useState('');
   const [sent, setSent] = useState('');
 
   const structure = async () => {
@@ -28,7 +29,7 @@ export const WorkoutCard: React.FC<{ session: TrainingSession }> = ({ session })
 
   const prepare = async () => {
     if (!workout) return;
-    setBusy('prepare'); setError(''); setSent('');
+    setBusy('prepare'); setError(''); setSent(''); setDebug('');
     try {
       const tools = await listCorosTools();
       const tool = pickWorkoutTool(tools);
@@ -36,9 +37,14 @@ export const WorkoutCard: React.FC<{ session: TrainingSession }> = ({ session })
         const likely = tools.map((t) => t.name).filter((n) => /workout|plan|schedule/i.test(n));
         setError(`COROS offers no tool this app can use to create a workout. It offers: ${likely.join(', ') || tools.map((t) => t.name).join(', ')}.`);
       } else {
-        const result = await coachEngine.corosWorkoutArgs(workout, tool, session.session_date);
+        // What is already on the account shows the coach the real field names and units (best effort)
+        const library = tools.find((t) => t.name === 'queryWorkoutLibrary');
+        let example = '';
+        if (library) { try { example = ((await queryCoros([{ tool: library.name, args: {} }]))[0]?.text ?? '').slice(0, 5000); } catch { /* the example is optional */ } }
+        const result = await coachEngine.corosWorkoutArgs(workout, tool, session.session_date, example);
+        setDebug(`Tool: ${tool.name}\nSchema:\n${JSON.stringify(tool.inputSchema, null, 2)}\n\nCoach reply:\n${result.raw}${example ? `\n\nLibrary example given to the coach:\n${example.slice(0, 1500)}` : ''}`);
         if ('error' in result) setError(`The workout could not be prepared for COROS: ${result.error}`);
-        else setPrepared({ tool, args: result.args });
+        else setPrepared({ tool, args: result.args, problem: result.problem });
       }
     } catch (e) { setError(e instanceof CorosError && e.reconnect ? 'Reconnect COROS in Import data → COROS.' : e instanceof Error ? e.message : 'Could not reach COROS.'); }
     setBusy(null);
@@ -94,6 +100,7 @@ export const WorkoutCard: React.FC<{ session: TrainingSession }> = ({ session })
 
       {prepared && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 space-y-2" aria-label="Confirm COROS workout">
+          {prepared.problem && <p className="text-xs text-rose-200">The coach says it could not complete this: {prepared.problem}</p>}
           <p className="text-xs font-semibold text-amber-200">This is exactly what will be sent to COROS ({prepared.tool.name}):</p>
           <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-black/40 p-2 text-[10px] text-slate-300">{JSON.stringify(prepared.args, null, 2)}</pre>
           <div className="flex gap-2">
@@ -104,6 +111,12 @@ export const WorkoutCard: React.FC<{ session: TrainingSession }> = ({ session })
       )}
       {sent && <p role="status" className="text-xs text-emerald-300">Sent to COROS. {sent}</p>}
       {error && <p role="alert" className="text-xs text-rose-300">{error}</p>}
+      {debug && (error || prepared) && (
+        <details className="text-[10px] text-slate-500">
+          <summary className="cursor-pointer">What COROS expects and what the coach answered</summary>
+          <pre className="mt-1 max-h-60 overflow-auto whitespace-pre-wrap break-words rounded bg-black/40 p-2">{debug}</pre>
+        </details>
+      )}
     </div>
   );
 };
