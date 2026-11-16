@@ -65,6 +65,8 @@ interface CompleteRequest {
   user: string;
   /** 'filter' = cheap JSON-planning model, 'main' = the coach */
   tier: 'main' | 'filter';
+  /** How hard a Claude model thinks before answering (default medium). Lower is faster. */
+  effort?: 'low' | 'medium';
 }
 
 /** Prior turns must start with a user turn, alternate roles and end on a model turn (both APIs). */
@@ -185,7 +187,7 @@ async function completeUnbounded(engine: Engine, req: CompleteRequest): Promise<
     system: req.system,
     messages,
     // Thinking is always on for these models; medium keeps coaching replies responsive
-    output_config: { effort: 'medium' as const },
+    output_config: { effort: req.effort ?? ('medium' as const) },
   };
 
   let response;
@@ -773,8 +775,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // One week of sessions for the athlete's stated availability: the model fills days, the client checks the draft
     if (mode === 'weekly_plan') {
       if (!context) return res.status(400).json({ error: 'Missing required field: context' });
+      // Haiku at medium effort spent ~10,000 tokens thinking (48 s) on a week that Sonnet answers in under 25 s; the
+      // plan's rules are all in the prompt and the budget, so a quick think is enough on the smallest model
+      const effort = engine.provider === 'claude' && /haiku/i.test(engine.model) ? 'low' : 'medium';
       const text = await complete(engine, {
         tier: 'main',
+        effort,
         system: WEEKLY_PLAN_PROMPT,
         user: `<weekly_plan_context>\n${JSON.stringify(context, null, 2)}\n</weekly_plan_context>\n\n${message}`,
       });

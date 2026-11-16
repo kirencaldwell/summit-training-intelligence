@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { CalendarDays, X, Sparkles, Check, RefreshCw, AlertTriangle, Wrench } from 'lucide-react';
 import type { Goal, PMCDayPoint, TrainingSession } from '../types';
+import { activeCoachLabel } from '../lib/coachSettings';
 import { addDaysToDateOnly, getCurrentTrainingWeekStartDate, getLocalDateString, getNextTrainingWeekStartDate } from '../lib/trainingSessions';
 import {
   buildWeekBudget, checkWeekDraft, defaultCheckIn, readDayNote, sessionIsHard,
@@ -241,7 +242,7 @@ export const WeeklyCheckIn: React.FC<WeeklyCheckInProps> = ({ pmc, goals, sessio
                 disabled={!anyAvailable || busy === 'build'}
                 className="min-h-10 px-4 rounded-lg bg-cyan-500 text-xs font-bold text-slate-950 hover:bg-cyan-400 disabled:opacity-50 inline-flex items-center gap-2"
               >
-                <Sparkles className={`w-3.5 h-3.5 ${busy === 'build' ? 'animate-pulse' : ''}`} /> {busy === 'build' ? 'Building the week…' : 'Build my week'}
+                <Sparkles className={`w-3.5 h-3.5 ${busy === 'build' ? 'animate-pulse' : ''}`} /> {busy === 'build' ? `Asking ${activeCoachLabel()}…` : 'Build my week'}
               </button>
             </div>
           </>
@@ -315,7 +316,7 @@ export const WeeklyCheckIn: React.FC<WeeklyCheckInProps> = ({ pmc, goals, sessio
                 disabled={busy !== null}
                 className="min-h-10 px-3 rounded-lg border border-white/10 text-xs font-semibold text-slate-200 hover:bg-white/5 disabled:opacity-50 inline-flex items-center gap-1.5"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${busy === 'build' ? 'animate-spin' : ''}`} /> {busy === 'build' ? 'Rebuilding…' : 'Rebuild'}
+                <RefreshCw className={`w-3.5 h-3.5 ${busy === 'build' ? 'animate-spin' : ''}`} /> {busy === 'build' ? `Asking ${activeCoachLabel()}…` : 'Rebuild'}
               </button>
               <button
                 onClick={() => void accept()}

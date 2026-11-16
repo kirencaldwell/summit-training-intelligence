@@ -186,6 +186,39 @@ function activityBlock(
   };
 }
 
+/**
+ * What the weekly plan needs from the athlete's history, without the bulk the other modes use: the profile fields that
+ * shape a plan, the last few activities, last weeks' plan against actual, and for each goal only its status and the
+ * metrics that are behind. A fuller context made the weekly plan slow, for no better plan.
+ */
+function compactPlanContext(statusData: any, recentActivities: any[], trainingLog: any[], goalProgress: any[]) {
+  const p = statusData?.profile ?? {};
+  return {
+    athleteStatus: {
+      ftp: p.ftp, lthr: p.lthr, max_hr: p.max_hr, weight_lb: p.weight_lb,
+      notes: p.notes, injury_notes: p.injury_notes?.length ? p.injury_notes : undefined, recovery_routines: p.recovery_routines,
+    },
+    recent_activities: recentActivities.slice(0, 6).map((a) => ({
+      date: a.date, title: a.title, sport_type: a.sport_type, duration_minutes: a.duration_minutes, moving_time_minutes: a.moving_time_minutes,
+      tss: a.tss, avg_hr: a.avg_hr, elevation_gain_ft: a.elevation_gain_ft,
+    })),
+    planVsActualLastWeeks: (trainingLog ?? []).map((w) => ({
+      week: w.week, planned_tss: w.planned_tss, actual_tss: w.actual_tss, missed: w.missed,
+      planned_sessions: (w.planned_sessions ?? []).map((s: any) => `${s.date} ${s.title}${s.done ? '' : ' (not done)'}`),
+    })),
+    goalProgress: (goalProgress ?? []).map((g) => {
+      const metrics: any[] = g.tracked_metrics ?? [];
+      const behind = metrics.filter((m) => m.status === 'behind' || m.status === 'well_behind');
+      return {
+        goal: g.goal, target_date: g.target_date, weeks_to_go: g.weeks_to_go, status_against_plan: g.status_against_plan,
+        next_target: g.next_target, ctl_gain_per_week_needed: g.ctl_gain_per_week_needed,
+        metrics_behind: behind.map((m) => ({ metric: m.metric, now: m.now, target: m.target })),
+        metrics_not_behind: metrics.length - behind.length,
+      };
+    }),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Local data tools — gather context to send to the server-side Gemini proxy
 // ---------------------------------------------------------------------------
@@ -850,10 +883,7 @@ class GeminiCoachEngine {
           fitness_now: { ctl: budget.ctl_now, atl: budget.atl_now, tsb: budget.tsb_now },
           recent_weekly_tss: { last_week: budget.recent.last_week_tss, usual_week: budget.recent.usual_week_tss },
         },
-        athleteStatus: statusData,
-        recent_activities: recentActivities.slice(0, 6),
-        planVsActualLastWeeks: trainingLog,
-        goalProgress: progress.goal_progress,
+        ...compactPlanContext(statusData, recentActivities, trainingLog, progress.goal_progress),
         coach_memory: memoryForAI(await dataService.getCoachMemory()),
       },
     });
