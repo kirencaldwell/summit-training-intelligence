@@ -11,6 +11,8 @@ import { buildWeekSummaries, goalProgress } from '../trainingLog';
 import { scoreSession } from '../sessionScore';
 import { memoryForAI } from '../coachMemory';
 import { parseWeekDraft, type CheckIn, type DraftSession, type WeekBudget } from '../weekBudget';
+import { validateEdit, type ProposedEdit, type ReadinessAssessment } from '../morningCheck';
+import type { ReadinessFacts } from '../readiness';
 import { buildProgressContext } from './progressContext';
 import { metricMenu, parseMetricProposals, withBaselines, type MetricContext, type TrackingMetric } from '../trackingMetrics';
 import { parseReadinessReply, type GoalReadinessAssessment } from '../goalReadiness';
@@ -855,6 +857,35 @@ class GeminiCoachEngine {
    * like a single-activity assessment, the plan's measurable checks are run on each one, and the coach sees the
    * combined totals against what was planned.
    */
+  /**
+   * The morning check's one AI call: today's session, eased to fit how recovered the athlete is. Software has already decided
+   * an easier session is warranted and how far it may go; the reply is validated so it can only make the session lighter.
+   * Returns null when the coach thinks the session should stand.
+   */
+  public async proposeMorningEdit(session: TrainingSession, facts: ReadinessFacts, assessment: ReadinessAssessment): Promise<ProposedEdit | null> {
+    if (assessment.level !== 'low' && assessment.level !== 'poor') return null;
+    const { statusData, trainingSessions, trainingLog, progress } = await gatherAthleteContext();
+    const p: any = statusData?.profile ?? {};
+    const text = await postCoach({
+      mode: 'morning_adjust',
+      message: 'Decide whether to ease today\'s session, and write the easier version if so.',
+      context: {
+        today: getLocalDateString(),
+        planned_session: { title: session.title, sport_type: session.sport_type, duration_minutes: session.duration_minutes, target_tss: session.target_tss, focus: session.focus, details: session.details },
+        readiness: { level: assessment.level, reasons: assessment.reasons, figures: facts },
+        training_load: { ctl: statusData?.pmc?.ctl, atl: statusData?.pmc?.atl, form_tsb: statusData?.pmc?.tsb },
+        athlete: { ftp: p.ftp, lthr: p.lthr, notes: p.notes, injury_notes: p.injury_notes?.length ? p.injury_notes : undefined },
+        other_sessions_this_week: (trainingSessions ?? [])
+          .filter((s: TrainingSession) => s.id !== session.id && s.week_start_date === session.week_start_date && (s.status === 'ACCEPTED' || s.status === 'COMPLETED'))
+          .map((s: TrainingSession) => ({ date: s.session_date, title: s.title, duration_minutes: s.duration_minutes, target_tss: s.target_tss, status: s.status })),
+        last_weeks: (trainingLog ?? []).slice(0, 2).map((w: any) => ({ week: w.week, planned_tss: w.planned_tss, actual_tss: w.actual_tss })),
+        goals: (progress?.goal_progress ?? []).map((g: any) => ({ goal: g.goal, target_date: g.target_date, status_against_plan: g.status_against_plan })),
+        coach_memory: memoryForAI(await dataService.getCoachMemory()),
+      },
+    });
+    return validateEdit(session, text, assessment.level);
+  }
+
   /**
    * Draft one week of sessions for the athlete's stated availability. The model only fills the available days; the
    * budget (how much training the week should hold) is worked out in software and the draft is checked against it.

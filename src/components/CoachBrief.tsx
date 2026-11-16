@@ -8,6 +8,7 @@ import { buildBrief, type BriefAction } from '../lib/coachBrief';
 import { scrollToTarget } from '../lib/scrollToTarget';
 import type { AppTab } from './TrainingWeekSection';
 import { readinessLine, type ReadinessSnapshot } from '../lib/readiness';
+import type { MorningRecord } from '../lib/morningCheck';
 
 interface CoachBriefProps {
   sessions: TrainingSession[];
@@ -19,6 +20,9 @@ interface CoachBriefProps {
   onPlanWeek: () => void;
   /** Today's COROS sleep and recovery, when connected */
   readiness?: ReadinessSnapshot;
+  /** Today's morning changes (or suggestions) to the plan, and what the athlete decides */
+  morning?: MorningRecord[];
+  onMorningDecision?: (record: MorningRecord, action: 'apply' | 'keep' | 'undo') => void;
   onNavigateTab: (tab: AppTab, target?: string) => void;
 }
 
@@ -36,7 +40,7 @@ const readDismissed = (): Record<string, string> => {
 };
 
 /** The top of the Coach tab: today, how fit and fresh you are, and what needs attention, all worked out from your data. */
-export const CoachBrief: React.FC<CoachBriefProps> = ({ sessions, activities, pmc, goals, profile, loadProfile, onPlanWeek, readiness, onNavigateTab }) => {
+export const CoachBrief: React.FC<CoachBriefProps> = ({ sessions, activities, pmc, goals, profile, loadProfile, onPlanWeek, readiness, morning, onMorningDecision, onNavigateTab }) => {
   const [munter, setMunter] = useState<Record<string, MunterParams>>({});
   useEffect(() => {
     let active = true;
@@ -110,6 +114,31 @@ export const CoachBrief: React.FC<CoachBriefProps> = ({ sessions, activities, pm
           <p className="text-[11px] text-slate-400">{brief.week.tssPlanned > 0 ? `${brief.week.tssDone} of ${brief.week.tssPlanned} TSS` : `${brief.week.tssDone} TSS so far`}</p>
         </div>
       </div>
+
+      {(morning ?? []).filter((r) => r.status === 'applied' || r.status === 'proposed').map((r) => (
+        <div key={r.session_id} className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-3 space-y-2" aria-label="Morning adjustment">
+          <p className="text-[10px] font-semibold uppercase text-cyan-300">
+            {r.status === 'applied' ? "Eased this morning" : "Suggested this morning"} · {r.level === 'poor' ? 'poorly recovered' : 'not fully recovered'}
+          </p>
+          <p className="text-sm text-white">
+            {r.status === 'applied' ? 'Changed' : 'Change'} <span className="font-semibold">{r.original.title}</span> from {r.original.duration_minutes} min{r.original.target_tss != null ? ` · ${r.original.target_tss} TSS` : ''} to <span className="font-semibold">{r.proposed.duration_minutes} min{r.proposed.target_tss != null ? ` · ${r.proposed.target_tss} TSS` : ''}</span>.
+          </p>
+          <p className="text-xs text-slate-300">{r.reason}</p>
+          {r.reasons.length > 0 && <p className="text-[11px] text-slate-400">Seen: {r.reasons.join('; ')}.</p>}
+          {onMorningDecision && (
+            <div className="flex flex-wrap gap-2">
+              {r.status === 'proposed' ? (
+                <>
+                  <button type="button" onClick={() => onMorningDecision(r, 'apply')} className="min-h-9 rounded-lg bg-cyan-500 px-3 text-xs font-bold text-slate-950 hover:bg-cyan-400">Make it easier</button>
+                  <button type="button" onClick={() => onMorningDecision(r, 'keep')} className="min-h-9 rounded-lg border border-white/15 px-3 text-xs font-semibold text-slate-200 hover:bg-white/10">Keep as planned</button>
+                </>
+              ) : (
+                <button type="button" onClick={() => onMorningDecision(r, 'undo')} className="min-h-9 rounded-lg border border-white/15 px-3 text-xs font-semibold text-slate-200 hover:bg-white/10">Restore the original</button>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
 
       {readiness && (
         <div className="rounded-lg border border-white/10 bg-slate-900/50 p-3">

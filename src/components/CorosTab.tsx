@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { HeartPulse, Loader2, RefreshCw, Unplug } from 'lucide-react';
 import { CorosError, connectCoros, disconnectCoros, getCorosAccountStatus, isCorosConnected } from '../lib/coros';
-import { readinessLine, refreshReadiness, type ReadinessSnapshot } from '../lib/readiness';
+import { assessReadiness, morningAutoApply, setMorningAutoApply } from '../lib/morningCheck';
+import { readSnapshots, readinessLine, refreshReadiness, type ReadinessSnapshot } from '../lib/readiness';
 
 interface CorosTabProps {
   /** Today's reading, held by the app (it is also read automatically when the app opens) */
@@ -15,6 +16,7 @@ export const CorosTab: React.FC<CorosTabProps> = ({ snapshot, onSnapshot }) => {
   const [busy, setBusy] = useState<'fetch' | 'disconnect' | null>(null);
   const [error, setError] = useState('');
   const account = getCorosAccountStatus();
+  const [autoApply, setAutoApply] = useState(morningAutoApply());
 
   const fetchNow = async () => {
     setBusy('fetch');
@@ -82,6 +84,22 @@ export const CorosTab: React.FC<CorosTabProps> = ({ snapshot, onSnapshot }) => {
         )}
         {error && <p role="alert" className="text-xs text-rose-300">{error}</p>}
       </div>
+
+      {facts && (() => {
+        const a = assessReadiness(facts, Object.values(readSnapshots()));
+        const label = { good: 'Recovered: today\'s plan stands', low: 'Not fully recovered: today\'s session may be eased', poor: 'Poorly recovered: today\'s session will be eased', unknown: 'Not enough to judge recovery yet' }[a.level];
+        return (
+          <div className="rounded-xl border border-white/10 bg-slate-900/40 p-3 space-y-1">
+            <p className="text-xs font-semibold text-white">{label}</p>
+            {a.reasons.length > 0 && <p className="text-[11px] text-slate-400">{a.reasons.join('; ')}.</p>}
+          </div>
+        );
+      })()}
+
+      <label className="flex items-start gap-2 rounded-xl border border-white/10 bg-slate-900/40 p-3 text-xs text-slate-300">
+        <input type="checkbox" className="mt-0.5" checked={autoApply} onChange={(e) => { setAutoApply(e.target.checked); setMorningAutoApply(e.target.checked); }} />
+        <span><span className="font-semibold text-white">Ease today's session by itself</span> when I open the app in the morning and I'm not recovered. Off: it suggests the change and I choose. The original is always kept so it can be restored. (This device.)</span>
+      </label>
 
       {snapshot && (
         <details className="rounded-xl border border-white/10 bg-slate-900/40 p-3">
