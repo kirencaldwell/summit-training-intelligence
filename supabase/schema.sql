@@ -227,6 +227,16 @@ CREATE TABLE IF NOT EXISTS public.integration_settings (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- The coach's settings on the account, so every device the athlete signs in on uses the same AI and key. The Anthropic
+-- key is stored as plain text, protected by the row-level security below (only the athlete can read it), exactly like the
+-- Intervals.icu key. coach_settings_at says when they were last saved, so the newest copy wins.
+ALTER TABLE public.integration_settings
+  ADD COLUMN IF NOT EXISTS coach_provider TEXT,
+  ADD COLUMN IF NOT EXISTS coach_claude_model TEXT,
+  ADD COLUMN IF NOT EXISTS anthropic_api_key TEXT,
+  ADD COLUMN IF NOT EXISTS anthropic_workspace_id TEXT,
+  ADD COLUMN IF NOT EXISTS coach_settings_at TIMESTAMPTZ;
+
 -- One row per AI model call (sizes, counts and the full prompt/reply text), so the athlete can see what the coach costs
 -- and which features are worth replacing with plain algorithms.
 CREATE TABLE IF NOT EXISTS public.llm_usage (

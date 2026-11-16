@@ -16,6 +16,15 @@ export interface IntegrationSettings {
   intervals_auto: boolean;
 }
 
+/** The coach's settings as stored on the account (null updated_at: never saved there). */
+export interface CoachIntegration {
+  provider: 'gemini' | 'claude' | null;
+  claude_model: string | null;
+  anthropic_api_key: string | null;
+  workspace_id: string | null;
+  updated_at: string | null;
+}
+
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
 export const supabase = isSupabaseConfigured 
@@ -520,6 +529,42 @@ class DataService {
       intervals_api_key: typeof data.intervals_api_key === 'string' && data.intervals_api_key.trim() ? data.intervals_api_key.trim() : null,
       intervals_auto: data.intervals_auto !== false,
     };
+  }
+
+  /** The coach's settings on the account, or null when there is no row. Throws if the columns have not been added. */
+  public async getCoachIntegration(): Promise<CoachIntegration | null> {
+    if (!(this.mode === 'supabase' && supabase)) return null;
+    const profile = await this.getAuthenticatedProfile();
+    const { data, error } = await supabase
+      .from('integration_settings')
+      .select('coach_provider, coach_claude_model, anthropic_api_key, anthropic_workspace_id, coach_settings_at')
+      .eq('user_id', profile.id)
+      .maybeSingle();
+    if (error) throw new Error(`Coach settings could not be loaded: ${error.message}`);
+    if (!data) return null;
+    const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+    return {
+      provider: data.coach_provider === 'claude' ? 'claude' : data.coach_provider === 'gemini' ? 'gemini' : null,
+      claude_model: text(data.coach_claude_model),
+      anthropic_api_key: text(data.anthropic_api_key),
+      workspace_id: text(data.anthropic_workspace_id),
+      updated_at: typeof data.coach_settings_at === 'string' ? data.coach_settings_at : null,
+    };
+  }
+
+  public async saveCoachIntegration(settings: Omit<CoachIntegration, 'updated_at'>, at: string): Promise<void> {
+    if (!(this.mode === 'supabase' && supabase)) return;
+    const profile = await this.getAuthenticatedProfile();
+    const { error } = await supabase.from('integration_settings').upsert({
+      user_id: profile.id,
+      coach_provider: settings.provider,
+      coach_claude_model: settings.claude_model,
+      anthropic_api_key: settings.anthropic_api_key,
+      anthropic_workspace_id: settings.workspace_id,
+      coach_settings_at: at,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id' });
+    if (error) throw new Error(`Coach settings could not be saved: ${error.message}`);
   }
 
   public async saveIntegrationSettings(settings: Partial<IntegrationSettings>): Promise<void> {

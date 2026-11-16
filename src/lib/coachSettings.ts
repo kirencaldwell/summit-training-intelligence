@@ -1,6 +1,9 @@
-// Which AI the coach uses. The Anthropic key lives only in this browser's localStorage and is
-// sent with each coach request to this app's own /api/coach function, which forwards it to
-// Anthropic. It is never saved on the server or in the database.
+// Which AI the coach uses. This browser keeps the working copy of the settings and the Anthropic key in localStorage
+// (the rest of the code reads them synchronously) and sends the key with each coach request to this app's own
+// /api/coach function, which forwards it to Anthropic. The server never stores it. With an account (Supabase) the
+// settings are also kept on the athlete's account row, protected by row-level security, so every device they sign in
+// on uses the same coach; the athlete can turn that off, which also removes the key from the account.
+import { dataService, isSupabaseConfigured, type CoachIntegration } from './supabase';
 
 export type CoachProvider = 'gemini' | 'claude';
 
@@ -15,6 +18,8 @@ const KEYS = {
   model: 'summit_coach_claude_model',
   apiKey: 'summit_anthropic_api_key',
   workspaceId: 'summit_anthropic_workspace_id',
+  savedAt: 'summit_coach_settings_at',
+  sync: 'summit_coach_sync',
 };
 
 const read = (key: string): string => {
@@ -52,11 +57,125 @@ export function getCoachSettings(): CoachSettings {
   };
 }
 
-export function saveCoachSettings(settings: CoachSettings) {
+/** Saves the settings on this device and stamps when, so the newest copy (here or on the account) can win. */
+export function saveCoachSettings(settings: CoachSettings, at: string = new Date().toISOString()) {
   write(KEYS.provider, settings.provider);
   write(KEYS.model, settings.claudeModel);
   write(KEYS.apiKey, settings.anthropicKey.trim());
   write(KEYS.workspaceId, (settings.workspaceId ?? '').trim());
+  write(KEYS.savedAt, at);
+}
+
+// ── Keeping the settings with the account ────────────────────────────────────────────────────────────
+
+/** Whether this device keeps the coach settings (and key) on the account. On unless the athlete turned it off. */
+export const getCoachSyncEnabled = (): boolean => isSupabaseConfigured && read(KEYS.sync) !== 'off';
+export function setCoachSyncEnabled(on: boolean) {
+  write(KEYS.sync, on ? '' : 'off');
+}
+
+export type CoachAccountStatus =
+  | { state: 'unknown' }
+  | { state: 'saved' }
+  | { state: 'off' }
+  | { state: 'unavailable'; detail: string }
+  | { state: 'error'; detail: string };
+
+let accountStatus: CoachAccountStatus = { state: 'unknown' };
+export const getCoachAccountStatus = (): CoachAccountStatus => accountStatus;
+
+function recordAccountError(err: unknown) {
+  const detail = err instanceof Error ? err.message : 'Unknown error';
+  // Missing columns are a setup step; anything else (offline, expired session, permissions) is a problem to show
+  accountStatus = /coach_settings_at|coach_provider|anthropic_api_key|anthropic_workspace|coach_claude_model|schema cache|does not exist/i.test(detail) && !/permission|policy/i.test(detail)
+    ? { state: 'unavailable', detail }
+    : { state: 'error', detail };
+}
+
+export type CoachReconciliation =
+  | { action: 'none' }
+  /** The account has nothing for this athlete yet, or this device is newer: upload this device's settings */
+  | { action: 'push-local' }
+  /** The account's copy is newer (or this device never saved any): take it */
+  | { action: 'use-remote' };
+
+/**
+ * How this device's coach settings and the account's fit together: the newest copy wins. A removal is a save too (an
+ * empty key with a newer time), so removing the key on one device removes it everywhere. A device that has a key from
+ * before settings were stamped keeps it if the account has none.
+ */
+export function reconcileCoachSettings(
+  local: { settings: CoachSettings; at?: string },
+  remote: CoachIntegration | null,
+): CoachReconciliation {
+  const localHasContent = Boolean(local.settings.anthropicKey) || local.settings.provider === 'claude';
+  if (!remote || !remote.updated_at) return localHasContent ? { action: 'push-local' } : { action: 'none' };
+  if (!local.at) return local.settings.anthropicKey && !remote.anthropic_api_key ? { action: 'push-local' } : { action: 'use-remote' };
+  if (local.at > remote.updated_at) return { action: 'push-local' };
+  if (local.at < remote.updated_at) return { action: 'use-remote' };
+  return { action: 'none' };
+}
+
+type CoachStore = Pick<typeof dataService, 'getCoachIntegration' | 'saveCoachIntegration'>;
+
+const toIntegration = (s: CoachSettings): Omit<CoachIntegration, 'updated_at'> => ({
+  provider: s.provider,
+  claude_model: s.claudeModel,
+  anthropic_api_key: s.anthropicKey.trim() || null,
+  workspace_id: s.workspaceId?.trim() || null,
+});
+
+/** Run once the app has loaded: bring this device in line with the account. Returns true when this device changed. */
+export async function syncCoachSettings(
+  store: CoachStore = dataService,
+  opts: { available: boolean; sync: boolean } = { available: isSupabaseConfigured, sync: getCoachSyncEnabled() },
+): Promise<boolean> {
+  if (!opts.available) return false;
+  if (!opts.sync) { accountStatus = { state: 'off' }; return false; }
+  try {
+    const remote = await store.getCoachIntegration();
+    const local = { settings: getCoachSettings(), at: read(KEYS.savedAt) || undefined };
+    const outcome = reconcileCoachSettings(local, remote);
+    let changed = false;
+    if (outcome.action === 'use-remote' && remote) {
+      const model = remote.claude_model && CLAUDE_MODEL_OPTIONS.some((m) => m.id === remote.claude_model) ? remote.claude_model : local.settings.claudeModel;
+      saveCoachSettings({ provider: remote.provider ?? 'gemini', claudeModel: model, anthropicKey: remote.anthropic_api_key ?? '', workspaceId: remote.workspace_id ?? '' }, remote.updated_at ?? undefined);
+      changed = true;
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('summit:coach-settings'));
+    } else if (outcome.action === 'push-local') {
+      const at = local.at ?? new Date().toISOString();
+      if (!local.at) write(KEYS.savedAt, at);
+      await store.saveCoachIntegration(toIntegration(local.settings), at);
+    }
+    accountStatus = { state: 'saved' };
+    return changed;
+  } catch (err) {
+    console.warn('Coach settings could not be synced with the account:', err);
+    recordAccountError(err);
+    return false;
+  }
+}
+
+/**
+ * Saves the settings on the account (or, when this device keeps them local, removes the key from it). Never throws:
+ * the outcome is in the account status.
+ */
+export async function saveCoachSettingsToAccount(
+  settings: CoachSettings,
+  store: CoachStore = dataService,
+  opts: { available: boolean; sync: boolean } = { available: isSupabaseConfigured, sync: getCoachSyncEnabled() },
+): Promise<void> {
+  if (!opts.available) return;
+  const sync = opts.sync;
+  try {
+    const at = read(KEYS.savedAt) || new Date().toISOString();
+    // Keeping the key on this device only also means it must not stay on the account
+    await store.saveCoachIntegration(sync ? toIntegration(settings) : { ...toIntegration(settings), anthropic_api_key: null, workspace_id: null }, at);
+    accountStatus = sync ? { state: 'saved' } : { state: 'off' };
+  } catch (err) {
+    console.warn('Coach settings could not be saved to the account:', err);
+    recordAccountError(err);
+  }
 }
 
 /** Label for the model currently answering, e.g. "Claude Opus 5.5" or "Gemini Flash". */
