@@ -5,6 +5,8 @@ import { SessionCompleteModal } from './SessionCompleteModal';
 import { getLocalDateString, getWeekStartDate } from '../lib/trainingSessions';
 import { AssessmentText } from './ActivityDetailModal';
 import { WorkoutCard } from './WorkoutCard';
+import { SessionEditor } from './SessionEditor';
+import type { SessionEdit } from '../lib/morningCheck';
 
 export type AppTab = 'dashboard' | 'goals' | 'activities' | 'training' | 'performance' | 'coach' | 'profile';
 
@@ -17,6 +19,8 @@ export interface TrainingWeekSectionProps {
   /** Marks a session complete and links the activities that did it; synced is false when the links could only be kept on this device */
   onCompleteTrainingSession?: (id: string, activityIds: string[]) => Promise<{ synced: boolean }>;
   onReopenTrainingSession?: (id: string) => Promise<void>;
+  /** Saves a coach-edited version of a planned session */
+  onEditTrainingSession?: (id: string, edit: SessionEdit) => Promise<void>;
   /** Asks the coach to assess a completed session from its linked activities; synced is false when it could only be kept on this device */
   onAssessTrainingSession?: (id: string) => Promise<{ synced: boolean }>;
   /** Opens the weekly check-in */
@@ -41,6 +45,7 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
   onCompleteTrainingSession,
   onReopenTrainingSession,
   onAssessTrainingSession,
+  onEditTrainingSession,
   onScoreTrainingSession,
   onPlanWeek,
   scoringSessionIds = [],
@@ -224,6 +229,7 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
                 <div className={openIds.includes(session.id) ? '' : 'max-md:hidden'}>
                 <p className="mt-2 text-xs leading-relaxed text-slate-400">{session.details}</p>
                 {session.status !== 'COMPLETED' && <WorkoutCard session={session} />}
+                {session.status !== 'COMPLETED' && onEditTrainingSession && <SessionEditor session={session} onApply={onEditTrainingSession} />}
                 {session.status === 'COMPLETED' && (session.completed_activity_ids?.length ?? 0) > 0 && (
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     {session.completed_activity_ids!.map((id) => {

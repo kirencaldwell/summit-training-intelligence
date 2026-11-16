@@ -14,6 +14,7 @@ import { parseWeekDraft, type CheckIn, type DraftSession, type WeekBudget } from
 import { validateEdit, type ProposedEdit, type ReadinessAssessment } from '../morningCheck';
 import type { ReadinessFacts } from '../readiness';
 import { parseWorkout, storeWorkout, type StructuredWorkout } from '../workoutStructure';
+import { parseSessionEdit, type SessionEditProposal } from '../sessionEditing';
 import { validateCorosArgs } from '../corosWorkout';
 import type { CorosTool } from '../coros';
 import { buildProgressContext } from './progressContext';
@@ -887,6 +888,29 @@ class GeminiCoachEngine {
       },
     });
     return validateEdit(session, text, assessment.level);
+  }
+
+  /** The coach rewrites one planned session as the athlete asks. `base` is a proposal being refined. Null when the reply is unusable. */
+  public async editSession(session: TrainingSession, request: string, base?: Pick<TrainingSession, 'title' | 'duration_minutes' | 'target_tss' | 'focus' | 'details'>): Promise<SessionEditProposal | null> {
+    const { statusData, trainingSessions } = await gatherAthleteContext();
+    const p: any = statusData?.profile ?? {};
+    const current = { ...session, ...(base ?? {}) };
+    const text = await postCoach({
+      mode: 'edit_session',
+      message: `The athlete asks: ${request.trim().slice(0, 800)}`,
+      context: {
+        today: getLocalDateString(),
+        session_date: session.session_date,
+        planned_session: { title: current.title, sport_type: session.sport_type, duration_minutes: current.duration_minutes, target_tss: current.target_tss, focus: current.focus, details: current.details },
+        training_load: { ctl: statusData?.pmc?.ctl, atl: statusData?.pmc?.atl, form_tsb: statusData?.pmc?.tsb },
+        athlete: { ftp: p.ftp, lthr: p.lthr, weight_kg: p.weight_kg, notes: p.notes, injury_notes: p.injury_notes?.length ? p.injury_notes : undefined },
+        other_sessions_this_week: (trainingSessions ?? [])
+          .filter((s: TrainingSession) => s.id !== session.id && s.week_start_date === session.week_start_date && (s.status === 'ACCEPTED' || s.status === 'COMPLETED'))
+          .map((s: TrainingSession) => ({ date: s.session_date, title: s.title, duration_minutes: s.duration_minutes, target_tss: s.target_tss, status: s.status })),
+        coach_memory: memoryForAI(await dataService.getCoachMemory()),
+      },
+    });
+    return parseSessionEdit(session, text);
   }
 
   /** Turns a session's text into structured steps (exercises, sets, reps, load). Null when the reply is unusable. */

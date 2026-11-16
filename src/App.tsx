@@ -1102,6 +1102,10 @@ export function App() {
               scoringSessionIds={scoringSessionIds}
               onReopenTrainingSession={handleReopenTrainingSession}
               onAssessTrainingSession={handleAssessTrainingSession}
+              onEditTrainingSession={async (id, edit) => {
+                const session = trainingSessions.find((x) => x.id === id);
+                if (session) await applySessionEdit(session, edit);
+              }}
             />
             </div>
             <div className={trainingView === 'log' ? '' : 'hidden xl:block'}>
