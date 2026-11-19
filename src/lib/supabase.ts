@@ -48,6 +48,7 @@ const STORAGE_KEYS = {
   GOAL_METRICS: 'summit_goal_metrics',
   SESSION_LINKS: 'summit_session_links',
   SESSION_ASSESSMENTS: 'summit_session_assessments',
+  SESSION_NOTES: 'summit_session_notes',
   SESSION_SCORES: 'summit_session_scores',
   COACH_MEMORY: 'summit_coach_memory',
   PROFILE: 'summit_athlete_profile',
@@ -677,6 +678,7 @@ class DataService {
       const links = this.readSessionLinks();
       const assessments = this.readSessionAssessments();
       const scores = this.readSessionScores();
+      const notes = this.readSessionNotes();
       // Rows from a database without the new columns take what was remembered on this device
       return ((data || []) as TrainingSession[]).map((session) => {
         let merged = session;
@@ -688,6 +690,9 @@ class DataService {
         }
         if (session.auto_score === undefined && scores[session.id]) {
           merged = { ...merged, auto_score: scores[session.id] };
+        }
+        if (session.completion_notes === undefined && notes[session.id]) {
+          merged = { ...merged, completion_notes: notes[session.id] };
         }
         return merged;
       });
@@ -755,6 +760,60 @@ class DataService {
     const index = this.localTrainingSessions.findIndex((session) => session.id === id);
     if (index < 0) throw new Error('Training session not found.');
     const updated = { ...this.localTrainingSessions[index], auto_score: score };
+    this.localTrainingSessions[index] = updated;
+    this.saveLocalState();
+    return { session: updated, synced: true };
+  }
+
+  private notesColumnMissing = false;
+  private readSessionNotes(): Record<string, string> {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEYS.SESSION_NOTES) || '{}');
+    } catch {
+      return {};
+    }
+  }
+
+  /**
+   * Save the athlete's own notes on a completed session. Kept on this device only (`synced` false) when the database
+   * has no completion_notes column yet. An empty note clears it.
+   */
+  public async saveSessionNotes(id: string, notes: string): Promise<{ session: TrainingSession; synced: boolean }> {
+    const text = notes.trim().slice(0, 2000);
+    const writeLocal = () => {
+      try {
+        const saved = this.readSessionNotes();
+        if (text) saved[id] = text; else delete saved[id];
+        localStorage.setItem(STORAGE_KEYS.SESSION_NOTES, JSON.stringify(saved));
+      } catch {
+        // Storage unavailable: the note just won't survive a reload
+      }
+    };
+    if (this.mode === 'supabase' && supabase) {
+      const profile = await this.getAuthenticatedProfile();
+      if (!this.notesColumnMissing) {
+        const { data, error } = await supabase
+          .from('training_sessions')
+          .update({ completion_notes: text || null })
+          .eq('id', id)
+          .eq('user_id', profile.id)
+          .select('*')
+          .single();
+        if (!error && data) { writeLocal(); return { session: { ...(data as TrainingSession), completion_notes: text || undefined }, synced: true }; }
+        if (!error?.message?.includes('completion_notes')) {
+          throw new Error(`The notes could not be saved: ${error?.message || 'Session not found'}`);
+        }
+        this.notesColumnMissing = true;
+      }
+      writeLocal();
+      const current = (await this.getTrainingSessions()).find((s) => s.id === id);
+      if (!current) throw new Error('Training session not found.');
+      return { session: { ...current, completion_notes: text || undefined }, synced: false };
+    }
+
+    const index = this.localTrainingSessions.findIndex((session) => session.id === id);
+    if (index < 0) throw new Error('Training session not found.');
+    const updated = { ...this.localTrainingSessions[index], completion_notes: text || undefined };
     this.localTrainingSessions[index] = updated;
     this.saveLocalState();
     return { session: updated, synced: true };
@@ -945,7 +1004,7 @@ class DataService {
         let session = original;
         const isExistingUUID = UUID_PATTERN.test(session.id || '');
         // Links and assessments have their own save methods; sending them here would fail the whole save on a database without the columns
-        session = { ...session, completed_activity_ids: undefined, coach_assessment: undefined, coach_assessment_at: undefined, auto_score: undefined };
+        session = { ...session, completed_activity_ids: undefined, coach_assessment: undefined, coach_assessment_at: undefined, auto_score: undefined, completion_notes: undefined };
 
         if (isExistingUUID) {
           const { id, ...rest } = session;

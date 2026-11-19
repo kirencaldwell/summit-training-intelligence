@@ -9,7 +9,7 @@ interface SessionCompleteModalProps {
   activities: Activity[];
   sessions: TrainingSession[];
   onCancel: () => void;
-  onConfirm: (activityIds: string[]) => Promise<void>;
+  onConfirm: (activityIds: string[], notes: string) => Promise<void>;
 }
 
 const dayLabel = (daysAway: number) =>
@@ -23,6 +23,7 @@ export const SessionCompleteModal: React.FC<SessionCompleteModalProps> = ({ sess
     const existing = session.completed_activity_ids ?? [];
     return existing.length ? existing : suggestedLinks(linkCandidates(session, activities, sessions, 3));
   });
+  const [notes, setNotes] = useState(session.completion_notes ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -32,7 +33,7 @@ export const SessionCompleteModal: React.FC<SessionCompleteModalProps> = ({ sess
     setSaving(true);
     setError('');
     try {
-      await onConfirm(ids);
+      await onConfirm(ids, notes);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not mark the session complete.');
       setSaving(false);
@@ -91,6 +92,19 @@ export const SessionCompleteModal: React.FC<SessionCompleteModalProps> = ({ sess
         {windowDays < 14 && (
           <button onClick={() => setWindowDays(14)} className="text-xs text-cyan-300 hover:underline">Show activities from up to 2 weeks either side</button>
         )}
+        <div>
+          <label htmlFor="session-notes" className="text-sm font-semibold text-slate-200">How did it go? <span className="font-normal text-slate-500">(optional)</span></label>
+          <p className="text-xs text-slate-500 mt-0.5">How it felt, what you changed or cut, pain, conditions. The coach reads this when it assesses the session.</p>
+          <textarea
+            id="session-notes"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={3}
+            maxLength={2000}
+            placeholder="For example: legs felt flat, cut the last interval, knee fine"
+            className="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/60 p-2 text-base sm:text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50"
+          />
+        </div>
         {error && <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{error}</p>}
 
         <div className="flex flex-wrap items-center justify-end gap-2 pt-1">

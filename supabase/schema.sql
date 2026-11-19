@@ -191,7 +191,8 @@ ALTER TABLE public.training_sessions
   ADD COLUMN IF NOT EXISTS completed_activity_ids JSONB NOT NULL DEFAULT '[]'::JSONB,
   ADD COLUMN IF NOT EXISTS coach_assessment TEXT,
   ADD COLUMN IF NOT EXISTS coach_assessment_at TIMESTAMPTZ,
-  ADD COLUMN IF NOT EXISTS auto_score JSONB;
+  ADD COLUMN IF NOT EXISTS auto_score JSONB,
+  ADD COLUMN IF NOT EXISTS completion_notes TEXT;
 
 -- Munter travel parameters (climb / descent / flat pace) estimated per hiking or ski activity
 ALTER TABLE public.activities

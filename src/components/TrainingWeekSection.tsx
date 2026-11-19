@@ -18,7 +18,7 @@ export interface TrainingWeekSectionProps {
   onNavigateTab: (tab: AppTab) => void;
   onDeleteTrainingSessions?: (ids: string[]) => Promise<void>;
   /** Marks a session complete and links the activities that did it; synced is false when the links could only be kept on this device */
-  onCompleteTrainingSession?: (id: string, activityIds: string[]) => Promise<{ synced: boolean }>;
+  onCompleteTrainingSession?: (id: string, activityIds: string[], notes: string) => Promise<{ synced: boolean }>;
   onReopenTrainingSession?: (id: string) => Promise<void>;
   /** Saves a coach-edited version of a planned session */
   onEditTrainingSession?: (id: string, edit: SessionEdit) => Promise<void>;
@@ -146,6 +146,9 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
           </button>
           <div className={openIds.includes(session.id) ? '' : 'max-md:hidden'}>
           <p className="mt-2 text-xs leading-relaxed text-slate-400">{session.details}</p>
+                {session.status === 'COMPLETED' && session.completion_notes && (
+                  <p className="mt-2 rounded-lg border border-white/10 bg-slate-950/40 px-3 py-2 text-xs text-slate-300"><span className="font-semibold text-slate-200">Your notes: </span>{session.completion_notes}</p>
+                )}
           {session.status !== 'COMPLETED' && <WorkoutCard session={session} />}
           {session.status !== 'COMPLETED' && onEditTrainingSession && <SessionEditor session={session} onApply={onEditTrainingSession} />}
           {session.status === 'COMPLETED' && (session.completed_activity_ids?.length ?? 0) > 0 && (
@@ -344,10 +347,13 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
             activities={activities}
             sessions={allSessions ?? trainingSessions}
             onCancel={() => setCompleting(null)}
-            onConfirm={async (ids) => {
-              const { synced } = await onCompleteTrainingSession(completing.id, ids);
+            onConfirm={async (ids, notes) => {
+              const doneId = completing.id;
+              const { synced } = await onCompleteTrainingSession(doneId, ids, notes);
               setCompleting(null);
-              setSessionNotice(synced ? '' : 'Marked complete. The activity links are saved on this device only until the database is updated (run the latest supabase/schema.sql).');
+              setSessionNotice(synced ? '' : 'Marked complete. The activity links and notes are saved on this device only until the database is updated (run the latest supabase/schema.sql).');
+              // The coach's assessment follows by itself once there are activities to assess
+              if (ids.length > 0 && onAssessTrainingSession) void assessSession(doneId);
             }}
           />
         )}
