@@ -395,6 +395,7 @@ export const TrainingWeekSection: React.FC<TrainingWeekSectionProps> = ({
 export const NextSessionsPreview: React.FC<{ sessions: TrainingSession[]; onNavigateTab: (tab: AppTab) => void }> = ({ sessions, onNavigateTab }) => {
   const next = sessions.filter((s) => s.status !== 'COMPLETED').slice(0, 3);
   const doneThisWeek = sessions.filter((s) => s.status === 'COMPLETED').length;
+  const today = getLocalDateString();
   return (
     <section className="border-b border-white/10 pb-6 space-y-3">
       <div className="flex items-end justify-between gap-2">
@@ -419,10 +420,10 @@ export const NextSessionsPreview: React.FC<{ sessions: TrainingSession[]; onNavi
               key={session.id}
               type="button"
               onClick={() => onNavigateTab('training')}
-              className="text-left rounded-lg border border-white/10 bg-slate-900/50 p-3 hover:bg-white/5"
+              className={`text-left rounded-lg border p-3 hover:bg-white/5 ${session.session_date === today ? 'border-cyan-500/40 bg-cyan-500/5' : 'border-white/10 bg-slate-900/50'}`}
             >
               <p className="text-[10px] font-semibold uppercase text-cyan-300">
-                {new Date(`${session.session_date}T12:00:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
+                {session.session_date === today ? 'Today' : new Date(`${session.session_date}T12:00:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
                 {' · '}{session.sport_type.replace('_', ' ')}
               </p>
               <p className="mt-1 text-sm font-bold text-white">{session.title}</p>

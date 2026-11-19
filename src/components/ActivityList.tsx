@@ -379,11 +379,12 @@ export const ActivityList: React.FC<ActivityListProps> = ({
       {filteredActivities.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredActivities.slice(0, limit).map((act) => {
+          const isToday = localDay(act.start_date) === localDay(new Date().toISOString());
           return (
             <div
               key={act.id}
               onClick={() => onSelectActivity(act)}
-              className="glass-panel-interactive rounded-2xl p-3 md:p-5 cursor-pointer flex flex-col justify-between space-y-2 md:space-y-4"
+              className={`glass-panel-interactive rounded-2xl p-3 md:p-5 cursor-pointer flex flex-col justify-between space-y-2 md:space-y-4 ${isToday ? '!border-emerald-500/40 !bg-emerald-500/5' : ''}`}
             >
               <div>
                 <div className="mb-3 empty:hidden max-md:hidden"><RouteThumb activity={act} onResolved={onRoutePreview} /></div>
@@ -395,7 +396,7 @@ export const ActivityList: React.FC<ActivityListProps> = ({
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] text-slate-400 flex items-center">
                       <Calendar className="w-3 h-3 mr-1" />
-                      {new Date(act.start_date).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                      {isToday ? <span className="font-semibold text-emerald-300">Today</span> : new Date(act.start_date).toLocaleDateString([], { month: 'short', day: 'numeric' })}
                     </span>
                     <button
                       type="button"

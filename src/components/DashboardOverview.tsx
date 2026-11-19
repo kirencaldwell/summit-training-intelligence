@@ -314,15 +314,18 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {recentActivities.map((act) => (
+          {recentActivities.map((act) => {
+            const d = new Date(act.start_date);
+            const isToday = new Date().toDateString() === d.toDateString();
+            return (
             <div
               key={act.id}
               onClick={() => onOpenActivity(act)}
-              className="p-3 xl:p-4 rounded-xl bg-slate-900/60 border border-white/5 hover:border-cyan-500/30 cursor-pointer transition-all flex items-center justify-between"
+              className={`p-3 xl:p-4 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${isToday ? 'bg-emerald-500/5 border-emerald-500/40' : 'bg-slate-900/60 border-white/5 hover:border-cyan-500/30'}`}
             >
               <div>
-                <span className="text-[10px] font-bold uppercase text-cyan-400">
-                  {act.sport_type.replace('_', ' ')}
+                <span className={`text-[10px] font-bold uppercase ${isToday ? 'text-emerald-300' : 'text-cyan-400'}`}>
+                  {isToday ? 'Today · ' : ''}{act.sport_type.replace('_', ' ')}
                 </span>
                 <h4 className="text-sm font-bold text-white">{act.title}</h4>
                 <p className="text-xs text-slate-400">
@@ -334,7 +337,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               </div>
               <ArrowUpRight className="w-4 h-4 text-slate-500" />
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>

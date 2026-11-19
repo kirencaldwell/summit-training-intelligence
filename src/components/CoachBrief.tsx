@@ -91,7 +91,7 @@ export const CoachBrief: React.FC<CoachBriefProps> = ({ sessions, activities, pm
           <span className="text-xs font-semibold text-cyan-300 group-open:hidden">Show</span>
         </summary>
       <div className="mt-2 xl:mt-0 grid grid-cols-1 sm:grid-cols-3 gap-2">
-        <div className="rounded-lg border border-white/10 bg-slate-900/50 p-3">
+        <div className={`rounded-lg border p-3 ${brief.today.some((x) => x.status !== 'COMPLETED') ? 'border-cyan-500/40 bg-cyan-500/5' : 'border-white/10 bg-slate-900/50'}`}>
           <p className="text-[10px] font-semibold uppercase text-slate-400 flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" /> Today</p>
           {brief.today.length === 0 ? (
             <p className="mt-1 text-sm text-slate-300">Nothing planned.</p>
