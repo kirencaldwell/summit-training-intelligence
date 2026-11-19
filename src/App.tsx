@@ -1213,11 +1213,11 @@ export function App() {
             power={
           <div className="space-y-6">
             <div className="border-b border-white/10 pb-4">
-              <h1 className="text-2xl font-extrabold text-white tracking-tight">Power Duration Curve & Peak Analytics</h1>
-              <p className="text-xs text-slate-400">Peak power outputs from recorded activity data, scaled for {formatLbFromKg(profile.weight_kg)} bodyweight</p>
+              <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">Power curve</h1>
+              <p className="text-xs text-slate-400">Peak power from your recorded activities, scaled for {formatLbFromKg(profile.weight_kg)} bodyweight</p>
             </div>
 
-            <div className="glass-panel p-6 rounded-2xl border-white/10 space-y-4">
+            <div className="glass-panel p-4 sm:p-6 rounded-2xl border-white/10 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <h2 className="text-lg font-bold text-white flex items-center">
                   <Zap className="w-5 h-5 mr-2 text-amber-400" />
@@ -1239,9 +1239,11 @@ export function App() {
                   </span>
                 </div>
               </div>
-              <p className="text-xs text-slate-400">
-                {powerCurveActivityCount} of {powerCurveActivities.length} activities contain power data. The amber line is your best effort at each duration. Mean and median show how your typical activity compares: each activity contributes its own best effort for that duration, and longer durations only include activities long enough to have one.
-              </p>
+              <p className="text-xs text-slate-400">{powerCurveActivityCount} of {powerCurveActivities.length} activities contain power data.</p>
+              <details className="text-xs text-slate-400">
+                <summary className="cursor-pointer select-none text-cyan-300 font-semibold min-h-8 flex items-center">How to read this</summary>
+                <p className="mt-1">The amber line is your best effort at each duration. Mean and median show how your typical activity compares: each activity contributes its own best effort for that duration, and longer durations only include activities long enough to have one.</p>
+              </details>
               <PowerCurveChart data={powerCurveData} />
             </div>
 
