@@ -124,7 +124,7 @@ export const TrainingLog: React.FC<TrainingLogProps> = ({ sessions, goals, profi
     <section className="space-y-4">
       <div>
         <h2 className="text-lg font-bold text-white flex items-center gap-2"><History className="w-4 h-4 text-cyan-400" /> Training log</h2>
-        <p className="text-xs text-slate-400 mt-1">What was planned each week, what you actually did, and whether it is moving you toward your goals.</p>
+        <p className="hidden sm:block text-xs text-slate-400 mt-1">What was planned each week, what you actually did, and whether it is moving you toward your goals.</p>
       </div>
 
       {(progress.length > 0 || recent.weeks > 0) && (

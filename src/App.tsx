@@ -1126,7 +1126,7 @@ export function App() {
             <section className={`space-y-3 ${trainingView === 'plan' ? '' : 'hidden xl:block'}`}>
               <div>
                 <h2 className="text-lg font-bold text-white">Long-term plan</h2>
-                <p className="text-xs text-slate-400 mt-1">The phases and milestones leading to each active goal. Edit them on the Goals tab, or ask the coach to replan.</p>
+                <p className="hidden sm:block text-xs text-slate-400 mt-1">The phases and milestones leading to each active goal. Edit them on the Goals tab, or ask the coach to replan.</p>
               </div>
               <LongTermPlan
                 goals={goals}
