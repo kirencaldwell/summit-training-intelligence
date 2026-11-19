@@ -253,34 +253,33 @@ export const Navbar: React.FC<NavbarProps> = ({
             {isProfileMenuOpen && profileMenu}
             </div>
           </div>
-        </div>
-
-        <div className="xl:hidden flex items-center justify-end gap-2 pb-2">
-          <div className="relative" ref={mobileMenuRef}>
+          <div className="xl:hidden flex items-center gap-2">
+            <div className="relative" ref={mobileMenuRef}>
+              <button
+                type="button"
+                onClick={() => setIsProfileMenuOpen((open) => !open)}
+                aria-haspopup="menu"
+                aria-expanded={isProfileMenuOpen}
+                aria-label="Profile menu"
+                title="Profile"
+                className="min-h-11 min-w-11 flex items-center justify-center rounded-lg border border-white/10 bg-white/5"
+              >
+                {profile.avatar_url
+                  ? <img src={profile.avatar_url} alt="" className="w-7 h-7 rounded-md object-cover" />
+                  : <User className="w-5 h-5 text-slate-400" />}
+              </button>
+              {isProfileMenuOpen && profileMenu}
+            </div>
             <button
               type="button"
-              onClick={() => setIsProfileMenuOpen((open) => !open)}
-              aria-haspopup="menu"
-              aria-expanded={isProfileMenuOpen}
-              aria-label="Profile menu"
-              title="Profile"
-              className="min-h-11 min-w-11 flex items-center justify-center rounded-lg border border-white/10 bg-white/5"
+              onClick={() => setIsMobileMenuOpen((open) => !open)}
+              aria-label={isMobileMenuOpen ? 'Close more actions' : 'Open more actions'}
+              aria-expanded={isMobileMenuOpen}
+              className="min-h-11 min-w-11 flex items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-200"
             >
-              {profile.avatar_url
-                ? <img src={profile.avatar_url} alt="" className="w-7 h-7 rounded-md object-cover" />
-                : <User className="w-5 h-5 text-slate-400" />}
+              <MoreHorizontal className="w-5 h-5" />
             </button>
-            {isProfileMenuOpen && profileMenu}
           </div>
-          <button
-            type="button"
-            onClick={() => setIsMobileMenuOpen((open) => !open)}
-            aria-label={isMobileMenuOpen ? 'Close more actions' : 'Open more actions'}
-            aria-expanded={isMobileMenuOpen}
-            className="min-h-11 min-w-11 flex items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-200"
-          >
-            <MoreHorizontal className="w-5 h-5" />
-          </button>
         </div>
 
         {isMobileMenuOpen && (

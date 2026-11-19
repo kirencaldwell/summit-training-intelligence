@@ -1354,7 +1354,7 @@ export function App() {
       />
 
       {/* Modern Footer */}
-      <footer className="w-full border-t border-white/10 bg-slate-950/80 py-6 mt-12">
+      <footer className="max-xl:hidden w-full border-t border-white/10 bg-slate-950/80 py-6 mt-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-slate-400">
           <div className="flex items-center space-x-2">
             <Mountain className="w-4 h-4 text-cyan-400" />
