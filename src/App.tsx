@@ -1173,17 +1173,20 @@ export function App() {
 
         {activeTab === 'activities' && (
           <div className="space-y-6">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+            <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
               <div>
-                <h1 className="text-2xl font-extrabold text-white tracking-tight">Multi-Sport Activity Database</h1>
-                <p className="text-xs text-slate-400">Road Cycling, Zwift, Skimo, Backcountry & Resort Skiing, Peak Scrambling & Weighted Hikes</p>
+                <h1 className="text-2xl font-extrabold text-white tracking-tight">Activities</h1>
+                <p className="hidden sm:block text-xs text-slate-400">Road cycling, Zwift, skimo, backcountry and resort skiing, scrambles and weighted hikes</p>
               </div>
-              <span className="text-xs font-mono text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-3 py-1 rounded-full">
-                {activities.length} Recorded Sessions
+              <span className="shrink-0 text-xs font-mono text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-3 py-1 rounded-full">
+                {activities.length} recorded
               </span>
             </div>
 
-            <ElevationCheckPanel activities={activities} onApply={handleApplyElevation} />
+            <details className="rounded-xl border border-white/10 bg-slate-900/40 px-3 py-2">
+              <summary className="cursor-pointer select-none text-xs font-semibold text-slate-300 min-h-8 flex items-center">Elevation check <span className="ml-2 font-normal text-slate-500">fix overstated climbing</span></summary>
+              <div className="mt-2"><ElevationCheckPanel activities={activities} onApply={handleApplyElevation} /></div>
+            </details>
             <ActivityList
               activities={activities}
               profile={profile}
@@ -1306,6 +1309,7 @@ export function App() {
         onAssess={handleAssessActivity}
         onApplyElevation={handleApplyElevation}
         onUpdate={handleUpdateActivity}
+        onDelete={handleDeleteActivity}
         allTags={collectTags(activities)}
         isAssessing={selectedActivity ? assessingIds.includes(selectedActivity.id) : false}
         assessmentError={selectedActivity ? assessmentErrors[selectedActivity.id] : undefined}

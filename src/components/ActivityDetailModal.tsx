@@ -2,7 +2,7 @@ import { readEbikeChecks } from '../lib/ebikeChecks';
 import { parseStructuredAssessment } from '../lib/coachMemory';
 import { StructuredAssessmentView } from './StructuredAssessmentView';
 import React, { useMemo, useState } from 'react';
-import { X, Calendar, Clock, Navigation, Mountain, Zap, Heart, ShieldAlert, Bot, RefreshCw, Pencil, Check, Tag } from 'lucide-react';
+import { X, Calendar, Clock, Navigation, Mountain, Zap, Heart, ShieldAlert, Bot, RefreshCw, Pencil, Check, Tag, Trash2 } from 'lucide-react';
 import type { Activity, AthleteProfile, SportType } from '../types';
 import { EBIKE_TAG, MAX_TAG_LENGTH, MAX_TAGS_PER_ACTIVITY, isEbike, isEbikeTag, normalizeTags } from '../lib/tags';
 import { describeTssSource, resolveTss } from '../lib/trainingMath';
@@ -22,6 +22,8 @@ interface ActivityDetailModalProps {
   onApplyElevation?: (changes: ElevationChange[]) => Promise<void>;
   isAssessing?: boolean;
   assessmentError?: string;
+  /** Deletes the activity (the app confirms first and closes this view) */
+  onDelete?: (activity: Activity) => Promise<void>;
   onUpdate?: (
     id: string,
     updates: Pick<Partial<Activity>, 'title' | 'sport_type' | 'tags' | 'effort_notes' | 'pack_weight_kg' | 'perceived_exertion'>
@@ -292,6 +294,7 @@ const ActivityDetailContent: React.FC<Omit<ActivityDetailModalProps, 'activity'>
   onClose,
   onAssess,
   onApplyElevation,
+  onDelete,
   isAssessing = false,
   assessmentError,
   onUpdate,
@@ -562,6 +565,21 @@ const ActivityDetailContent: React.FC<Omit<ActivityDetailModalProps, 'activity'>
 
         {/* Time-series chart with detected efforts and time-at-power */}
         <RideAnalysis activity={activity} profile={profile} />
+
+        {onDelete && (
+          <div className="border-t border-white/10 pt-4">
+            <button
+              type="button"
+              onClick={async () => {
+                if (!window.confirm(`Delete "${activity.title}"? This cannot be undone.`)) return;
+                try { await onDelete(activity); } catch (err) { window.alert(err instanceof Error ? err.message : 'Activity could not be deleted.'); }
+              }}
+              className="min-h-11 inline-flex items-center gap-1.5 rounded-lg px-3 text-xs font-semibold text-rose-300 hover:bg-rose-500/10"
+            >
+              <Trash2 className="w-4 h-4" /> Delete activity
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

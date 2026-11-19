@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { Activity, AthleteProfile, SportType } from '../types';
 import { formatFeetFromMeters, formatMilesFromMeters } from '../lib/units';
 import { collectTags } from '../lib/tags';
@@ -7,7 +7,7 @@ import { canImproveWithAi, resolveTss, type TssSource } from '../lib/trainingMat
 import type { GroupScore, ModelSummary } from '../lib/intensityModel';
 import { ebikeCandidates } from '../lib/ebikeChecks';
 import { movingCandidates } from '../lib/movingChecks';
-import { Mountain, Bike, Compass, Footprints, Dumbbell, ShieldAlert, Zap, Calendar, Search, Trash2, Tag, X } from 'lucide-react';
+import { Mountain, Bike, Compass, Footprints, Dumbbell, ShieldAlert, Zap, Calendar, Search, Trash2, Tag, X, SlidersHorizontal } from 'lucide-react';
 
 interface BulkEstimateState {
   running: boolean;
@@ -73,6 +73,9 @@ export const ActivityList: React.FC<ActivityListProps> = ({
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
   const [deletingActivityId, setDeletingActivityId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const PAGE = 30;
+  const [limit, setLimit] = useState(PAGE);
 
   const handleDelete = async (event: React.MouseEvent<HTMLButtonElement>, activity: Activity) => {
     event.stopPropagation();
@@ -131,6 +134,9 @@ export const ActivityList: React.FC<ActivityListProps> = ({
     return sortOrder === 'newest' ? -difference : difference;
   });
 
+  const activeFilterCount = (selectedSport !== 'all' ? 1 : 0) + activeTags.length + (dateFrom || dateTo ? 1 : 0) + (sortOrder !== 'newest' ? 1 : 0);
+  useEffect(() => { setLimit(PAGE); }, [selectedSport, searchQuery, dateFrom, dateTo, sortOrder, selectedTags.join('|')]);
+
   const getSportBadgeColor = (sport: SportType) => {
     switch (sport) {
       case 'cycling':
@@ -146,10 +152,30 @@ export const ActivityList: React.FC<ActivityListProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Controls Bar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-        {/* Discipline Filters */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+      {/* Search, with the other filters one tap away on a phone */}
+      <div className="flex items-stretch gap-2">
+        <div className="relative flex-1 sm:flex-none">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            placeholder="Search activities..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="min-h-11 w-full sm:w-64 bg-slate-900/80 border border-white/10 rounded-xl pl-9 pr-3 py-2 text-sm sm:text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => setFiltersOpen((v) => !v)}
+          aria-expanded={filtersOpen}
+          className={`md:hidden min-h-11 inline-flex items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold ${activeFilterCount > 0 ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-200' : 'border-white/10 bg-slate-900/60 text-slate-300'}`}
+        >
+          <SlidersHorizontal className="w-4 h-4" /> Filters{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ''}
+        </button>
+      </div>
+
+      <div className={`${filtersOpen ? 'space-y-3' : 'hidden'} md:block md:space-y-4`}>
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none md:flex-wrap">
           {sportsOptions.map((opt) => {
             const Icon = opt.icon;
             const isSelected = selectedSport === opt.key;
@@ -169,23 +195,88 @@ export const ActivityList: React.FC<ActivityListProps> = ({
             );
           })}
         </div>
-
-        {/* Search Field */}
-        <div className="relative">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Search activities..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="min-h-11 w-full sm:w-56 bg-slate-900/80 border border-white/10 rounded-xl pl-9 pr-3 py-2 text-sm sm:text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50"
-          />
+      {/* Tag Filters */}
+      {allTags.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-slate-400 flex items-center"><Tag className="w-3.5 h-3.5 mr-1" /> Tags</span>
+          {allTags.map((tag) => {
+            const isSelected = activeTags.includes(tag);
+            return (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => toggleTag(tag)}
+                aria-pressed={isSelected}
+                className={`rounded-full border px-3 py-1 text-xs font-semibold transition-all ${
+                  isSelected
+                    ? 'bg-cyan-500 text-slate-950 border-cyan-400'
+                    : 'bg-slate-900/60 text-slate-300 border-white/10 hover:bg-white/5'
+                }`}
+              >
+                {tag}
+              </button>
+            );
+          })}
+          {activeTags.length > 0 && (
+            <button type="button" onClick={() => setSelectedTags([])} className="flex items-center gap-1 px-2 text-xs font-semibold text-cyan-300 hover:text-cyan-200">
+              <X className="w-3 h-3" /> Clear tags
+            </button>
+          )}
         </div>
+      )}
+
+      <div className="grid grid-cols-2 sm:grid-cols-[1fr_1fr_auto_auto] items-end gap-3 border-b border-white/10 pb-4">
+        <label className="min-w-0 text-xs font-medium text-slate-400">
+          From
+          <input
+            type="date"
+            value={dateFrom}
+            max={dateTo || undefined}
+            onChange={(event) => setDateFrom(event.target.value)}
+            className="mt-1 min-h-11 w-full rounded-lg border border-white/10 bg-slate-900 px-3 text-sm text-white focus:border-cyan-500 focus:outline-none"
+          />
+        </label>
+        <label className="min-w-0 text-xs font-medium text-slate-400">
+          To
+          <input
+            type="date"
+            value={dateTo}
+            min={dateFrom || undefined}
+            onChange={(event) => setDateTo(event.target.value)}
+            className="mt-1 min-h-11 w-full rounded-lg border border-white/10 bg-slate-900 px-3 text-sm text-white focus:border-cyan-500 focus:outline-none"
+          />
+        </label>
+        <label className="col-span-2 sm:col-span-1 text-xs font-medium text-slate-400">
+          Sort by
+          <select
+            value={sortOrder}
+            onChange={(event) => setSortOrder(event.target.value as 'newest' | 'oldest')}
+            className="mt-1 min-h-11 w-full rounded-lg border border-white/10 bg-slate-900 px-3 text-sm text-white focus:border-cyan-500 focus:outline-none sm:min-w-36"
+          >
+            <option value="newest">Most recent</option>
+            <option value="oldest">Oldest first</option>
+          </select>
+        </label>
+        <div className="col-span-2 flex min-h-11 items-center justify-between sm:col-span-1 sm:justify-end sm:gap-3">
+          <span className="text-xs text-slate-500">{filteredActivities.length} of {activities.length}</span>
+          {(dateFrom || dateTo) && (
+            <button
+              type="button"
+              onClick={() => { setDateFrom(''); setDateTo(''); }}
+              className="min-h-11 px-3 text-xs font-semibold text-cyan-300 hover:text-cyan-200"
+            >
+              Clear dates
+            </button>
+          )}
+        </div>
+      </div>
       </div>
 
       {/* Training load sources: measured vs estimated, with a bulk AI estimate for the rest */}
       {activities.length > 0 && (sourceCounts.baseline + sourceCounts.heart_rate + sourceCounts.ai + sourceCounts.model > 0) && (
-        <div className="rounded-xl border border-white/10 bg-slate-900/50 p-3 space-y-2">
+        <details open={bulkEstimate?.running ? true : undefined} className="rounded-xl border border-white/10 bg-slate-900/50 p-3">
+          <summary className="cursor-pointer select-none text-xs font-semibold text-slate-300 min-h-8 flex items-center">Data tools <span className="ml-2 font-normal text-slate-500">load sources, moving time, e-bike scan</span></summary>
+          <div className="mt-3 space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-slate-300">
               <span className="font-semibold text-white">Training load:</span>{' '}
@@ -279,100 +370,25 @@ export const ActivityList: React.FC<ActivityListProps> = ({
             Loads marked ~ are estimates. Rough ones come from duration, terrain and pack weight until you add notes or run the AI estimate.
           </p>
         </div>
+        </details>
       )}
-
-      {/* Tag Filters */}
-      {allTags.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-medium text-slate-400 flex items-center"><Tag className="w-3.5 h-3.5 mr-1" /> Tags</span>
-          {allTags.map((tag) => {
-            const isSelected = activeTags.includes(tag);
-            return (
-              <button
-                key={tag}
-                type="button"
-                onClick={() => toggleTag(tag)}
-                aria-pressed={isSelected}
-                className={`rounded-full border px-3 py-1 text-xs font-semibold transition-all ${
-                  isSelected
-                    ? 'bg-cyan-500 text-slate-950 border-cyan-400'
-                    : 'bg-slate-900/60 text-slate-300 border-white/10 hover:bg-white/5'
-                }`}
-              >
-                {tag}
-              </button>
-            );
-          })}
-          {activeTags.length > 0 && (
-            <button type="button" onClick={() => setSelectedTags([])} className="flex items-center gap-1 px-2 text-xs font-semibold text-cyan-300 hover:text-cyan-200">
-              <X className="w-3 h-3" /> Clear tags
-            </button>
-          )}
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 sm:grid-cols-[1fr_1fr_auto_auto] items-end gap-3 border-b border-white/10 pb-4">
-        <label className="min-w-0 text-xs font-medium text-slate-400">
-          From
-          <input
-            type="date"
-            value={dateFrom}
-            max={dateTo || undefined}
-            onChange={(event) => setDateFrom(event.target.value)}
-            className="mt-1 min-h-11 w-full rounded-lg border border-white/10 bg-slate-900 px-3 text-sm text-white focus:border-cyan-500 focus:outline-none"
-          />
-        </label>
-        <label className="min-w-0 text-xs font-medium text-slate-400">
-          To
-          <input
-            type="date"
-            value={dateTo}
-            min={dateFrom || undefined}
-            onChange={(event) => setDateTo(event.target.value)}
-            className="mt-1 min-h-11 w-full rounded-lg border border-white/10 bg-slate-900 px-3 text-sm text-white focus:border-cyan-500 focus:outline-none"
-          />
-        </label>
-        <label className="col-span-2 sm:col-span-1 text-xs font-medium text-slate-400">
-          Sort by
-          <select
-            value={sortOrder}
-            onChange={(event) => setSortOrder(event.target.value as 'newest' | 'oldest')}
-            className="mt-1 min-h-11 w-full rounded-lg border border-white/10 bg-slate-900 px-3 text-sm text-white focus:border-cyan-500 focus:outline-none sm:min-w-36"
-          >
-            <option value="newest">Most recent</option>
-            <option value="oldest">Oldest first</option>
-          </select>
-        </label>
-        <div className="col-span-2 flex min-h-11 items-center justify-between sm:col-span-1 sm:justify-end sm:gap-3">
-          <span className="text-xs text-slate-500">{filteredActivities.length} of {activities.length}</span>
-          {(dateFrom || dateTo) && (
-            <button
-              type="button"
-              onClick={() => { setDateFrom(''); setDateTo(''); }}
-              className="min-h-11 px-3 text-xs font-semibold text-cyan-300 hover:text-cyan-200"
-            >
-              Clear dates
-            </button>
-          )}
-        </div>
-      </div>
 
       {deleteError && <p role="alert" className="text-sm text-rose-300">{deleteError}</p>}
 
       {/* Activity Card Feed */}
       {filteredActivities.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredActivities.map((act) => {
+        {filteredActivities.slice(0, limit).map((act) => {
           return (
             <div
               key={act.id}
               onClick={() => onSelectActivity(act)}
-              className="glass-panel-interactive rounded-2xl p-4 sm:p-5 cursor-pointer flex flex-col justify-between space-y-4"
+              className="glass-panel-interactive rounded-2xl p-3 md:p-5 cursor-pointer flex flex-col justify-between space-y-2 md:space-y-4"
             >
               <div>
-                <div className="mb-3 empty:hidden"><RouteThumb activity={act} onResolved={onRoutePreview} /></div>
+                <div className="mb-3 empty:hidden max-md:hidden"><RouteThumb activity={act} onResolved={onRoutePreview} /></div>
                 {/* Header Badge */}
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-between mb-1 md:mb-2">
                   <span className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border ${getSportBadgeColor(act.sport_type)}`}>
                     {act.sport_type.replace('_', ' ')}
                   </span>
@@ -387,7 +403,7 @@ export const ActivityList: React.FC<ActivityListProps> = ({
                       disabled={deletingActivityId === act.id}
                       aria-label={`Delete ${act.title}`}
                       title="Delete activity"
-                      className="min-h-11 min-w-11 flex items-center justify-center rounded-md text-slate-400 hover:text-rose-300 hover:bg-rose-500/10 disabled:opacity-50"
+                      className="max-md:hidden min-h-11 min-w-11 flex items-center justify-center rounded-md text-slate-400 hover:text-rose-300 hover:bg-rose-500/10 disabled:opacity-50"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -416,7 +432,14 @@ export const ActivityList: React.FC<ActivityListProps> = ({
               </div>
 
               {/* Stats Row */}
-              <div className="grid grid-cols-3 gap-2 pt-3 border-t border-white/5 text-center">
+              <p className="md:hidden text-xs text-slate-400">
+                {formatMilesFromMeters(act.distance_meters)} · {formatFeetFromMeters(act.total_elevation_gain_m)} ·{' '}
+                <span className="font-semibold text-amber-400">{(() => {
+                  const load = resolveTss(act, loadProfile);
+                  return load.tss > 0 ? `TSS ${load.source === 'power' ? '' : '~'}${Math.round(load.tss)}` : 'TSS N/A';
+                })()}</span>
+              </p>
+              <div className="max-md:hidden grid grid-cols-3 gap-2 pt-3 border-t border-white/5 text-center">
                 <div>
                   <span className="text-[10px] text-slate-500 uppercase font-medium">Dist</span>
                   <p className="text-xs font-extrabold text-slate-200">{formatMilesFromMeters(act.distance_meters)}</p>
@@ -454,6 +477,11 @@ export const ActivityList: React.FC<ActivityListProps> = ({
         <div className="border-t border-white/10 py-12 text-center text-sm text-slate-400">
           No activities match these filters.
         </div>
+      )}
+      {filteredActivities.length > limit && (
+        <button type="button" onClick={() => setLimit((n) => n + PAGE)} className="w-full min-h-11 rounded-xl border border-white/10 bg-slate-900/60 text-sm font-semibold text-cyan-300 hover:bg-white/5">
+          Show more ({filteredActivities.length - limit} left)
+        </button>
       )}
     </div>
   );
