@@ -13,6 +13,7 @@ import { DashboardOverview } from './components/DashboardOverview';
 import { ActivityList } from './components/ActivityList';
 import { PowerCurveChart } from './components/PowerCurveChart';
 import { PerformancePage, type PerformanceView } from './components/PerformancePage';
+import { buildRoute, parseRoute } from './lib/route';
 import { TravelPaceView } from './components/TravelPaceView';
 import { TrainingWeekSection, type AppTab } from './components/TrainingWeekSection';
 import { LongTermPlan } from './components/LongTermPlan';
@@ -103,8 +104,10 @@ export function App() {
 
   useEffect(() => { removeLegacyImporterKeys(); }, []);
 
-  const [activeTab, setActiveTab] = useState<AppTab>('dashboard');
-  const [performanceView, setPerformanceView] = useState<PerformanceView>('heart-rate');
+  // Each view has its own address (the URL hash), read here so a refresh or a shared link opens the same view
+  const [initialRoute] = useState(() => parseRoute(typeof window !== 'undefined' ? window.location.hash : ''));
+  const [activeTab, setActiveTab] = useState<AppTab>(initialRoute.tab);
+  const [performanceView, setPerformanceView] = useState<PerformanceView>(initialRoute.performance);
   const [powerCurveYear, setPowerCurveYear] = useState<'all' | number>('all');
   const [dataMode] = useState<'local' | 'supabase'>(dataService.getMode());
   
@@ -596,7 +599,30 @@ export function App() {
 
   // The Training tab is three views on a phone; a link to a goal or metric opens the one that holds it
   type TrainingView = 'week' | 'log' | 'plan';
-  const [trainingView, setTrainingView] = useState<TrainingView>('week');
+  const [trainingView, setTrainingView] = useState<TrainingView>(initialRoute.training);
+
+  // State to address: every change of view adds a history entry (the first one replaces the starting entry)
+  const routeStarted = useRef(false);
+  useEffect(() => {
+    const next = buildRoute(activeTab, trainingView, performanceView);
+    if (window.location.hash === next || (next === '#/' && !window.location.hash)) { routeStarted.current = true; return; }
+    const url = `${window.location.pathname}${window.location.search}${next}`;
+    if (routeStarted.current) window.history.pushState(null, '', url);
+    else window.history.replaceState(null, '', url);
+    routeStarted.current = true;
+  }, [activeTab, trainingView, performanceView]);
+  // Address to state: the back and forward buttons, or an edited address
+  useEffect(() => {
+    const onRoute = () => {
+      const r = parseRoute(window.location.hash);
+      setActiveTab(r.tab);
+      setTrainingView(r.training);
+      setPerformanceView(r.performance);
+      window.scrollTo(0, 0);
+    };
+    window.addEventListener('popstate', onRoute);
+    return () => window.removeEventListener('popstate', onRoute);
+  }, []);
   const handleNavigate = (tab: AppTab, target?: string) => {
     if (tab === 'training' && target && /^(goal|metric)-/.test(target)) setTrainingView('plan');
     setActiveTab(tab);
@@ -956,7 +982,7 @@ export function App() {
       if (!stale) return;
       try { setCorosSnapshot(await refreshReadiness()); } catch (err) { console.warn('COROS could not be read:', err); }
     });
-    if (cameFromCoros) window.history.replaceState(null, '', window.location.pathname);
+    if (cameFromCoros) window.history.replaceState(null, '', `${window.location.pathname}${window.location.hash}`);
     const refresh = () => { if (document.visibilityState === 'visible') void intervalsAutoSyncRef.current(); };
     document.addEventListener('visibilitychange', refresh);
     window.addEventListener('focus', refresh);
