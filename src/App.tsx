@@ -1268,8 +1268,8 @@ export function App() {
         )}
 
         {activeTab === 'coach' && (
-          <div className="space-y-4">
-            <CoachBrief
+          <div className="flex flex-col gap-4">
+            <div className="order-1 xl:order-1"><CoachBrief
               sessions={trainingSessions}
               activities={activities}
               pmc={pmcData}
@@ -1281,9 +1281,9 @@ export function App() {
               morning={Object.values(morningRecords).filter((r) => r.date === getLocalDateString())}
               onMorningDecision={(record, action) => void handleMorningDecision(record, action)}
               onNavigateTab={handleNavigate}
-            />
-            <CoachMemoryPanel memory={coachMemory} onChange={updateCoachMemory} />
-            <AICoachPanel
+            /></div>
+            <div className="order-3 xl:order-2"><CoachMemoryPanel memory={coachMemory} onChange={updateCoachMemory} /></div>
+            <div className="order-2 xl:order-3"><AICoachPanel
               messages={coachMessages}
               syncStatus={isSupabaseConfigured ? chatSync : undefined}
               setMessages={setCoachMessages}
@@ -1296,7 +1296,7 @@ export function App() {
               focusPrompt={coachFocus?.prompt}
               onClearFocus={() => setCoachFocus(null)}
               onFocusPromptConsumed={handleFocusPromptConsumed}
-            />
+            /></div>
 
           </div>
         )}
