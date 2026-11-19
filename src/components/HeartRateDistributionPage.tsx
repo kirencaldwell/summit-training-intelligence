@@ -65,15 +65,15 @@ export const HeartRateDistributionPage: React.FC<HeartRateDistributionPageProps>
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-white/10 pb-5">
+      <header className="flex flex-row items-end justify-between gap-3 border-b border-white/10 pb-3 sm:pb-5">
         <div>
           <h1 className="text-xl sm:text-2xl font-extrabold text-white flex items-center gap-2">
-            <HeartPulse className="w-6 h-6 text-rose-400" /> Heart Rate Distribution
+            <HeartPulse className="w-6 h-6 text-rose-400" /> Heart rate
           </h1>
-          <p className="mt-1 text-sm text-slate-400">Time accumulated in heart-rate zones across recorded activities.</p>
+          <p className="hidden sm:block mt-1 text-sm text-slate-400">Time accumulated in heart-rate zones across recorded activities.</p>
         </div>
-        <label className="flex items-center gap-3 text-sm text-slate-300">
-          <span>Period</span>
+        <label className="flex items-center gap-2 sm:gap-3 text-sm text-slate-300">
+          <span className="sr-only sm:not-sr-only">Period</span>
           <select
             value={selectedYear}
             onChange={(event) => setSelectedYear(event.target.value)}
@@ -85,23 +85,23 @@ export const HeartRateDistributionPage: React.FC<HeartRateDistributionPageProps>
         </label>
       </header>
 
-      <div className="flex flex-wrap gap-x-8 gap-y-3 border-b border-white/10 pb-5">
+      <div className="grid grid-cols-3 sm:flex sm:flex-wrap gap-x-4 sm:gap-x-8 gap-y-3 border-b border-white/10 pb-4 sm:pb-5">
         <div>
-          <p className="text-xs uppercase text-slate-500">Activities with HR</p>
+          <p className="text-[10px] sm:text-xs uppercase text-slate-500">With HR</p>
           <p className="mt-1 text-xl font-bold text-white">{heartRateActivities.length}</p>
         </div>
         <div>
-          <p className="text-xs uppercase text-slate-500">Time classified</p>
+          <p className="text-[10px] sm:text-xs uppercase text-slate-500">Time</p>
           <p className="mt-1 text-xl font-bold text-white">{formatDuration(totalSeconds)}</p>
         </div>
         <div>
-          <p className="text-xs uppercase text-slate-500">Lactate threshold HR</p>
+          <p className="text-[10px] sm:text-xs uppercase text-slate-500">LTHR</p>
           <p className="mt-1 text-xl font-bold text-white">{profile.lthr} <span className="text-sm font-medium text-slate-400">bpm</span></p>
         </div>
       </div>
 
       {/* The athlete's own zone limits, from their lactate threshold HR */}
-      <section className="space-y-3 border-b border-white/10 pb-6" aria-label="Your heart rate zones">
+      <section className={`space-y-3 border-b border-white/10 pb-6 ${totalSeconds > 0 ? 'max-md:hidden' : ''}`} aria-label="Your heart rate zones">
         <div>
           <h2 className="text-base font-bold text-white">Your heart rate zones</h2>
           <p className="text-xs text-slate-400">
@@ -167,7 +167,7 @@ export const HeartRateDistributionPage: React.FC<HeartRateDistributionPageProps>
                 const seconds = totals[zone.key] || 0;
                 const percentage = totalSeconds > 0 ? (seconds / totalSeconds) * 100 : 0;
                 return (
-                  <div key={zone.key} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 py-4 sm:grid-cols-[minmax(0,1fr)_minmax(8rem,2fr)_auto_auto]">
+                  <div key={zone.key} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 py-3 sm:py-4 sm:gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(8rem,2fr)_auto_auto]">
                     <div className="flex min-w-0 items-center gap-3">
                       <span className={`h-3 w-3 shrink-0 rounded-full ${zone.background}`} />
                       <div className="min-w-0">

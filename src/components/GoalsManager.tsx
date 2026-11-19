@@ -1,3 +1,4 @@
+import { useIsDesktop } from '../lib/useMediaQuery';
 import React, { useState } from 'react';
 import type { Goal, GoalMilestone, PeriodizationPhase, SportType } from '../types';
 import { formatFeetFromMeters, formatMilesFromKm, ftToM, kmToMi, mToFt, miToKm, roundTo } from '../lib/units';
@@ -222,23 +223,24 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
     }
   };
 
+  const desktop = useIsDesktop();
   return (
     <div className="space-y-6">
       {/* Top Header & Actions Bar */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
+      <div className="flex flex-row items-center justify-between gap-3 border-b border-white/10 pb-3 sm:pb-4">
         <div>
           <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight flex items-center">
-            <Sparkles className="w-6 h-6 mr-2 text-cyan-400" /> Multi-Sport Goal Objectives & Milestones
+            <Sparkles className="w-6 h-6 mr-2 text-cyan-400" /> Goals
           </h1>
-          <p className="text-xs text-slate-400">High-level objectives, coach macrocycle strategies, and post-event completion debriefs</p>
+          <p className="hidden sm:block text-xs text-slate-400">High-level objectives, coach macrocycle strategies, and post-event completion debriefs</p>
         </div>
 
         <button
           onClick={() => { resetAddForm(); setEditingGoal(null); setIsAddModalOpen(true); }}
-          className="min-h-11 w-full sm:w-auto justify-center px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 font-bold text-xs hover:opacity-90 transition-all flex items-center space-x-1.5 shadow-lg shadow-cyan-500/20"
+          className="min-h-11 shrink-0 justify-center px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 font-bold text-xs hover:opacity-90 transition-all flex items-center space-x-1.5 shadow-lg shadow-cyan-500/20"
         >
           <Plus className="w-4 h-4" />
-          <span>Add New Goal Objective</span>
+          <span>Add goal</span>
         </button>
       </div>
 
@@ -329,12 +331,18 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
 
                   <div className="p-3 rounded-xl bg-slate-900/80 border border-white/5 mt-2">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">High-Level Objective:</span>
-                    <p className="text-sm font-semibold text-slate-200 mt-0.5 leading-snug">
+                    <p className="text-sm font-semibold text-slate-200 mt-0.5 leading-snug max-md:line-clamp-2">
                       "{goal.objective_summary}"
                     </p>
                   </div>
                 </div>
 
+                <details open={desktop} className="group">
+                  <summary className="xl:hidden cursor-pointer select-none list-none flex items-center justify-between min-h-10 rounded-lg border border-white/10 bg-slate-950/50 px-3 text-xs font-semibold text-slate-300">
+                    <span>Details{(goal.periodization_phases?.length ?? 0) + (goal.milestones?.length ?? 0) > 0 ? ` · ${goal.periodization_phases?.length ?? 0} phases · ${goal.milestones?.length ?? 0} milestones` : ''}</span>
+                    <span className="text-cyan-300 group-open:hidden">Show</span>
+                  </summary>
+                  <div className="mt-3 xl:mt-0 space-y-3">
                 {/* Optional Metric Chips */}
                 {(goal.target_distance_km || goal.target_elevation_m || goal.target_power_watts) && (
                   <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -404,6 +412,9 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
                   </div>
                 )}
 
+                  </div>
+                </details>
+
                 {/* Completed Debrief Card if finished */}
                 {isCompleted && goal.debrief_notes && (
                   <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-200 space-y-1">
@@ -425,11 +436,11 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
                       title="Discuss or replan this goal with the AI coach"
                     >
                       <Bot className="w-3.5 h-3.5" />
-                      <span>Discuss / Replan with Coach</span>
+                      <span><span className="md:hidden">Discuss with coach</span><span className="max-md:hidden">Discuss / Replan with Coach</span></span>
                     </button>
                     <button
                       onClick={() => onDiscussGoal(goal, `Build next week's training plan specifically aligned with my goal: ${goal.name}`)}
-                      className="min-h-10 inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 text-xs font-semibold transition-all"
+                      className="max-md:hidden min-h-10 inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 text-xs font-semibold transition-all"
                     >
                       <Sparkles className="w-3.5 h-3.5" />
                       <span>Plan Next Week</span>
@@ -437,7 +448,21 @@ export const GoalsManager: React.FC<GoalsManagerProps> = ({
                   </div>
                 )}
 
-                <div className="flex items-center space-x-2 ml-auto">
+                <details className="md:hidden relative ml-auto">
+                  <summary aria-label="More actions" className="list-none cursor-pointer min-h-10 min-w-10 inline-flex items-center justify-center rounded-lg border border-white/10 text-slate-300 text-lg leading-none">⋯</summary>
+                  <div className="absolute right-0 bottom-full mb-1 z-20 w-52 rounded-xl border border-white/10 bg-slate-900 p-1 shadow-xl">
+                    {onDiscussGoal && !isCompleted && (
+                      <button onClick={() => onDiscussGoal(goal, `Build next week's training plan specifically aligned with my goal: ${goal.name}`)} className="flex w-full min-h-10 items-center gap-2 rounded-lg px-3 text-left text-xs font-semibold text-slate-200 hover:bg-white/5"><Sparkles className="w-3.5 h-3.5" /> Plan next week</button>
+                    )}
+                    <button onClick={() => openEditGoal(goal)} className="flex w-full min-h-10 items-center gap-2 rounded-lg px-3 text-left text-xs font-semibold text-slate-200 hover:bg-white/5"><Pencil className="w-3.5 h-3.5" /> Edit</button>
+                    {!isCompleted && (
+                      <button onClick={() => setDebriefModalGoal(goal)} className="flex w-full min-h-10 items-center gap-2 rounded-lg px-3 text-left text-xs font-semibold text-emerald-300 hover:bg-white/5"><CheckCircle2 className="w-3.5 h-3.5" /> Mark completed</button>
+                    )}
+                    <button onClick={() => onDeleteGoal(goal.id)} className="flex w-full min-h-10 items-center gap-2 rounded-lg px-3 text-left text-xs font-semibold text-rose-300 hover:bg-white/5"><Trash2 className="w-3.5 h-3.5" /> Remove</button>
+                  </div>
+                </details>
+
+                <div className="max-md:hidden flex items-center space-x-2 ml-auto">
                   <button
                     onClick={() => openEditGoal(goal)}
                     className="min-h-10 flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 text-xs font-semibold transition-all"

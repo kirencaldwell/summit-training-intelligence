@@ -381,22 +381,22 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         </div>
 
         {/* Tab Bar */}
-        <div className="grid grid-cols-2 sm:flex sm:items-center gap-1 bg-slate-900/80 rounded-xl p-1 border border-white/5">
+        <div className="grid grid-cols-3 sm:flex sm:items-center gap-1 bg-slate-900/80 rounded-xl p-1 border border-white/5">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
-              className={`min-h-11 flex-1 flex items-center justify-center gap-1.5 py-2 px-2 sm:px-3 rounded-lg text-[11px] sm:text-xs font-semibold transition-all ${
+              className={`min-h-11 flex-1 flex items-center justify-center gap-1 sm:gap-1.5 py-2 px-1 sm:px-3 rounded-lg text-[11px] sm:text-xs font-semibold transition-all ${
                 activeTab === tab.id
                   ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/20'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              {tab.icon}
-              <span>{tab.label}</span>
+              <span className="max-sm:hidden">{tab.icon}</span>
+              <span>{tab.id === 'files' ? <><span className="sm:hidden">Files</span><span className="max-sm:hidden">{tab.label}</span></> : tab.id === 'intervals' ? <><span className="sm:hidden">Intervals</span><span className="max-sm:hidden">{tab.label}</span></> : tab.label}</span>
               {tab.badge && tab.badge !== '●' && (
-                <span className="text-[9px] bg-cyan-500/30 text-cyan-300 px-1.5 py-0.5 rounded-full font-bold">
+                <span className="max-sm:hidden text-[9px] bg-cyan-500/30 text-cyan-300 px-1.5 py-0.5 rounded-full font-bold">
                   {tab.badge}
                 </span>
               )}

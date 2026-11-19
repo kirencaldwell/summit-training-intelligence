@@ -19,8 +19,8 @@ interface PerformancePageProps {
 
 /** One home for the athlete's performance views: heart-rate zones, the power curve, and hiking/ski travel pace. */
 export const PerformancePage: React.FC<PerformancePageProps> = ({ view, onViewChange, heartRate, power, travel }) => (
-  <div className="space-y-6">
-    <div className="flex flex-wrap gap-2" role="tablist" aria-label="Performance view">
+  <div className="space-y-4 sm:space-y-6">
+    <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap" role="tablist" aria-label="Performance view">
       {VIEWS.map((v) => {
         const Icon = v.icon;
         const active = view === v.id;
@@ -30,9 +30,9 @@ export const PerformancePage: React.FC<PerformancePageProps> = ({ view, onViewCh
             role="tab"
             aria-selected={active}
             onClick={() => onViewChange(v.id)}
-            className={`min-h-10 inline-flex items-center gap-2 px-4 rounded-xl text-sm font-semibold border transition-all ${active ? v.active : 'text-slate-400 border-white/10 hover:text-white hover:bg-white/5'}`}
+            className={`min-h-10 inline-flex items-center justify-center gap-1.5 px-2 sm:px-4 rounded-xl text-xs sm:text-sm font-semibold border transition-all ${active ? v.active : 'text-slate-400 border-white/10 hover:text-white hover:bg-white/5'}`}
           >
-            <Icon className="w-4 h-4" /> {v.label}
+            <Icon className="w-4 h-4 max-sm:hidden" /> {v.label}
           </button>
         );
       })}

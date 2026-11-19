@@ -9,6 +9,7 @@ import { scrollToTarget } from '../lib/scrollToTarget';
 import type { AppTab } from './TrainingWeekSection';
 import { readinessLine, type ReadinessSnapshot } from '../lib/readiness';
 import type { MorningRecord } from '../lib/morningCheck';
+import { useIsDesktop } from '../lib/useMediaQuery';
 
 interface CoachBriefProps {
   sessions: TrainingSession[];
@@ -75,16 +76,22 @@ export const CoachBrief: React.FC<CoachBriefProps> = ({ sessions, activities, pm
     if (action.target) scrollToTarget(action.target);
   };
   const f = brief.fitness;
+  const desktop = useIsDesktop();
 
   return (
-    <section className="w-full max-w-5xl mx-auto glass-panel rounded-2xl border border-white/10 p-4 sm:p-5 space-y-4" aria-label="Coach brief">
+    <section className="w-full max-w-5xl mx-auto glass-panel rounded-2xl border border-white/10 p-4 sm:p-5 space-y-3 sm:space-y-4" aria-label="Coach brief">
       <div>
         <p className="text-[10px] font-semibold uppercase text-cyan-300">Your brief</p>
         <h2 className="mt-0.5 text-base sm:text-lg font-bold text-white">{brief.headline}</h2>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-        <div className="rounded-lg border border-white/10 bg-slate-900/50 p-3">
+      <details open={desktop} className="group">
+        <summary className="xl:hidden cursor-pointer select-none list-none flex items-center justify-between min-h-10 rounded-lg border border-white/10 bg-slate-900/50 px-3">
+          <span className="text-xs font-semibold text-slate-300">Today, fitness and this week</span>
+          <span className="text-xs font-semibold text-cyan-300 group-open:hidden">Show</span>
+        </summary>
+      <div className="mt-2 xl:mt-0 grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <div className={`rounded-lg border p-3 ${brief.today.some((x) => x.status !== 'COMPLETED') ? 'border-cyan-500/40 bg-cyan-500/5' : 'border-white/10 bg-slate-900/50'}`}>
           <p className="text-[10px] font-semibold uppercase text-slate-400 flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" /> Today</p>
           {brief.today.length === 0 ? (
             <p className="mt-1 text-sm text-slate-300">Nothing planned.</p>
@@ -114,6 +121,7 @@ export const CoachBrief: React.FC<CoachBriefProps> = ({ sessions, activities, pm
           <p className="text-[11px] text-slate-400">{brief.week.tssPlanned > 0 ? `${brief.week.tssDone} of ${brief.week.tssPlanned} TSS` : `${brief.week.tssDone} TSS so far`}</p>
         </div>
       </div>
+      </details>
 
       {(morning ?? []).filter((r) => r.status === 'applied' || r.status === 'proposed').map((r) => (
         <div key={r.session_id} className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-3 space-y-2" aria-label="Morning adjustment">

@@ -1173,17 +1173,20 @@ export function App() {
 
         {activeTab === 'activities' && (
           <div className="space-y-6">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+            <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
               <div>
-                <h1 className="text-2xl font-extrabold text-white tracking-tight">Multi-Sport Activity Database</h1>
-                <p className="text-xs text-slate-400">Road Cycling, Zwift, Skimo, Backcountry & Resort Skiing, Peak Scrambling & Weighted Hikes</p>
+                <h1 className="text-2xl font-extrabold text-white tracking-tight">Activities</h1>
+                <p className="hidden sm:block text-xs text-slate-400">Road cycling, Zwift, skimo, backcountry and resort skiing, scrambles and weighted hikes</p>
               </div>
-              <span className="text-xs font-mono text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-3 py-1 rounded-full">
-                {activities.length} Recorded Sessions
+              <span className="shrink-0 text-xs font-mono text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-3 py-1 rounded-full">
+                {activities.length} recorded
               </span>
             </div>
 
-            <ElevationCheckPanel activities={activities} onApply={handleApplyElevation} />
+            <details className="rounded-xl border border-white/10 bg-slate-900/40 px-3 py-2">
+              <summary className="cursor-pointer select-none text-xs font-semibold text-slate-300 min-h-8 flex items-center">Elevation check <span className="ml-2 font-normal text-slate-500">fix overstated climbing</span></summary>
+              <div className="mt-2"><ElevationCheckPanel activities={activities} onApply={handleApplyElevation} /></div>
+            </details>
             <ActivityList
               activities={activities}
               profile={profile}
@@ -1210,11 +1213,11 @@ export function App() {
             power={
           <div className="space-y-6">
             <div className="border-b border-white/10 pb-4">
-              <h1 className="text-2xl font-extrabold text-white tracking-tight">Power Duration Curve & Peak Analytics</h1>
-              <p className="text-xs text-slate-400">Peak power outputs from recorded activity data, scaled for {formatLbFromKg(profile.weight_kg)} bodyweight</p>
+              <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">Power curve</h1>
+              <p className="text-xs text-slate-400">Peak power from your recorded activities, scaled for {formatLbFromKg(profile.weight_kg)} bodyweight</p>
             </div>
 
-            <div className="glass-panel p-6 rounded-2xl border-white/10 space-y-4">
+            <div className="glass-panel p-4 sm:p-6 rounded-2xl border-white/10 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <h2 className="text-lg font-bold text-white flex items-center">
                   <Zap className="w-5 h-5 mr-2 text-amber-400" />
@@ -1236,9 +1239,11 @@ export function App() {
                   </span>
                 </div>
               </div>
-              <p className="text-xs text-slate-400">
-                {powerCurveActivityCount} of {powerCurveActivities.length} activities contain power data. The amber line is your best effort at each duration. Mean and median show how your typical activity compares: each activity contributes its own best effort for that duration, and longer durations only include activities long enough to have one.
-              </p>
+              <p className="text-xs text-slate-400">{powerCurveActivityCount} of {powerCurveActivities.length} activities contain power data.</p>
+              <details className="text-xs text-slate-400">
+                <summary className="cursor-pointer select-none text-cyan-300 font-semibold min-h-8 flex items-center">How to read this</summary>
+                <p className="mt-1">The amber line is your best effort at each duration. Mean and median show how your typical activity compares: each activity contributes its own best effort for that duration, and longer durations only include activities long enough to have one.</p>
+              </details>
               <PowerCurveChart data={powerCurveData} />
             </div>
 
@@ -1265,8 +1270,8 @@ export function App() {
         )}
 
         {activeTab === 'coach' && (
-          <div className="space-y-4">
-            <CoachBrief
+          <div className="flex flex-col gap-4">
+            <div className="order-1 xl:order-1"><CoachBrief
               sessions={trainingSessions}
               activities={activities}
               pmc={pmcData}
@@ -1278,9 +1283,9 @@ export function App() {
               morning={Object.values(morningRecords).filter((r) => r.date === getLocalDateString())}
               onMorningDecision={(record, action) => void handleMorningDecision(record, action)}
               onNavigateTab={handleNavigate}
-            />
-            <CoachMemoryPanel memory={coachMemory} onChange={updateCoachMemory} />
-            <AICoachPanel
+            /></div>
+            <div className="order-3 xl:order-2"><CoachMemoryPanel memory={coachMemory} onChange={updateCoachMemory} /></div>
+            <div className="order-2 xl:order-3"><AICoachPanel
               messages={coachMessages}
               syncStatus={isSupabaseConfigured ? chatSync : undefined}
               setMessages={setCoachMessages}
@@ -1293,7 +1298,7 @@ export function App() {
               focusPrompt={coachFocus?.prompt}
               onClearFocus={() => setCoachFocus(null)}
               onFocusPromptConsumed={handleFocusPromptConsumed}
-            />
+            /></div>
 
           </div>
         )}
@@ -1306,6 +1311,7 @@ export function App() {
         onAssess={handleAssessActivity}
         onApplyElevation={handleApplyElevation}
         onUpdate={handleUpdateActivity}
+        onDelete={handleDeleteActivity}
         allTags={collectTags(activities)}
         isAssessing={selectedActivity ? assessingIds.includes(selectedActivity.id) : false}
         assessmentError={selectedActivity ? assessmentErrors[selectedActivity.id] : undefined}
@@ -1348,7 +1354,7 @@ export function App() {
       />
 
       {/* Modern Footer */}
-      <footer className="w-full border-t border-white/10 bg-slate-950/80 py-6 mt-12">
+      <footer className="max-xl:hidden w-full border-t border-white/10 bg-slate-950/80 py-6 mt-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-slate-400">
           <div className="flex items-center space-x-2">
             <Mountain className="w-4 h-4 text-cyan-400" />
