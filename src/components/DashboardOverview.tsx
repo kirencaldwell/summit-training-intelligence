@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { useIsDesktop } from '../lib/useMediaQuery';
 import type { Activity, Goal, AthleteProfile, PMCDayPoint, TrainingSession } from '../types';
 import { Zap, Calendar, ArrowUpRight, TrendingUp, Sparkles, ChevronRight, Activity as ActivityIcon } from 'lucide-react';
 import { PerformanceManagementChart } from './PerformanceManagementChart';
@@ -32,6 +33,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onOpenProfile,
   onAssessGoalReadiness,
 }) => {
+  const desktop = useIsDesktop();
   // The fitness chart has its own date range (default 90 days); the tiles above always use the recent 90 days
   const [chartPreset, setChartPreset] = useState<PmcPreset>(DEFAULT_PMC_PRESET);
   const [chartFrom, setChartFrom] = useState('');
@@ -64,14 +66,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     : null;
 
   // Recent 4 activities
-  const recentActivities = activities.slice(0, 4);
+  const recentActivities = activities.slice(0, desktop ? 4 : 3);
 
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-4 xl:gap-6">
       {/* Missing thresholds: point the athlete to their profile */}
       {onOpenProfile && (!profile.lthr || !profile.ftp || !profile.weight_kg) && (
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-4">
+        <div className="order-first flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-4">
           <p className="text-xs text-cyan-100 leading-relaxed">
             <span className="font-semibold text-white">Finish your profile.</span>{' '}
             Add your {[!profile.lthr && 'LTHR', !profile.ftp && 'FTP', !profile.weight_kg && 'weight'].filter(Boolean).join(', ')} so training load, fitness and fatigue are calculated accurately.
@@ -88,7 +90,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
       {/* Target Goal Milestone Hero Banner */}
       {priorityGoal && (
-        <div className="relative overflow-hidden rounded-3xl glass-panel border border-cyan-500/30 p-6 sm:p-8 bg-gradient-to-r from-slate-950 via-slate-900 to-cyan-950/60 shadow-2xl">
+        <div className="max-xl:hidden xl:order-1 relative overflow-hidden rounded-3xl glass-panel border border-cyan-500/30 p-6 sm:p-8 bg-gradient-to-r from-slate-950 via-slate-900 to-cyan-950/60 shadow-2xl">
           <div className="absolute top-0 right-0 -mt-12 -mr-12 w-64 h-64 rounded-full bg-cyan-500/10 blur-3xl pointer-events-none" />
           <div className="absolute bottom-0 left-1/3 -mb-12 w-64 h-64 rounded-full bg-amber-500/10 blur-3xl pointer-events-none" />
 
@@ -148,59 +150,87 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         </div>
       )}
 
+      {/* On a phone the goal is one line with its countdown */}
+      {priorityGoal && (
+        <div className="xl:hidden order-2 flex items-center justify-between gap-3 rounded-2xl border border-cyan-500/20 bg-slate-900/60 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-300">Priority goal</p>
+            <p className="truncate text-sm font-bold text-white">{priorityGoal.name}</p>
+            {priorityGoal.target_date && <p className="text-[11px] text-slate-400">{priorityGoal.target_date}</p>}
+          </div>
+          {daysRemaining !== null && (
+            <div className="shrink-0 text-right">
+              <p className="text-2xl font-black leading-none text-cyan-400 font-mono">{daysRemaining}</p>
+              <p className="text-[10px] text-slate-400">days</p>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* On-request holistic readiness for the priority goal */}
       {priorityGoal && onAssessGoalReadiness && (
-        <GoalReadinessPanel goal={priorityGoal} onAssess={onAssessGoalReadiness} />
+        <details open={desktop} className="order-4 xl:order-2 group max-xl:rounded-2xl max-xl:border max-xl:border-white/10 max-xl:bg-slate-900/40 max-xl:px-4">
+          <summary className="xl:hidden cursor-pointer select-none list-none flex items-center justify-between min-h-11">
+            <span className="text-sm font-bold text-white">Goal readiness</span>
+            <span className="text-xs font-semibold text-cyan-400 group-open:hidden">Open</span>
+          </summary>
+          <div className="max-xl:pb-3"><GoalReadinessPanel goal={priorityGoal} onAssess={onAssessGoalReadiness} /></div>
+        </details>
       )}
 
       {/* PMC Key Performance Metrics */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="order-3 xl:order-3 grid grid-cols-3 gap-2 xl:gap-4">
         {/* CTL Fitness */}
-        <div className="glass-panel p-5 rounded-2xl border-white/10 space-y-1">
-          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center">
-            <TrendingUp className="w-4 h-4 mr-1 text-cyan-400" /> Chronic Load (CTL)
+        <div className="glass-panel p-3 xl:p-5 rounded-2xl border-white/10 space-y-1">
+          <span className="text-[10px] xl:text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center">
+            <TrendingUp className="w-4 h-4 mr-1 text-cyan-400 max-xl:hidden" /> Fitness <span className="ml-1 xl:hidden normal-case text-slate-500">CTL</span><span className="max-xl:hidden ml-1">(CTL)</span>
           </span>
-          <div className="flex items-baseline space-x-2">
-            <span className="text-3xl font-extrabold text-white">{latestPmc.ctl}</span>
-            <span className="text-xs text-emerald-400 font-bold">{hasTrainingLoad ? weeklyDelta(latestPmc.ctl, previousWeekPmc.ctl) : 'No TSS history'}</span>
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <span className="text-2xl xl:text-3xl font-extrabold text-white">{latestPmc.ctl}</span>
+            <span className="max-xl:hidden text-xs text-emerald-400 font-bold">{hasTrainingLoad ? weeklyDelta(latestPmc.ctl, previousWeekPmc.ctl) : 'No TSS history'}</span>
           </div>
-          <p className="text-[11px] text-slate-400">Calculated from activity TSS (42-day load)</p>
+          <p className="max-xl:hidden text-[11px] text-slate-400">Calculated from activity TSS (42-day load)</p>
         </div>
 
         {/* ATL Fatigue */}
-        <div className="glass-panel p-5 rounded-2xl border-white/10 space-y-1">
-          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center">
-            <Zap className="w-4 h-4 mr-1 text-rose-400" /> Acute Load (ATL)
+        <div className="glass-panel p-3 xl:p-5 rounded-2xl border-white/10 space-y-1">
+          <span className="text-[10px] xl:text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center">
+            <Zap className="w-4 h-4 mr-1 text-rose-400 max-xl:hidden" /> Fatigue <span className="ml-1 xl:hidden normal-case text-slate-500">ATL</span><span className="max-xl:hidden ml-1">(ATL)</span>
           </span>
-          <div className="flex items-baseline space-x-2">
-            <span className="text-3xl font-extrabold text-white">{latestPmc.atl}</span>
-            <span className="text-xs text-rose-400 font-bold">{hasTrainingLoad ? weeklyDelta(latestPmc.atl, previousWeekPmc.atl) : 'No TSS history'}</span>
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <span className="text-2xl xl:text-3xl font-extrabold text-white">{latestPmc.atl}</span>
+            <span className="max-xl:hidden text-xs text-rose-400 font-bold">{hasTrainingLoad ? weeklyDelta(latestPmc.atl, previousWeekPmc.atl) : 'No TSS history'}</span>
           </div>
-          <p className="text-[11px] text-slate-400">Current Fatigue (7-day rolling avg)</p>
+          <p className="max-xl:hidden text-[11px] text-slate-400">Current Fatigue (7-day rolling avg)</p>
         </div>
 
         {/* TSB Form */}
-        <div className="glass-panel p-5 rounded-2xl border-white/10 space-y-1">
-          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center">
-            <ActivityIcon className="w-4 h-4 mr-1 text-amber-400" /> Training Form (TSB)
+        <div className="glass-panel p-3 xl:p-5 rounded-2xl border-white/10 space-y-1">
+          <span className="text-[10px] xl:text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center">
+            <ActivityIcon className="w-4 h-4 mr-1 text-amber-400 max-xl:hidden" /> Form <span className="ml-1 xl:hidden normal-case text-slate-500">TSB</span><span className="max-xl:hidden ml-1">(TSB)</span>
           </span>
-          <div className="flex items-baseline space-x-2">
-            <span className={`text-3xl font-extrabold ${latestPmc.tsb >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <span className={`text-2xl xl:text-3xl font-extrabold ${latestPmc.tsb >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
               {latestPmc.tsb > 0 ? `+${latestPmc.tsb}` : latestPmc.tsb}
             </span>
-            <span className="text-xs text-amber-400 font-bold">{formLabel}</span>
+            <span className="text-[10px] xl:text-xs text-amber-400 font-bold">{formLabel}</span>
           </div>
-          <p className="text-[11px] text-slate-400">Form Balance (CTL - ATL)</p>
+          <p className="max-xl:hidden text-[11px] text-slate-400">Form Balance (CTL - ATL)</p>
         </div>
       </div>
 
-      <NextSessionsPreview sessions={trainingSessions} onNavigateTab={onNavigateTab} />
+      <div className="order-1 xl:order-4"><NextSessionsPreview sessions={trainingSessions} onNavigateTab={onNavigateTab} /></div>
 
       {/* Main Charts Section */}
-      <div className="glass-panel p-6 rounded-2xl border-white/10 space-y-4">
+      <details open={desktop} className="order-5 glass-panel p-4 xl:p-6 rounded-2xl border-white/10 group">
+        <summary className="cursor-pointer select-none list-none flex items-center justify-between min-h-9 xl:pointer-events-none">
+          <h2 className="text-lg font-bold text-white">Fitness chart</h2>
+          <span className="text-xs font-semibold text-cyan-400 xl:hidden group-open:hidden">Show</span>
+        </summary>
+        <div className="mt-3 space-y-4">
         <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-bold text-white">Fitness, Fatigue & Form</h2>
+            <h2 className="sr-only">Fitness, Fatigue & Form</h2>
             <p className="text-xs text-slate-400">{describePmcRange(chartRange)} · exponential load profile (CTL / ATL / TSB)</p>
           </div>
           <div className="flex flex-col sm:flex-row sm:items-end gap-3">
@@ -264,20 +294,21 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             No training load in this date range.
           </div>
         )}
-      </div>
+        </div>
+      </details>
 
       {/* Recent Activity Feed */}
-      <div className="glass-panel p-6 rounded-2xl border-white/10 space-y-4">
+      <div className="order-6 glass-panel p-4 xl:p-6 rounded-2xl border-white/10 space-y-3 xl:space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-bold text-white">Recent Multi-Sport Activities</h2>
-            <p className="text-xs text-slate-400">Road Cycling, Skimo, Peak Scrambles & Weighted Hikes</p>
+            <h2 className="text-lg font-bold text-white">Recent activities</h2>
+            <p className="hidden xl:block text-xs text-slate-400">Road Cycling, Skimo, Peak Scrambles & Weighted Hikes</p>
           </div>
           <button
             onClick={() => onNavigateTab('activities')}
             className="flex items-center text-xs font-bold text-cyan-400 hover:text-cyan-300"
           >
-            <span>View All Activities</span>
+            <span>View all</span>
             <ChevronRight className="w-4 h-4 ml-0.5" />
           </button>
         </div>
@@ -287,7 +318,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <div
               key={act.id}
               onClick={() => onOpenActivity(act)}
-              className="p-4 rounded-xl bg-slate-900/60 border border-white/5 hover:border-cyan-500/30 cursor-pointer transition-all flex items-center justify-between"
+              className="p-3 xl:p-4 rounded-xl bg-slate-900/60 border border-white/5 hover:border-cyan-500/30 cursor-pointer transition-all flex items-center justify-between"
             >
               <div>
                 <span className="text-[10px] font-bold uppercase text-cyan-400">
