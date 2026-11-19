@@ -1103,6 +1103,7 @@ class GeminiCoachEngine {
         details: session.details,
         planned_tss: session.target_tss,
       },
+      athlete_notes_on_this_session: session.completion_notes?.trim() || undefined,
       linked_activities: linked.map((a) => ({
         ...activityBlock(
           a,

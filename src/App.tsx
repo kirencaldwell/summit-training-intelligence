@@ -122,6 +122,8 @@ export function App() {
   );
   const [goals, setGoals] = useState<Goal[]>([]);
   const [trainingSessions, setTrainingSessions] = useState<TrainingSession[]>([]);
+  const sessionsRef = useRef<TrainingSession[]>([]);
+  sessionsRef.current = trainingSessions;
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [chatSync, setChatSync] = useState<ChatSyncStatus>({ state: 'idle' });
   const [authReady, setAuthReady] = useState(!isSupabaseConfigured);
@@ -706,8 +708,18 @@ export function App() {
     return scoreTrainingSession(session);
   };
 
-  const handleCompleteTrainingSession = async (id: string, activityIds: string[]) => {
-    const { session, synced } = await dataService.completeTrainingSession(id, activityIds);
+  const handleCompleteTrainingSession = async (id: string, activityIds: string[], notes = '') => {
+    let { session, synced } = await dataService.completeTrainingSession(id, activityIds);
+    // The athlete's notes on how it went (only saved when they changed)
+    const before = sessionsRef.current.find((s) => s.id === id)?.completion_notes ?? '';
+    if (notes.trim() !== before.trim()) {
+      const saved = await dataService.saveSessionNotes(id, notes);
+      session = { ...session, completion_notes: notes.trim() || undefined };
+      synced = synced && saved.synced;
+    } else if (before) {
+      session = { ...session, completion_notes: before };
+    }
+    sessionsRef.current = sessionsRef.current.map((s) => (s.id === id ? session : s));
     setTrainingSessions((previous) => previous.map((s) => (s.id === id ? session : s)));
     // Score it straight away, in the background: the verdict appears on the card when it is ready
     if (activityIds.length > 0) {
@@ -717,7 +729,8 @@ export function App() {
   };
 
   const handleAssessTrainingSession = async (id: string) => {
-    const session = trainingSessions.find((s) => s.id === id);
+    // Read through the ref: a session completed a moment ago is not in this render's state yet
+    const session = sessionsRef.current.find((s) => s.id === id);
     if (!session) throw new Error('Training session not found.');
     const text = await coachEngine.assessSession(session);
     const structured = parseStructuredAssessment(text);
@@ -725,7 +738,10 @@ export function App() {
       updateCoachMemory((m) => addFindings(m, structured, { source: 'session', ref: session.id, about: session.title, date: session.session_date }));
     }
     const { session: saved, synced } = await dataService.saveSessionAssessment(id, text);
-    setTrainingSessions((previous) => previous.map((s) => (s.id === id ? saved : s)));
+    // Keep what this device holds that the saved row may not carry (links and notes kept locally until the SQL is run)
+    const merged: TrainingSession = { ...saved, completion_notes: saved.completion_notes ?? session.completion_notes, completed_activity_ids: saved.completed_activity_ids ?? session.completed_activity_ids };
+    sessionsRef.current = sessionsRef.current.map((s) => (s.id === id ? merged : s));
+    setTrainingSessions((previous) => previous.map((s) => (s.id === id ? merged : s)));
     return { synced };
   };
 
