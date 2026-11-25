@@ -506,7 +506,7 @@ export function App() {
           console.warn('Could not tag the e-bike ride:', err);
         }
       } else {
-        writeEbikeCheck(activity.id, { state: 'clear', at: new Date().toISOString() });
+        writeEbikeCheck(activity.id, { state: 'clear', at: new Date().toISOString(), insufficient: result.insufficient });
       }
     }
     return { scanned, tagged };

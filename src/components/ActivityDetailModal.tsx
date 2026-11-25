@@ -11,6 +11,7 @@ import { kgToLb, kmhToMph, lbToKg, mToFt, roundTo } from '../lib/units';
 import { RouteMapViewer } from './RouteMapViewer';
 import { formatFeetFromMeters, formatFtPerHourFromMph, formatMilesFromMeters } from '../lib/units';
 import { RideAnalysis } from './RideAnalysis';
+import { EbikeCheckPanel } from './EbikeCheckPanel';
 import { estimateMunter, isMunterSport } from '../lib/munter';
 import { ClimbRateChart } from './ClimbRateChart';
 import { ElevationCheckRow, type ElevationChange } from './ElevationCheck';
@@ -562,6 +563,10 @@ const ActivityDetailContent: React.FC<Omit<ActivityDetailModalProps, 'activity'>
         )}
 
         {isMunterSport(activity.sport_type) && <ClimbRateChart points={activity.streams_data} munter={munter} />}
+
+        {activity.sport_type === 'cycling' && (
+          <EbikeCheckPanel activity={activity} profile={profile} onTag={onUpdate ? async (tags) => { await onUpdate(activity.id, { tags }); } : undefined} />
+        )}
 
         {/* Time-series chart with detected efforts and time-at-power */}
         <RideAnalysis activity={activity} profile={profile} />
