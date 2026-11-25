@@ -161,6 +161,8 @@ export interface TrainingSession {
   /** AI coach assessment of the completed session, written from the linked activities */
   coach_assessment?: string;
   coach_assessment_at?: string;
+  /** The athlete's own notes on how the session went, written when marking it complete */
+  completion_notes?: string;
   /** Software verdict on how the linked activities matched the plan (no AI), written when the session is completed */
   auto_score?: SessionScore;
 }

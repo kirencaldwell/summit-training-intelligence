@@ -1,12 +1,13 @@
 import type { Activity } from '../types';
 import { isEbike } from './tags';
+import { EBIKE_DETECTOR_VERSION } from './ebikeDetect';
 
 /**
  * What this device remembers about e-bike detection, so a ride is judged once and a ride the athlete un-tagged is never
  * tagged again: 'tagged' by the detector (with its reasons), 'clear' judged not an e-bike, 'rejected' tagged then
  * un-tagged by the athlete.
  */
-export type EbikeCheck = { state: 'tagged' | 'clear' | 'rejected'; at: string; reasons?: string[] };
+export type EbikeCheck = { state: 'tagged' | 'clear' | 'rejected'; at: string; reasons?: string[]; /** Detector version that judged it; a 'clear' ride from an older version is looked at again */ v?: number; /** Why it could not be judged, when that is the case */ insufficient?: string };
 
 const KEY = 'summit_ebike_checks';
 const MAX = 2000;
@@ -23,16 +24,19 @@ export function readEbikeChecks(): Record<string, EbikeCheck> {
 export function writeEbikeCheck(id: string, check: EbikeCheck) {
   try {
     const all = readEbikeChecks();
-    all[id] = check;
+    all[id] = { ...check, v: EBIKE_DETECTOR_VERSION };
     const entries = Object.entries(all);
     localStorage.setItem(KEY, JSON.stringify(Object.fromEntries(entries.length > MAX ? entries.slice(-MAX) : entries)));
   } catch { /* storage unavailable: the ride may be looked at again next time */ }
 }
 
-/** Rides worth a look: outdoor cycling, not already tagged, never judged, long enough, newest first. */
+/** Judged "not an e-bike" by an older version of the rules, so worth another look. */
+const stale = (check: EbikeCheck | undefined) => check?.state === 'clear' && (check.v ?? 1) < EBIKE_DETECTOR_VERSION;
+
+/** Rides worth a look: outdoor cycling, not already tagged, never judged (or judged clear by older rules), long enough, newest first. */
 export function ebikeCandidates(activities: Activity[], checks: Record<string, EbikeCheck> = readEbikeChecks(), limit = Infinity): Activity[] {
   return activities
-    .filter((a) => a.sport_type === 'cycling' && !isEbike(a) && !checks[a.id] && (a.moving_time_seconds || a.duration_seconds || 0) >= 15 * 60)
+    .filter((a) => a.sport_type === 'cycling' && !isEbike(a) && (!checks[a.id] || stale(checks[a.id])) && (a.moving_time_seconds || a.duration_seconds || 0) >= 15 * 60)
     .sort((a, b) => b.start_date.localeCompare(a.start_date))
     .slice(0, limit);
 }
